@@ -1,8 +1,8 @@
-/* NASB Study PWA – Service Worker  v3.4.0
+/* NASB Study PWA – Service Worker  v3.5.0
    Caches app shell only. All Bible text, highlights, notes, learning data
    live in IndexedDB and never leave the device.
 */
-const CACHE_NAME = 'nasb-study-v3.4.0';
+const CACHE_NAME = 'nasb-study-v3.5.0';
 const SHELL = [
   './',
   './index.html',

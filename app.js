@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.4.0
+/* app.js – Main application controller. NASB Study PWA v3.5.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -145,7 +145,7 @@ function renderShell() {
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
-    <div class="version-bar">v3.4.0</div>
+    <div class="version-bar">v3.5.0</div>
     <main id="main"></main>
   `;
 
@@ -809,26 +809,188 @@ async function openColorPicker(key) {
 
 
 // ---------- Notes ----------
+
 async function openNote(key) {
-  const existing = await storage.getNote(key);
   const { bookId, chapter, verse } = bible.parseKey(key);
+  const refLabel = `${bookId.toUpperCase()} ${chapter}:${verse}`;
+
+  // Prefer shared note that includes this verse; else private per-verse note
+  let shared = await storage.findSharedNoteForVerse(key);
+  let privateText = await storage.getNote(key);
+  let mode = shared ? 'shared' : 'private';
+  let text = shared ? (shared.text || '') : privateText;
+
+  function linkedListHtml(note) {
+    if (!note || !note.verseKeys || !note.verseKeys.length) return '<p style="color:var(--text-dim);font-size:0.9em">No other verses linked.</p>';
+    return '<ul style="list-style:none;margin:0.4rem 0 0;padding:0">' +
+      note.verseKeys.map(k => {
+        const p = bible.parseKey(k);
+        const label = `${p.bookId.toUpperCase()} ${p.chapter}:${p.verse}`;
+        const isCurrent = k === key;
+        return `<li style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0;border-bottom:1px solid var(--border);min-height:44px">
+          <span>${label}${isCurrent ? ' (this verse)' : ''}</span>
+          ${isCurrent ? '' : `<button type="button" data-unlink="${k}" style="min-height:40px;min-width:auto;padding:0.3rem 0.6rem;color:var(--danger);font-size:0.9rem">Unlink</button>`}
+        </li>`;
+      }).join('') + '</ul>';
+  }
+
   const overlay = showOverlay(`
     <div class="panel">
-      <button class="close" type="button">×</button>
-      <h2>Note – ${bookId.toUpperCase()} ${chapter}:${verse}</h2>
-      <textarea class="note-input" id="note-text" placeholder="Your personal notes stay on this device only…">${escapeHtml(existing)}</textarea>
-      <button type="button" id="save-note" style="width:100%;margin-top:0.8rem;background:var(--accent);color:#111;font-weight:600">Save Note</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Note – ${refLabel}</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p id="note-mode" style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.6rem">
+        ${mode === 'shared'
+          ? 'Shared note — edits apply to all linked verses.'
+          : 'Private note for this verse only. Link more verses to share one note.'}
+      </p>
+      <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
+
+      <div style="margin-top:0.9rem;padding-top:0.7rem;border-top:1px solid var(--border)">
+        <strong style="font-size:0.95em">Linked verses</strong>
+        <div id="linked-list">${linkedListHtml(shared)}</div>
+        <label style="display:block;margin-top:0.7rem;font-size:0.9em;color:var(--text-dim)">
+          Add verse references (e.g. gen.1.3 or Genesis 1:3 — one per line)
+        </label>
+        <textarea id="link-refs" rows="3" placeholder="gen.1.3&#10;Genesis 1:5"
+          style="width:100%;margin-top:0.35rem;padding:0.6rem;font-size:1rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></textarea>
+        <button type="button" id="add-links" style="width:100%;margin-top:0.5rem;min-height:48px">Add links</button>
+      </div>
+
+      <button type="button" id="save-note" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save Note</button>
+      ${shared ? `<button type="button" id="unlink-this" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Unlink this verse from shared note</button>
+      <button type="button" id="delete-shared" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete shared note entirely</button>` : ''}
+      <button type="button" id="cancel-note" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
     </div>
   `);
-  $('.close', overlay).onclick = () => closeOverlay(overlay);
+
+  const close = () => closeOverlay(overlay);
+  $('.close', overlay).onclick = close;
+  $('#cancel-note', overlay).onclick = close;
+
+  async function refreshLinkedUI() {
+    shared = shared ? await storage.getSharedNote(shared.id) : await storage.findSharedNoteForVerse(key);
+    const list = $('#linked-list', overlay);
+    if (list) list.innerHTML = linkedListHtml(shared);
+    // re-bind unlink buttons
+    $$('[data-unlink]', overlay).forEach(btn => {
+      btn.onclick = async () => {
+        const k = btn.dataset.unlink;
+        if (!shared) return;
+        shared.verseKeys = shared.verseKeys.filter(x => x !== k);
+        if (shared.verseKeys.length === 0) {
+          await storage.deleteSharedNote(shared.id);
+          shared = null;
+        } else {
+          await storage.saveSharedNote(shared);
+        }
+        await refreshLinkedUI();
+      };
+    });
+  }
+
+  $$('[data-unlink]', overlay).forEach(btn => {
+    btn.onclick = async () => {
+      const k = btn.dataset.unlink;
+      if (!shared) return;
+      shared.verseKeys = shared.verseKeys.filter(x => x !== k);
+      if (shared.verseKeys.length === 0) {
+        await storage.deleteSharedNote(shared.id);
+        shared = null;
+      } else {
+        await storage.saveSharedNote(shared);
+      }
+      await refreshLinkedUI();
+    };
+  });
+
+  $('#add-links', overlay).onclick = async () => {
+    const raw = ($('#link-refs', overlay).value || '').trim();
+    if (!raw) return;
+    const lines = raw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+    const keys = [];
+    for (const line of lines) {
+      const parsed = parseUserRef(line);
+      if (parsed && parsed.key) keys.push(parsed.key);
+      else {
+        // try book.chapter.verse already
+        const m = line.match(/^([a-z0-9]+)\.(\d+)\.(\d+)$/i);
+        if (m) keys.push(`${m[1].toLowerCase()}.${m[2]}.${m[3]}`);
+      }
+    }
+    if (!keys.length) {
+      alert('Could not parse any references. Try gen.1.3 or Genesis 1:3');
+      return;
+    }
+    // Ensure current verse is included
+    if (!keys.includes(key)) keys.unshift(key);
+
+    const body = ($('#note-text', overlay).value || '').trim();
+
+    if (!shared) {
+      // Promote private note to shared
+      shared = await storage.saveSharedNote({
+        id: null,
+        text: body || privateText || '',
+        verseKeys: [...new Set(keys)]
+      });
+      // Clear private note for this verse to avoid dual storage confusion
+      await storage.setNote(key, '');
+    } else {
+      shared.verseKeys = [...new Set([...(shared.verseKeys || []), ...keys])];
+      if (body) shared.text = body;
+      await storage.saveSharedNote(shared);
+    }
+    $('#link-refs', overlay).value = '';
+    $('#note-mode', overlay).textContent = 'Shared note — edits apply to all linked verses.';
+    await refreshLinkedUI();
+  };
+
   $('#save-note', overlay).onclick = async () => {
-    const text = $('#note-text', overlay).value;
-    await storage.setNote(key, text);
+    const body = $('#note-text', overlay).value || '';
+    if (shared) {
+      shared.text = body;
+      if (!shared.verseKeys.includes(key)) shared.verseKeys.push(key);
+      await storage.saveSharedNote(shared);
+      // keep private empty when shared
+      await storage.setNote(key, '');
+    } else {
+      await storage.setNote(key, body);
+    }
     closeOverlay(overlay);
   };
-  // auto-focus
+
+  const unlinkThis = $('#unlink-this', overlay);
+  if (unlinkThis) {
+    unlinkThis.onclick = async () => {
+      if (!shared) return;
+      // Keep a private copy of the text on this verse
+      const body = $('#note-text', overlay).value || shared.text || '';
+      shared.verseKeys = shared.verseKeys.filter(k => k !== key);
+      if (shared.verseKeys.length === 0) {
+        await storage.deleteSharedNote(shared.id);
+      } else {
+        await storage.saveSharedNote(shared);
+      }
+      await storage.setNote(key, body);
+      closeOverlay(overlay);
+    };
+  }
+
+  const delShared = $('#delete-shared', overlay);
+  if (delShared) {
+    delShared.onclick = async () => {
+      if (!shared) return;
+      if (!confirm('Delete this shared note for all linked verses?')) return;
+      await storage.deleteSharedNote(shared.id);
+      closeOverlay(overlay);
+    };
+  }
+
   setTimeout(() => $('#note-text', overlay).focus(), 100);
 }
+
 
 // ---------- Cross-references ----------
 const STARTER_XREFS = {
@@ -1216,6 +1378,7 @@ function openImportData() {
 }
 
 
+
 function openHelp() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -1225,23 +1388,33 @@ function openHelp() {
       </div>
       <div style="line-height:1.65;font-size:1.02em">
         <p style="margin-bottom:1rem"><strong>Color a few words</strong><br>
-        Long-press and select the words → tap <strong>Color</strong> → choose color → <strong>Apply Color</strong>.</p>
+        Long-press and select → <strong>Color</strong> → choose color → <strong>Apply Color</strong>.</p>
 
         <p style="margin-bottom:1rem"><strong>Clear a highlight</strong><br>
-        Select the highlighted words → Color → “Clear color from selected text”.<br>
+        Select the words → Color → “Clear color from selected text”.<br>
         Or Color → “Clear ALL colors on this verse”.</p>
 
+        <p style="margin-bottom:1rem"><strong>Notes (one verse)</strong><br>
+        Tap <strong>Note</strong> on a verse → type → <strong>Save Note</strong>.</p>
+
+        <p style="margin-bottom:1rem"><strong>Shared note (several verses, one text)</strong><br>
+        1. Open <strong>Note</strong> on any verse and type the note.<br>
+        2. In “Add verse references”, enter others (e.g. <code>gen.1.3</code> or <code>Genesis 1:3</code>), one per line.<br>
+        3. Tap <strong>Add links</strong>, then <strong>Save Note</strong>.<br>
+        Editing the note on any linked verse updates it for all.<br>
+        Unlink one verse or delete the shared note from the same panel.</p>
+
         <p style="margin-bottom:1rem"><strong>Chapters (◀ ▶)</strong><br>
-        Move to previous/next chapter. Buttons dim at the first or last chapter.<br>
-        Sample includes Genesis 1–2. If arrows do nothing: Menu → Remove sample book → hard-refresh.</p>
+        Previous/next chapter. Buttons dim at first/last.<br>
+        Sample has Genesis 1–2. If arrows do nothing: Menu → Remove sample book → hard-refresh.</p>
 
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
-        Menu → Export study data / Import study data.</p>
+        Menu → Export study data / Import study data (includes shared notes).</p>
 
         <p style="margin-bottom:1rem"><strong>Password</strong><br>
         Stays unlocked until Menu → Lock app.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.4.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.5.0</p>
       </div>
     </div>
   `);
@@ -1252,7 +1425,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.4.0</h2>
+      <h2>About – NASB Study v3.5.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1272,7 +1445,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.4.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.5.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

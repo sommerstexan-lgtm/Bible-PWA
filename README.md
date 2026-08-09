@@ -1,17 +1,16 @@
-# NASB Study PWA – v3.4.0
+# NASB Study PWA – v3.5.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Fixes in 3.4.0
-- Removed false "Files missing" message (was triggered by password delay)
-- Chapter ◀ ▶ buttons work; dim at first/last chapter
-- Sample now includes Genesis 1 and 2 so you can test chapter turns
-- Mobile layout: proper viewport height, safe areas, main area scrolls fully
-- Top toolbar stays reachable; bottom content no longer cut off
+## Shared notes (new)
+One note can be linked to many verses.
 
-## If chapter arrows still do nothing
-Your device still has the old 1-chapter sample stored.
-Menu → Remove sample book → hard-refresh the page. The new sample (2 chapters) will load.
+1. Open Note on a verse and type.
+2. Add other references (gen.1.3 or Genesis 1:3), one per line.
+3. Tap Add links → Save Note.
+4. Edit on any linked verse — all stay in sync.
+
+Export/Import includes shared notes. Help screen documents the full flow.
 
 ## Upload
-Delete all files in the GitHub repo, upload all 12 files from this zip, wait 90 seconds, hard-refresh.
+Delete all files in the repo, upload all 12 files from this zip, hard-refresh.
