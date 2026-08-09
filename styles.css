@@ -615,3 +615,16 @@ header button:disabled {
   opacity: 0.4;
   pointer-events: none;
 }
+
+
+/* v3.6 – iOS status bar must not cover Books / Search / title */
+/* Top safe area once, on #app */
+#app {
+  padding-top: env(safe-area-inset-top, 20px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+header {
+  padding-top: 0.55rem;
+}

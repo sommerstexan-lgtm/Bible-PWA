@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.5.0
+/* app.js – Main application controller. NASB Study PWA v3.6.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -145,7 +145,7 @@ function renderShell() {
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
-    <div class="version-bar">v3.5.0</div>
+    <div class="version-bar">v3.6.0</div>
     <main id="main"></main>
   `;
 
@@ -342,7 +342,10 @@ async function renderChapter(bookId, chapterNum) {
 
   currentBookId = bookId;
   currentChapter = chapterNum;
-  $('#header-title').textContent = `${book.name} ${chapterNum}`;
+  const isSample = (book.id === 'gen' && book.name === 'Genesis');
+  $('#header-title').textContent = isSample
+    ? `${book.name} ${chapterNum} (KJV sample)`
+    : `${book.name} ${chapterNum}`;
 
   const main = $('#main');
   main.innerHTML = `<div class="chapter-header">${book.name} ${chapterNum}</div>`;
@@ -1379,6 +1382,7 @@ function openImportData() {
 
 
 
+
 function openHelp() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -1387,34 +1391,24 @@ function openHelp() {
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
       <div style="line-height:1.65;font-size:1.02em">
+        <p style="margin-bottom:1rem"><strong>Which Bible text am I reading?</strong><br>
+        The built-in sample is <strong>public-domain KJV</strong> (Genesis 1–2 only), not NASB.<br>
+        To use <strong>NASB 1995</strong>: prepare a JSON file of your legal text, then Menu → <strong>Import Book (JSON)</strong>.<br>
+        Highlights and notes are stored by verse reference (e.g. gen.1.1). They stay when you replace sample text with NASB for the same book/chapter/verse numbers.</p>
+
         <p style="margin-bottom:1rem"><strong>Color a few words</strong><br>
-        Long-press and select → <strong>Color</strong> → choose color → <strong>Apply Color</strong>.</p>
+        Long-press and select → Color → choose color → Apply Color.</p>
 
-        <p style="margin-bottom:1rem"><strong>Clear a highlight</strong><br>
-        Select the words → Color → “Clear color from selected text”.<br>
-        Or Color → “Clear ALL colors on this verse”.</p>
+        <p style="margin-bottom:1rem"><strong>Shared notes</strong><br>
+        Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
 
-        <p style="margin-bottom:1rem"><strong>Notes (one verse)</strong><br>
-        Tap <strong>Note</strong> on a verse → type → <strong>Save Note</strong>.</p>
-
-        <p style="margin-bottom:1rem"><strong>Shared note (several verses, one text)</strong><br>
-        1. Open <strong>Note</strong> on any verse and type the note.<br>
-        2. In “Add verse references”, enter others (e.g. <code>gen.1.3</code> or <code>Genesis 1:3</code>), one per line.<br>
-        3. Tap <strong>Add links</strong>, then <strong>Save Note</strong>.<br>
-        Editing the note on any linked verse updates it for all.<br>
-        Unlink one verse or delete the shared note from the same panel.</p>
-
-        <p style="margin-bottom:1rem"><strong>Chapters (◀ ▶)</strong><br>
-        Previous/next chapter. Buttons dim at first/last.<br>
-        Sample has Genesis 1–2. If arrows do nothing: Menu → Remove sample book → hard-refresh.</p>
+        <p style="margin-bottom:1rem"><strong>Chapters</strong><br>
+        ◀ ▶ move chapters. Dim at first/last. Sample has Gen 1–2.</p>
 
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
-        Menu → Export study data / Import study data (includes shared notes).</p>
+        Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:1rem"><strong>Password</strong><br>
-        Stays unlocked until Menu → Lock app.</p>
-
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.5.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.6.0</p>
       </div>
     </div>
   `);
@@ -1425,7 +1419,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.5.0</h2>
+      <h2>About – NASB Study v3.6.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1445,7 +1439,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.5.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.6.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
