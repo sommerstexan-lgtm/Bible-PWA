@@ -1,16 +1,17 @@
-# NASB Study PWA – v3.3.0
+# NASB Study PWA – v3.4.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## New in 3.3.0
-- **Export study data** – Menu → Export study data (downloads a private JSON backup)
-- **Import study data** – Menu → Import study data (restores highlights, notes, cross-refs, learning, settings, books)
+## Fixes in 3.4.0
+- Removed false "Files missing" message (was triggered by password delay)
+- Chapter ◀ ▶ buttons work; dim at first/last chapter
+- Sample now includes Genesis 1 and 2 so you can test chapter turns
+- Mobile layout: proper viewport height, safe areas, main area scrolls fully
+- Top toolbar stays reachable; bottom content no longer cut off
 
-## Also includes (from 3.2)
-- Segment highlighting (select words → Color → Apply)
-- Clear selected segment or clear whole verse
-- Password stays unlocked until Menu → Lock
-- Help screen, version bar, improved mobile buttons
+## If chapter arrows still do nothing
+Your device still has the old 1-chapter sample stored.
+Menu → Remove sample book → hard-refresh the page. The new sample (2 chapters) will load.
 
 ## Upload
-Delete old files in the repo, upload all 12 files from this zip.
+Delete all files in the GitHub repo, upload all 12 files from this zip, wait 90 seconds, hard-refresh.

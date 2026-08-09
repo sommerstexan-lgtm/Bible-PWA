@@ -13,36 +13,23 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <link rel="stylesheet" href="styles.css">
-  <style>
-    #boot-error { display:none; padding:2rem; max-width:420px; margin:3rem auto; color:#e8e8e8;
-      background:#16213e; border:1px solid #2a2a4a; border-radius:12px; line-height:1.6; }
-    #boot-error h2 { color:#e57373; margin-bottom:0.8rem; }
-    #boot-error code { background:#1a1a2e; padding:0.15rem 0.4rem; border-radius:4px; font-size:0.9em; }
-  </style>
 </head>
 <body>
   <div id="app" role="application" aria-label="NASB Study Application">
     <p id="boot-msg" style="padding:2rem;text-align:center;color:#aaa">Loading…</p>
   </div>
-
-  <div id="boot-error">
-    <h2>Files missing</h2>
-    <p>The app shell loaded, but some required files are missing from the server.</p>
-    <p>Make sure these files are all present at the root of the repository:<br>
-    <code>app.js, storage.js, bible.js, analyze.js, styles.css, sample-genesis.json, icon-192.png, icon-512.png</code></p>
-    <p>After uploading, wait 1–2 minutes and hard-refresh the page.</p>
-  </div>
-
   <script type="module" src="app.js"></script>
   <script>
-    // Show a clear message if the module never loads (404 on js/ folder)
-    setTimeout(function () {
-      var msg = document.getElementById('boot-msg');
-      if (msg && msg.parentNode) {
-        document.getElementById('boot-error').style.display = 'block';
-        msg.style.display = 'none';
+    window.addEventListener('error', function (e) {
+      if (e.filename && e.filename.indexOf('app.js') !== -1) {
+        var app = document.getElementById('app');
+        if (app) {
+          app.innerHTML = '<div style="padding:2rem;max-width:420px;margin:2rem auto;color:#e8e8e8;background:#16213e;border-radius:12px;line-height:1.6">' +
+            '<h2 style="color:#e57373">Could not load app.js</h2>' +
+            '<p>Make sure all 12 files are uploaded to the repo root, then hard-refresh.</p></div>';
+        }
       }
-    }, 4000);
+    }, true);
   </script>
 </body>
 </html>

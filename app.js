@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.3.0
+/* app.js – Main application controller. NASB Study PWA v3.4.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -145,7 +145,7 @@ function renderShell() {
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
-    <div class="version-bar">v3.3.0</div>
+    <div class="version-bar">v3.4.0</div>
     <main id="main"></main>
   `;
 
@@ -169,13 +169,37 @@ async function changeFont(delta) {
 
 async function changeChapter(dir) {
   const book = books.find(b => b.id === currentBookId);
-  if (!book) return;
+  if (!book) {
+    alert('No book loaded.');
+    return;
+  }
+  const total = book.chapters.length;
   let ch = currentChapter + dir;
-  if (ch < 1) return;
-  if (ch > book.chapters.length) return;
+  if (ch < 1) {
+    // optional: soft feedback
+    return;
+  }
+  if (ch > total) {
+    return;
+  }
   currentChapter = ch;
   await renderChapter(currentBookId, currentChapter);
   await storage.saveLastPosition({ bookId: currentBookId, chapter: currentChapter });
+  updateChapterButtons();
+}
+
+function updateChapterButtons() {
+  const book = books.find(b => b.id === currentBookId);
+  const prev = document.getElementById('btn-prev-ch');
+  const next = document.getElementById('btn-next-ch');
+  if (!prev || !next) return;
+  if (!book) {
+    prev.disabled = true;
+    next.disabled = true;
+    return;
+  }
+  prev.disabled = currentChapter <= 1;
+  next.disabled = currentChapter >= book.chapters.length;
 }
 
 // ---------- Chapter rendering ----------
@@ -391,6 +415,7 @@ async function renderChapter(bookId, chapterNum) {
 
   main.scrollTop = 0;
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
+  updateChapterButtons();
 }
 
 function escapeHtml(str) {
@@ -1190,6 +1215,7 @@ function openImportData() {
   };
 }
 
+
 function openHelp() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -1198,26 +1224,24 @@ function openHelp() {
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
       <div style="line-height:1.65;font-size:1.02em">
-        <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
-        1. Long-press the verse text and select the words.<br>
-        2. Tap <strong>Color</strong>.<br>
-        3. Choose a color → tap <strong>Apply Color</strong>.<br>
-        Only the selected words are colored.</p>
+        <p style="margin-bottom:1rem"><strong>Color a few words</strong><br>
+        Long-press and select the words → tap <strong>Color</strong> → choose color → <strong>Apply Color</strong>.</p>
 
-        <p style="margin-bottom:1rem"><strong>Color a whole verse</strong><br>
-        Tap <strong>Color</strong> with nothing selected → choose color → Apply.</p>
+        <p style="margin-bottom:1rem"><strong>Clear a highlight</strong><br>
+        Select the highlighted words → Color → “Clear color from selected text”.<br>
+        Or Color → “Clear ALL colors on this verse”.</p>
 
-        <p style="margin-bottom:1rem"><strong>Remove a highlight</strong><br>
-        • Select the highlighted words → Color → “Clear color from selected text”.<br>
-        • Or open Color with nothing selected → “Clear ALL colors on this verse”.</p>
+        <p style="margin-bottom:1rem"><strong>Chapters (◀ ▶)</strong><br>
+        Move to previous/next chapter. Buttons dim at the first or last chapter.<br>
+        Sample includes Genesis 1–2. If arrows do nothing: Menu → Remove sample book → hard-refresh.</p>
 
-        <p style="margin-bottom:1rem"><strong>Analyze</strong><br>
-        Suggests colors from rules. Accept applies to the whole verse. Use Color for precise segments.</p>
+        <p style="margin-bottom:1rem"><strong>Backup</strong><br>
+        Menu → Export study data / Import study data.</p>
 
         <p style="margin-bottom:1rem"><strong>Password</strong><br>
-        Stays unlocked until you choose Menu → Lock app.</p>
+        Stays unlocked until Menu → Lock app.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.2.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.4.0</p>
       </div>
     </div>
   `);
@@ -1228,7 +1252,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.3.0</h2>
+      <h2>About – NASB Study v3.4.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1248,7 +1272,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.3.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.4.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -37,12 +37,16 @@ body.high-contrast {
 
 html, body {
   height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
   font-size: var(--font-size);
   line-height: var(--line-height);
   overflow: hidden;
+  /* iOS safe areas */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 /* ===== Layout ===== */
@@ -50,8 +54,11 @@ html, body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
   max-width: 900px;
   margin: 0 auto;
+  overflow: hidden;
 }
 
 header {
@@ -106,12 +113,14 @@ header button:active, .toolbar button:active {
 
 .toolbar .spacer { flex: 1; }
 
-/* Main reading area */
+/* Main reading area — must scroll independently */
 main {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0; /* critical for flex child scrolling */
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 1rem 1.1rem 3rem;
+  padding: 1rem 1.1rem 4rem;
+  overscroll-behavior: contain;
 }
 
 .chapter-header {
@@ -589,4 +598,20 @@ header .title {
 /* Ensure panels always have a clear close control */
 .panel .close {
   float: none;
+}
+
+/* v3.4 – keep chrome accessible and tappable on iOS */
+header, .toolbar, .version-bar {
+  position: relative;
+  z-index: 20;
+  flex-shrink: 0;
+}
+header button, .toolbar button {
+  position: relative;
+  z-index: 21;
+}
+.toolbar button:disabled,
+header button:disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
