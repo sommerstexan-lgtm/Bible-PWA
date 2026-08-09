@@ -530,3 +530,63 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 /* Make sure verse number and chips stay clear */
 .verse-num { color: var(--accent); }
 .color-chips { margin-top: 0.5rem; }
+
+/* ===== v3.2 layout fixes ===== */
+.version-bar {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  padding: 0.15rem 0;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar {
+  gap: 0.35rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.toolbar button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.95rem;
+}
+
+.verse-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
+
+.verse-actions button {
+  flex: 1 1 auto;
+  min-width: 72px;
+  min-height: 44px;
+  font-size: 0.92rem;
+  padding: 0.4rem 0.55rem;
+}
+
+header {
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+}
+
+header button {
+  min-height: 44px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.95rem;
+}
+
+header .title {
+  font-size: 1.05em;
+  min-width: 100px;
+}
+
+/* Ensure panels always have a clear close control */
+.panel .close {
+  float: none;
+}

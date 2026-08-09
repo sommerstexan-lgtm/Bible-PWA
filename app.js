@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.1.0
+/* app.js – Main application controller. NASB Study PWA v3.3.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -10,7 +10,7 @@ import * as analyze from './analyze.js';
 const APP_PASSWORD = 'NASB-Study-1995-Private';
 
 function checkPassword() {
-  if (sessionStorage.getItem('nasb-unlocked') === 'yes') return true;
+  if (localStorage.getItem('nasb-unlocked') === 'yes') return true;
 
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -43,7 +43,7 @@ function checkPassword() {
 
     function tryUnlock() {
       if (input.value === APP_PASSWORD) {
-        sessionStorage.setItem('nasb-unlocked', 'yes');
+        localStorage.setItem('nasb-unlocked', 'yes');
         overlay.remove();
         resolve(true);
       } else {
@@ -140,10 +140,12 @@ function renderShell() {
       <button type="button" id="btn-font-up" aria-label="Larger text">A+</button>
       <button type="button" id="btn-colors" title="Color Index">Colors</button>
       <button type="button" id="btn-review" title="Review by color">Review</button>
+      <button type="button" id="btn-help" title="Help">Help</button>
       <span class="spacer"></span>
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
+    <div class="version-bar">v3.3.0</div>
     <main id="main"></main>
   `;
 
@@ -154,6 +156,7 @@ function renderShell() {
   $('#btn-font-up').onclick = () => changeFont(0.1);
   $('#btn-colors').onclick = openColorIndex;
   $('#btn-review').onclick = openReviewByColor;
+  $('#btn-help').onclick = openHelp;
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
 }
@@ -644,52 +647,94 @@ async function openAnalyze(key) {
 
 // ---------- Color picker (manual multi-select) ----------
 
+
 async function openColorPicker(key) {
   const { bookId, chapter, verse } = bible.parseKey(key);
   const plain = bible.getVerseText(books, bookId, chapter, verse) || "";
   let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
 
-  // Re-capture selection in case it is still active
-  if (!pendingSelection || pendingSelection.key !== key) captureSelectionFromVerse(key);
+  if (!pendingSelection || pendingSelection.key !== key) {
+    captureSelectionFromVerse(key);
+  }
   const sel = pendingSelection && pendingSelection.key === key ? pendingSelection : null;
 
-  const modeLabel = sel
-    ? `Coloring selected text only (“${sel.text.slice(0, 40)}${sel.text.length > 40 ? "…" : ""}”)`
-    : "No text selected — color will apply to the whole verse. Select words first for a segment.";
+  const modeHtml = sel
+    ? `<p style="font-size:0.95em;color:var(--success);margin-bottom:0.8rem;line-height:1.45">
+         Selected: “${escapeHtml(sel.text.slice(0, 60))}${sel.text.length > 60 ? "…" : ""}”<br>
+         Color will apply <strong>only to this selection</strong>.
+       </p>`
+    : `<p style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.8rem;line-height:1.45">
+         No text selected — color will apply to the <strong>whole verse</strong>.<br>
+         To color only some words: select them first, then open Color.
+       </p>`;
 
-  const items = analyze.allColors().map(c => {
-    return `
-      <label style="display:flex;align-items:center;gap:0.7rem;padding:0.7rem 0.3rem;border-bottom:1px solid var(--border);cursor:pointer;min-height:52px">
-        <input type="radio" name="pick-color" value="${c.id}" style="width:22px;height:22px">
-        <span class="swatch" style="background:${c.hex}"></span>
-        <span><strong>${c.label}</strong> – ${c.meaning}</span>
-      </label>
-    `;
-  }).join("");
+  const items = analyze.allColors().map(c => `
+    <label style="display:flex;align-items:center;gap:0.7rem;padding:0.75rem 0.3rem;border-bottom:1px solid var(--border);cursor:pointer;min-height:52px">
+      <input type="radio" name="pick-color" value="${c.id}" style="width:22px;height:22px;flex-shrink:0">
+      <span class="swatch" style="background:${c.hex};flex-shrink:0"></span>
+      <span><strong>${c.label}</strong> – ${c.meaning}</span>
+    </label>
+  `).join("");
 
-  const existing = ranges.length
-    ? `<p style="font-size:0.9em;margin-bottom:0.6rem">Current segments on this verse: ${uniqueColors(ranges).map(c => {
-        const m = analyze.getColorMeta(c);
-        return m ? m.label : c;
-      }).join(", ")}</p>
-      <button type="button" id="clear-all-colors" style="width:100%;margin-bottom:0.8rem;color:var(--danger)">Clear all colors on this verse</button>`
-    : "";
+  const hasRanges = ranges.length > 0;
+  const clearSection = `
+    <div style="margin:0.8rem 0 1rem;padding-top:0.6rem;border-top:1px solid var(--border)">
+      ${sel ? `<button type="button" id="clear-selection" style="width:100%;margin-bottom:0.5rem;color:var(--danger)">
+        Clear color from selected text only
+      </button>` : ""}
+      ${hasRanges ? `<button type="button" id="clear-all-colors" style="width:100%;color:var(--danger)">
+        Clear ALL colors on this verse
+      </button>` : ""}
+    </div>`;
 
   const overlay = showOverlay(`
     <div class="panel">
-      <button class="close" type="button">×</button>
-      <h2>Apply Color</h2>
-      <p style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.8rem;line-height:1.45">${modeLabel}</p>
-      ${existing}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Apply Color</h2>
+        <button type="button" class="close" aria-label="Close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${modeHtml}
+      ${clearSection}
       <div id="color-checks">${items}</div>
-      <button type="button" id="apply-color" style="width:100%;margin-top:1rem;background:var(--accent);color:#111;font-weight:600">Apply</button>
+      <button type="button" id="apply-color" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600;font-size:1.1rem">Apply Color</button>
+      <button type="button" id="cancel-color" style="width:100%;margin-top:0.5rem;min-height:48px">Cancel</button>
     </div>
   `);
-  $(".close", overlay).onclick = () => { pendingSelection = null; closeOverlay(overlay); };
 
-  const clearBtn = $("#clear-all-colors", overlay);
-  if (clearBtn) {
-    clearBtn.onclick = async () => {
+  const close = () => { pendingSelection = null; closeOverlay(overlay); };
+  $(".close", overlay).onclick = close;
+  $("#cancel-color", overlay).onclick = close;
+
+  const clearSelBtn = $("#clear-selection", overlay);
+  if (clearSelBtn) {
+    clearSelBtn.onclick = async () => {
+      if (!sel) return;
+      // Remove any range that overlaps the selection
+      const next = ranges.filter(r => r.end <= sel.start || r.start >= sel.end);
+      // Also punch a hole in ranges that partially overlap
+      const punched = [];
+      for (const r of ranges) {
+        if (r.end <= sel.start || r.start >= sel.end) {
+          punched.push(r);
+        } else {
+          if (r.start < sel.start) punched.push({ color: r.color, start: r.start, end: sel.start });
+          if (r.end > sel.end) punched.push({ color: r.color, start: sel.end, end: r.end });
+        }
+      }
+      await storage.setHighlights(key, punched);
+      pendingSelection = null;
+      closeOverlay(overlay);
+      await renderChapter(currentBookId, currentChapter);
+      setTimeout(() => {
+        const t = document.getElementById("v-" + key.replace(/\./g, "-"));
+        if (t) t.scrollIntoView({ block: "center" });
+      }, 80);
+    };
+  }
+
+  const clearAllBtn = $("#clear-all-colors", overlay);
+  if (clearAllBtn) {
+    clearAllBtn.onclick = async () => {
       await storage.setHighlights(key, []);
       pendingSelection = null;
       closeOverlay(overlay);
@@ -710,10 +755,19 @@ async function openColorPicker(key) {
     const colorId = chosen.value;
 
     if (sel) {
-      // Add a new range for the selection (do not remove other ranges)
-      ranges.push({ color: colorId, start: sel.start, end: sel.end });
+      // Remove overlapping parts first, then add the new range
+      const punched = [];
+      for (const r of ranges) {
+        if (r.end <= sel.start || r.start >= sel.end) {
+          punched.push(r);
+        } else {
+          if (r.start < sel.start) punched.push({ color: r.color, start: r.start, end: sel.start });
+          if (r.end > sel.end) punched.push({ color: r.color, start: sel.end, end: r.end });
+        }
+      }
+      punched.push({ color: colorId, start: sel.start, end: sel.end });
+      ranges = punched;
     } else {
-      // Whole verse
       ranges = [{ color: colorId, start: 0, end: plain.length }];
     }
 
@@ -917,18 +971,31 @@ function openSearch() {
 function openMenu() {
   const overlay = showOverlay(`
     <div class="panel">
-      <button class="close" type="button">×</button>
-      <h2>Menu</h2>
-      <button type="button" id="menu-import" style="width:100%;margin-bottom:0.5rem">Import Book (JSON)</button>
-      <button type="button" id="menu-settings" style="width:100%;margin-bottom:0.5rem">Settings</button>
-      <button type="button" id="menu-about" style="width:100%;margin-bottom:0.5rem">About / Privacy</button>
-      <button type="button" id="menu-clear-sample" style="width:100%;margin-bottom:0.5rem;color:var(--danger)">Remove sample book</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Menu</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
+      <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
+      <button type="button" id="menu-import-data" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import study data</button>
+      <button type="button" id="menu-import" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Book (JSON)</button>
+      <button type="button" id="menu-settings" style="width:100%;margin-bottom:0.5rem;min-height:52px">Settings</button>
+      <button type="button" id="menu-about" style="width:100%;margin-bottom:0.5rem;min-height:52px">About / Privacy</button>
+      <button type="button" id="menu-lock" style="width:100%;margin-bottom:0.5rem;min-height:52px">Lock app (require password)</button>
+      <button type="button" id="menu-clear-sample" style="width:100%;margin-bottom:0.5rem;min-height:52px;color:var(--danger)">Remove sample book</button>
     </div>
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
+  $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
+  $('#menu-import-data', overlay).onclick = () => { closeOverlay(overlay); openImportData(); };
   $('#menu-import', overlay).onclick = () => { closeOverlay(overlay); openImport(); };
   $('#menu-settings', overlay).onclick = () => { closeOverlay(overlay); openSettings(); };
   $('#menu-about', overlay).onclick = () => { closeOverlay(overlay); openAbout(); };
+  $('#menu-lock', overlay).onclick = () => {
+    localStorage.removeItem('nasb-unlocked');
+    location.reload();
+  };
   $('#menu-clear-sample', overlay).onclick = async () => {
     if (confirm('Remove the public-domain sample Genesis book? Your highlights/notes for it will remain in storage but the text will be gone until re-imported.')) {
       await storage.deleteBook('gen');
@@ -1049,11 +1116,119 @@ function openSettings() {
   $('#hc-toggle', overlay).onchange = (e) => { settings.highContrast = e.target.checked; update(); };
 }
 
+
+
+async function doExportData() {
+  try {
+    const data = await storage.exportAllData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `nasb-study-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    alert('Backup downloaded. Keep this file private — it contains your notes and highlights.');
+  } catch (e) {
+    alert('Export failed: ' + (e.message || e));
+  }
+}
+
+function openImportData() {
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Import study data</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p style="margin-bottom:0.9rem;line-height:1.5;font-size:0.95em">
+        Choose a backup file previously exported from this app
+        (<code>nasb-study-backup-….json</code>).
+        This restores highlights, notes, cross-references, learning data, settings, and any books in the backup.
+      </p>
+      <div class="import-zone">
+        <p>Select backup .json file</p>
+        <input type="file" id="data-file-input" accept=".json,application/json">
+      </div>
+      <p style="margin-top:0.9rem;font-size:0.9em;color:var(--text-dim)">
+        Existing data with the same keys will be overwritten. Everything stays on this device only.
+      </p>
+    </div>
+  `, { center: true });
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('#data-file-input', overlay).onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      await storage.importAllData(json);
+      books = await storage.getAllBooks();
+      settings = await storage.getSettings();
+      applySettings();
+      closeOverlay(overlay);
+      alert('Import complete.');
+      if (books.length) {
+        const last = await storage.getLastPosition();
+        if (last && books.find(b => b.id === last.bookId)) {
+          currentBookId = last.bookId;
+          currentChapter = last.chapter || 1;
+        } else {
+          currentBookId = books[0].id;
+          currentChapter = 1;
+        }
+        await renderChapter(currentBookId, currentChapter);
+      } else {
+        showEmptyState();
+      }
+    } catch (err) {
+      alert('Import failed: ' + (err.message || err));
+    }
+  };
+}
+
+function openHelp() {
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">How to use</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <div style="line-height:1.65;font-size:1.02em">
+        <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
+        1. Long-press the verse text and select the words.<br>
+        2. Tap <strong>Color</strong>.<br>
+        3. Choose a color → tap <strong>Apply Color</strong>.<br>
+        Only the selected words are colored.</p>
+
+        <p style="margin-bottom:1rem"><strong>Color a whole verse</strong><br>
+        Tap <strong>Color</strong> with nothing selected → choose color → Apply.</p>
+
+        <p style="margin-bottom:1rem"><strong>Remove a highlight</strong><br>
+        • Select the highlighted words → Color → “Clear color from selected text”.<br>
+        • Or open Color with nothing selected → “Clear ALL colors on this verse”.</p>
+
+        <p style="margin-bottom:1rem"><strong>Analyze</strong><br>
+        Suggests colors from rules. Accept applies to the whole verse. Use Color for precise segments.</p>
+
+        <p style="margin-bottom:1rem"><strong>Password</strong><br>
+        Stays unlocked until you choose Menu → Lock app.</p>
+
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.2.0</p>
+      </div>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+}
+
 function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.1.0</h2>
+      <h2>About – NASB Study v3.3.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1073,7 +1248,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.1.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.3.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -239,3 +239,94 @@ export async function saveLastPosition(pos) {
     r.onerror = () => rej(r.error);
   });
 }
+
+/* ----- Export / Import all personal data ----- */
+export async function exportAllData() {
+  await openDB();
+  const [books, highlights, notes, crossrefs, learning, settings, history] = await Promise.all([
+    getAllBooks(),
+    getAllHighlights(),
+    new Promise((res, rej) => {
+      const r = tx('notes').getAll();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => rej(r.error);
+    }),
+    new Promise((res, rej) => {
+      const r = tx('crossrefs').getAll();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => rej(r.error);
+    }),
+    getLearningModel(),
+    getSettings(),
+    getLastPosition()
+  ]);
+
+  return {
+    format: 'nasb-study-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    books,
+    highlights,
+    notes,
+    crossrefs,
+    learning,
+    settings,
+    history
+  };
+}
+
+export async function importAllData(data, { replace = true } = {}) {
+  if (!data || data.format !== 'nasb-study-backup') {
+    throw new Error('Not a valid NASB Study backup file');
+  }
+  await openDB();
+
+  // Books
+  if (Array.isArray(data.books)) {
+    for (const book of data.books) {
+      await putBook(book);
+    }
+  }
+
+  // Highlights (support both old colors and new ranges shapes)
+  if (Array.isArray(data.highlights)) {
+    for (const row of data.highlights) {
+      if (!row || !row.key) continue;
+      if (row.ranges) {
+        await setHighlights(row.key, row.ranges);
+      } else if (row.colors) {
+        // legacy – store as full-verse ranges with a placeholder end; render will clamp
+        await setHighlights(row.key, row.colors.map(c => ({ color: c, start: 0, end: 99999 })));
+      }
+    }
+  }
+
+  // Notes
+  if (Array.isArray(data.notes)) {
+    for (const row of data.notes) {
+      if (row && row.key) await setNote(row.key, row.text || '');
+    }
+  }
+
+  // Cross-refs
+  if (Array.isArray(data.crossrefs)) {
+    for (const row of data.crossrefs) {
+      if (row && row.key) await setCrossRefs(row.key, row.refs || []);
+    }
+  }
+
+  // Learning model
+  if (data.learning) {
+    await saveLearningModel(data.learning);
+  }
+
+  // Settings
+  if (data.settings) {
+    await saveSettings(data.settings);
+  }
+
+  // Last position
+  if (data.history) {
+    await saveLastPosition(data.history);
+  }
+}

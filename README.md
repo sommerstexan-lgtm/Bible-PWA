@@ -1,15 +1,16 @@
-# NASB Study PWA – v3.1.0
+# NASB Study PWA – v3.3.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## How to color a segment (correct way)
+## New in 3.3.0
+- **Export study data** – Menu → Export study data (downloads a private JSON backup)
+- **Import study data** – Menu → Import study data (restores highlights, notes, cross-refs, learning, settings, books)
 
-1. Long-press the verse text and select the exact words you want.
-2. Tap **Color**.
-3. Choose the color → tap **Apply**.
-   - Selected text only is colored.
-   - If nothing is selected, the whole verse is colored.
+## Also includes (from 3.2)
+- Segment highlighting (select words → Color → Apply)
+- Clear selected segment or clear whole verse
+- Password stays unlocked until Menu → Lock
+- Help screen, version bar, improved mobile buttons
 
-Colors are solid and accurate. Text color is set for contrast and is not distorted.
-
-Upload all 12 files (flat, no folders).
+## Upload
+Delete old files in the repo, upload all 12 files from this zip.
