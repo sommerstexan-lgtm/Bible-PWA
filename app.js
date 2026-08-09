@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v2.1.0
+/* app.js – Main application controller. NASB Study PWA v3.1.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -176,6 +176,137 @@ async function changeChapter(dir) {
 }
 
 // ---------- Chapter rendering ----------
+
+
+// ---------- Highlight range helpers (v3.1) ----------
+function normalizeRanges(raw, textLen) {
+  if (!raw) return [];
+  if (raw._legacyColors) {
+    return raw._legacyColors.map(c => ({ color: c, start: 0, end: textLen }));
+  }
+  if (Array.isArray(raw) && raw.length && typeof raw[0] === "string") {
+    return raw.map(c => ({ color: c, start: 0, end: textLen }));
+  }
+  const ranges = Array.isArray(raw) ? raw : [];
+  return ranges
+    .filter(r => r && r.color != null)
+    .map(r => ({
+      color: r.color,
+      start: Math.max(0, Math.min(textLen, +r.start || 0)),
+      end: Math.max(0, Math.min(textLen, +r.end || textLen))
+    }))
+    .filter(r => r.end > r.start);
+}
+
+function buildColoredHtml(text, ranges) {
+  if (!ranges.length) return escapeHtml(text);
+  const len = text.length;
+  const cover = Array.from({ length: len }, () => null);
+  for (const r of ranges) {
+    for (let i = r.start; i < r.end; i++) cover[i] = r.color;
+  }
+  let html = "";
+  let i = 0;
+  while (i < len) {
+    const col = cover[i];
+    let j = i + 1;
+    while (j < len && cover[j] === col) j++;
+    const slice = escapeHtml(text.slice(i, j));
+    if (col) {
+      const meta = analyze.getColorMeta(col);
+      // Pure solid color – no transparency, correct text color
+      const bg = meta ? meta.hex : "#666666";
+      const fg = meta ? meta.text : "#ffffff";
+      html += `<span class="hl" data-color="${col}" style="background-color:${bg};color:${fg}">${slice}</span>`;
+    } else {
+      html += slice;
+    }
+    i = j;
+  }
+  return html;
+}
+
+function uniqueColors(ranges) {
+  const seen = [];
+  for (const r of ranges) {
+    if (!seen.includes(r.color)) seen.push(r.color);
+  }
+  return seen;
+}
+
+let pendingSelection = null; // { key, start, end, text }
+
+function getSelectionOffsets(textEl) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount || !textEl) return null;
+  const range = sel.getRangeAt(0);
+  if (!textEl.contains(range.commonAncestorContainer)) return null;
+
+  // Build plain text and map offsets by walking text nodes
+  const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
+  let plain = "";
+  const nodes = [];
+  while (walker.nextNode()) {
+    nodes.push({ node: walker.currentNode, start: plain.length });
+    plain += walker.currentNode.textContent;
+  }
+
+  function offsetInPlain(container, offset) {
+    for (const n of nodes) {
+      if (n.node === container) return n.start + offset;
+      // if container is an element, try its text children
+    }
+    // Fallback: use toString length of a pre-range
+    try {
+      const pre = range.cloneRange();
+      pre.selectNodeContents(textEl);
+      pre.setEnd(container, offset);
+      return pre.toString().length;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  const start = offsetInPlain(range.startContainer, range.startOffset);
+  const end = offsetInPlain(range.endContainer, range.endOffset);
+  if (start == null || end == null || end <= start) return null;
+  return { start, end, text: plain.slice(start, end), plainLen: plain.length };
+}
+
+function captureSelectionFromVerse(key) {
+  const verseEl = document.getElementById("v-" + key.replace(/\./g, "-"));
+  if (!verseEl) { pendingSelection = null; return null; }
+  const textEl = verseEl.querySelector(".verse-text");
+  const result = getSelectionOffsets(textEl);
+  if (!result) { pendingSelection = null; return null; }
+  pendingSelection = { key, start: result.start, end: result.end, text: result.text };
+  return pendingSelection;
+}
+
+function installSelectionWatchers(main) {
+  // Capture selection as soon as the user finishes selecting (before button tap collapses it)
+  const save = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    // Find which verse the selection is inside
+    let node = sel.anchorNode;
+    while (node && node !== main) {
+      if (node.classList && node.classList.contains("verse") && node.dataset.key) {
+        captureSelectionFromVerse(node.dataset.key);
+        return;
+      }
+      node = node.parentNode;
+    }
+  };
+  main.addEventListener("mouseup", save);
+  main.addEventListener("touchend", save, { passive: true });
+  document.addEventListener("selectionchange", () => {
+    // Debounce slightly
+    clearTimeout(installSelectionWatchers._t);
+    installSelectionWatchers._t = setTimeout(save, 50);
+  });
+}
+
 async function renderChapter(bookId, chapterNum) {
   const book = books.find(b => b.id === bookId);
   if (!book) return;
@@ -189,7 +320,6 @@ async function renderChapter(bookId, chapterNum) {
   const main = $('#main');
   main.innerHTML = `<div class="chapter-header">${book.name} ${chapterNum}</div>`;
 
-  // Load all highlights for these verses in parallel
   const keys = ch.verses.map(v => bible.verseKey(bookId, chapterNum, v.number));
   const highlightMap = {};
   await Promise.all(keys.map(async (k) => {
@@ -198,17 +328,21 @@ async function renderChapter(bookId, chapterNum) {
 
   for (const v of ch.verses) {
     const key = bible.verseKey(bookId, chapterNum, v.number);
-    const colors = highlightMap[key] || [];
+    const raw = highlightMap[key];
+    const ranges = normalizeRanges(raw, v.text.length);
+    // Persist migration if legacy
+    if (raw && raw._legacyColors) {
+      await storage.setHighlights(key, ranges);
+    }
+
+    const colors = uniqueColors(ranges);
     const verseEl = document.createElement('div');
     verseEl.className = 'verse';
     verseEl.dataset.key = key;
     verseEl.id = `v-${key.replace(/\./g, '-')}`;
 
-    // Apply visual classes
     if (colors.length) {
-      colors.forEach(c => verseEl.classList.add('has-' + c));
-      // Dominant (first) gets background tint
-      verseEl.classList.add('bg-' + colors[0]);
+      verseEl.classList.add('has-' + colors[0]);
     }
 
     const chips = colors.map(c => {
@@ -216,9 +350,11 @@ async function renderChapter(bookId, chapterNum) {
       return `<span class="color-chip" style="background:${meta ? meta.hex : '#666'}" title="${meta ? meta.label : c}"></span>`;
     }).join('');
 
+    const coloredText = buildColoredHtml(v.text, ranges);
+
     verseEl.innerHTML = `
       <span class="verse-num">${v.number}</span>
-      <span class="verse-text">${escapeHtml(v.text)}</span>
+      <span class="verse-text">${coloredText}</span>
       <div class="color-chips">${chips}</div>
       <div class="verse-actions">
         <button type="button" data-act="analyze" data-key="${key}">Analyze</button>
@@ -230,19 +366,26 @@ async function renderChapter(bookId, chapterNum) {
     main.appendChild(verseEl);
   }
 
-  // Event delegation for verse actions
+  // Event delegation
   main.onclick = async (e) => {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
     const key = btn.dataset.key;
+
+    // Prefer already-captured selection; fall back to live capture
+    if (!pendingSelection || pendingSelection.key !== key) {
+      captureSelectionFromVerse(key);
+    }
+
     if (act === 'analyze') openAnalyze(key);
     else if (act === 'color') openColorPicker(key);
     else if (act === 'note') openNote(key);
     else if (act === 'xref') openCrossRefs(key);
   };
 
-  // Scroll to top of chapter
+  installSelectionWatchers(main);
+
   main.scrollTop = 0;
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
 }
@@ -381,7 +524,10 @@ async function openReviewByColor(preselectColor = null) {
       resultsEl.innerHTML = '<p style="color:var(--text-dim)">Select a color to see matching verses.</p>';
       return;
     }
-    const matches = allHighlights.filter(h => h.colors.includes(color));
+    const matches = allHighlights.filter(h => {
+      const ranges = h.ranges || [];
+      return ranges.some(r => r.color === color);
+    });
     const filtered = bookFilter
       ? matches.filter(h => h.key.startsWith(bookFilter + '.'))
       : matches;
@@ -429,7 +575,8 @@ async function openAnalyze(key) {
   if (!text) return;
 
   const suggestions = await analyze.analyzeVerse(text);
-  const currentColors = await storage.getHighlights(key);
+  const ranges = normalizeRanges(await storage.getHighlights(key), text.length);
+  const currentColors = uniqueColors(ranges);
 
   let body = '';
   if (!suggestions.length) {
@@ -447,9 +594,8 @@ async function openAnalyze(key) {
           </div>
           <div class="reason">Reason: ${s.reasons.join('; ') || 'pattern match'}</div>
           <div class="actions">
-            <button type="button" data-act="accept" data-color="${s.colorId}">Accept</button>
+            <button type="button" data-act="accept" data-color="${s.colorId}">Accept (whole verse)</button>
             <button type="button" data-act="reject" data-color="${s.colorId}">Reject</button>
-            <button type="button" data-act="add" data-color="${s.colorId}">Add color only</button>
           </div>
         </div>
       `;
@@ -462,7 +608,7 @@ async function openAnalyze(key) {
       <h2>Analyze – ${bookId.toUpperCase()} ${chapter}:${verse}</h2>
       <p style="margin-bottom:1rem;font-size:0.95em;color:var(--text-dim)">${escapeHtml(text)}</p>
       ${body}
-      <button type="button" id="open-manual" style="width:100%;margin-top:0.8rem">Open full color picker</button>
+      <button type="button" id="open-manual" style="width:100%;margin-top:0.8rem">Open color picker (supports segments)</button>
     </div>
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
@@ -478,21 +624,16 @@ async function openAnalyze(key) {
       const sug = suggestions.find(s => s.colorId === colorId);
       const reasons = sug ? sug.reasons : [];
 
-      if (act === 'accept' || act === 'add') {
-        let colors = await storage.getHighlights(key);
-        if (!colors.includes(colorId)) {
-          colors = [...colors, colorId];
-          await storage.setHighlights(key, colors);
-        }
-        if (act === 'accept') {
-          await analyze.recordFeedback(colorId, reasons, 'accept');
-        }
+      if (act === 'accept') {
+        // Apply as whole-verse range
+        const newRanges = [...ranges, { color: colorId, start: 0, end: text.length }];
+        await storage.setHighlights(key, newRanges);
+        await analyze.recordFeedback(colorId, reasons, 'accept');
       } else if (act === 'reject') {
         await analyze.recordFeedback(colorId, reasons, 'reject');
       }
       closeOverlay(overlay);
       await renderChapter(currentBookId, currentChapter);
-      // re-scroll to same verse
       setTimeout(() => {
         const t = document.getElementById('v-' + key.replace(/\./g, '-'));
         if (t) t.scrollIntoView({ block: 'center' });
@@ -502,40 +643,91 @@ async function openAnalyze(key) {
 }
 
 // ---------- Color picker (manual multi-select) ----------
+
 async function openColorPicker(key) {
-  let current = await storage.getHighlights(key);
+  const { bookId, chapter, verse } = bible.parseKey(key);
+  const plain = bible.getVerseText(books, bookId, chapter, verse) || "";
+  let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
+
+  // Re-capture selection in case it is still active
+  if (!pendingSelection || pendingSelection.key !== key) captureSelectionFromVerse(key);
+  const sel = pendingSelection && pendingSelection.key === key ? pendingSelection : null;
+
+  const modeLabel = sel
+    ? `Coloring selected text only (“${sel.text.slice(0, 40)}${sel.text.length > 40 ? "…" : ""}”)`
+    : "No text selected — color will apply to the whole verse. Select words first for a segment.";
+
   const items = analyze.allColors().map(c => {
-    const checked = current.includes(c.id) ? 'checked' : '';
     return `
       <label style="display:flex;align-items:center;gap:0.7rem;padding:0.7rem 0.3rem;border-bottom:1px solid var(--border);cursor:pointer;min-height:52px">
-        <input type="checkbox" value="${c.id}" ${checked} style="width:22px;height:22px">
+        <input type="radio" name="pick-color" value="${c.id}" style="width:22px;height:22px">
         <span class="swatch" style="background:${c.hex}"></span>
         <span><strong>${c.label}</strong> – ${c.meaning}</span>
       </label>
     `;
-  }).join('');
+  }).join("");
+
+  const existing = ranges.length
+    ? `<p style="font-size:0.9em;margin-bottom:0.6rem">Current segments on this verse: ${uniqueColors(ranges).map(c => {
+        const m = analyze.getColorMeta(c);
+        return m ? m.label : c;
+      }).join(", ")}</p>
+      <button type="button" id="clear-all-colors" style="width:100%;margin-bottom:0.8rem;color:var(--danger)">Clear all colors on this verse</button>`
+    : "";
 
   const overlay = showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>Apply Colors</h2>
-      <p style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.8rem">Multiple colors allowed. Text contrast is handled automatically.</p>
+      <h2>Apply Color</h2>
+      <p style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.8rem;line-height:1.45">${modeLabel}</p>
+      ${existing}
       <div id="color-checks">${items}</div>
-      <button type="button" id="save-colors" style="width:100%;margin-top:1rem;background:var(--accent);color:#111;font-weight:600">Save</button>
+      <button type="button" id="apply-color" style="width:100%;margin-top:1rem;background:var(--accent);color:#111;font-weight:600">Apply</button>
     </div>
   `);
-  $('.close', overlay).onclick = () => closeOverlay(overlay);
-  $('#save-colors', overlay).onclick = async () => {
-    const checked = $$('#color-checks input:checked', overlay).map(i => i.value);
-    await storage.setHighlights(key, checked);
+  $(".close", overlay).onclick = () => { pendingSelection = null; closeOverlay(overlay); };
+
+  const clearBtn = $("#clear-all-colors", overlay);
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      await storage.setHighlights(key, []);
+      pendingSelection = null;
+      closeOverlay(overlay);
+      await renderChapter(currentBookId, currentChapter);
+      setTimeout(() => {
+        const t = document.getElementById("v-" + key.replace(/\./g, "-"));
+        if (t) t.scrollIntoView({ block: "center" });
+      }, 80);
+    };
+  }
+
+  $("#apply-color", overlay).onclick = async () => {
+    const chosen = overlay.querySelector('input[name="pick-color"]:checked');
+    if (!chosen) {
+      alert("Select a color first.");
+      return;
+    }
+    const colorId = chosen.value;
+
+    if (sel) {
+      // Add a new range for the selection (do not remove other ranges)
+      ranges.push({ color: colorId, start: sel.start, end: sel.end });
+    } else {
+      // Whole verse
+      ranges = [{ color: colorId, start: 0, end: plain.length }];
+    }
+
+    await storage.setHighlights(key, ranges);
+    pendingSelection = null;
     closeOverlay(overlay);
     await renderChapter(currentBookId, currentChapter);
     setTimeout(() => {
-      const t = document.getElementById('v-' + key.replace(/\./g, '-'));
-      if (t) t.scrollIntoView({ block: 'center' });
+      const t = document.getElementById("v-" + key.replace(/\./g, "-"));
+      if (t) t.scrollIntoView({ block: "center" });
     }, 80);
   };
 }
+
 
 // ---------- Notes ----------
 async function openNote(key) {
@@ -861,7 +1053,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v2.1.0</h2>
+      <h2>About – NASB Study v3.1.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -881,7 +1073,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 2.1.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.1.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

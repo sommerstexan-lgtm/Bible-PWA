@@ -488,3 +488,45 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
     border-radius: var(--radius);
   }
 }
+
+
+/* ===== v3.1 segment highlights – pure colors, correct text ===== */
+.verse-text {
+  /* allow selection */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.verse-text .hl {
+  border-radius: 3px;
+  padding: 0.08em 0.15em;
+  margin: 0 -0.02em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  /* solid color only – never transparent */
+  background-clip: padding-box;
+  /* text color is set inline from the color definition and must win */
+  -webkit-text-fill-color: currentColor;
+}
+
+/* Kill any leftover full-verse background tints from older versions */
+.verse.bg-red,
+.verse.bg-yellow,
+.verse.bg-yg,
+.verse.bg-orange,
+.verse.bg-magenta,
+.verse.bg-blue,
+.verse.bg-tan,
+.verse.bg-brown,
+.verse.bg-lblue,
+.verse.bg-aqua,
+.verse.bg-pink,
+.verse.bg-grey,
+.verse.bg-violet {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+/* Make sure verse number and chips stay clear */
+.verse-num { color: var(--accent); }
+.color-chips { margin-top: 0.5rem; }

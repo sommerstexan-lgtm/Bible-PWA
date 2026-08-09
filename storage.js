@@ -83,20 +83,32 @@ export async function deleteBook(id) {
   });
 }
 
-/* Highlights: { key: "gen.1.1", colors: ["red","yellow"] } */
+/* Highlights v3: { key, ranges: [ {color, start, end} ] }
+   Backward compatible with old { key, colors: ["red"] } whole-verse format.
+*/
 export async function getHighlights(key) {
   await openDB();
   return new Promise((res, rej) => {
     const r = tx('highlights').get(key);
-    r.onsuccess = () => res(r.result ? r.result.colors : []);
+    r.onsuccess = () => {
+      const row = r.result;
+      if (!row) return res([]);
+      // Migrate old format on the fly
+      if (row.colors && !row.ranges) {
+        // Old whole-verse colors → convert later when we know text length
+        return res({ _legacyColors: row.colors });
+      }
+      return res(row.ranges || []);
+    };
     r.onerror = () => rej(r.error);
   });
 }
 
-export async function setHighlights(key, colors) {
+export async function setHighlights(key, ranges) {
   await openDB();
   return new Promise((res, rej) => {
-    const r = tx('highlights', 'readwrite').put({ key, colors });
+    // ranges = array of {color, start, end}
+    const r = tx('highlights', 'readwrite').put({ key, ranges });
     r.onsuccess = () => res();
     r.onerror = () => rej(r.error);
   });
@@ -106,7 +118,16 @@ export async function getAllHighlights() {
   await openDB();
   return new Promise((res, rej) => {
     const r = tx('highlights').getAll();
-    r.onsuccess = () => res(r.result || []);
+    r.onsuccess = () => {
+      const rows = r.result || [];
+      // Normalize for callers that expect .colors or .ranges
+      res(rows.map(row => {
+        if (row.colors && !row.ranges) {
+          return { key: row.key, ranges: row.colors.map(c => ({ color: c, start: 0, end: 99999 })), _legacy: true };
+        }
+        return row;
+      }));
+    };
     r.onerror = () => rej(r.error);
   });
 }
