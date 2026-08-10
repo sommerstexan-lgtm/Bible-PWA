@@ -3,7 +3,7 @@
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let db = null;
 
@@ -36,6 +36,9 @@ export function openDB() {
       }
       if (!database.objectStoreNames.contains('sharedNotes')) {
         database.createObjectStore('sharedNotes', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('lexicon')) {
+        database.createObjectStore('lexicon', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -292,6 +295,58 @@ export async function deleteSharedNote(id) {
 export async function findSharedNoteForVerse(verseKey) {
   const all = await getAllSharedNotes();
   return all.find(n => Array.isArray(n.verseKeys) && n.verseKeys.includes(verseKey)) || null;
+}
+
+
+
+/* ----- Lexicon (Strong's) ----- */
+export async function saveLexiconPack(pack) {
+  await openDB();
+  // Store meta + entries as one record for simplicity
+  return new Promise((res, rej) => {
+    const r = tx('lexicon', 'readwrite').put({ id: 'strongs', ...pack });
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getLexiconPack() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('lexicon').get('strongs');
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function searchLexicon(query) {
+  const pack = await getLexiconPack();
+  if (!pack || !pack.entries) return [];
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return [];
+  const results = [];
+  // Direct Strong's number: H1, G26, 26, h1254
+  const numMatch = q.match(/^([hg])?\s*(\d{1,5})$/i);
+  if (numMatch) {
+    const n = numMatch[2];
+    for (const prefix of (numMatch[1] ? [numMatch[1].toUpperCase()] : ['H', 'G'])) {
+      const id = prefix + n;
+      if (pack.entries[id]) {
+        results.push({ id, ...pack.entries[id] });
+      }
+      // also try without leading zeros issues - already exact
+    }
+    if (results.length) return results;
+  }
+  // Text search in gloss / kjv / lemma / xlit
+  for (const [id, e] of Object.entries(pack.entries)) {
+    const hay = `${e.gloss} ${e.kjv} ${e.lemma} ${e.xlit} ${e.pron}`.toLowerCase();
+    if (hay.includes(q)) {
+      results.push({ id, ...e });
+      if (results.length >= 40) break;
+    }
+  }
+  return results;
 }
 
 /* ----- Export / Import all personal data ----- */

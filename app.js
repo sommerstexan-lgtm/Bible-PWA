@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.7.0
+/* app.js – Main application controller. NASB Study PWA v3.8.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -141,11 +141,12 @@ function renderShell() {
       <button type="button" id="btn-colors" title="Color Index">Colors</button>
       <button type="button" id="btn-review" title="Review by color">Review</button>
       <button type="button" id="btn-help" title="Help">Help</button>
+      <button type="button" id="btn-dict" title="Dictionary">Dict</button>
       <span class="spacer"></span>
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
-    <div class="version-bar">v3.7.0</div>
+    <div class="version-bar">v3.8.0</div>
     <main id="main"></main>
   `;
 
@@ -157,6 +158,7 @@ function renderShell() {
   $('#btn-colors').onclick = openColorIndex;
   $('#btn-review').onclick = openReviewByColor;
   $('#btn-help').onclick = openHelp;
+  $('#btn-dict').onclick = openDictionary;
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
 }
@@ -1159,6 +1161,7 @@ function openMenu() {
       <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
       <button type="button" id="menu-import-data" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import study data</button>
+      <button type="button" id="menu-import-lex" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Dictionary (Strong's)</button>
       <button type="button" id="menu-import" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Book (JSON)</button>
       <button type="button" id="menu-settings" style="width:100%;margin-bottom:0.5rem;min-height:52px">Settings</button>
       <button type="button" id="menu-about" style="width:100%;margin-bottom:0.5rem;min-height:52px">About / Privacy</button>
@@ -1170,6 +1173,7 @@ function openMenu() {
   $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
   $('#menu-import-data', overlay).onclick = () => { closeOverlay(overlay); openImportData(); };
+  $('#menu-import-lex', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
   $('#menu-import', overlay).onclick = () => { closeOverlay(overlay); openImport(); };
   $('#menu-settings', overlay).onclick = () => { closeOverlay(overlay); openSettings(); };
   $('#menu-about', overlay).onclick = () => { closeOverlay(overlay); openAbout(); };
@@ -1374,6 +1378,104 @@ function openImportData() {
 
 
 
+
+async function openDictionary(prefill) {
+  const pack = await storage.getLexiconPack();
+  const hasLex = !!(pack && pack.entries);
+
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Dictionary</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${hasLex
+        ? `<p style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.6rem">${pack.name || "Strong's"} · ${pack.entryCount || ''} entries<br>Search a word (e.g. love) or number (H1, G26)</p>
+           <input type="search" id="dict-q" placeholder="Word or Strong's number"
+             style="width:100%;padding:0.7rem;font-size:1.05rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);min-height:48px"
+             value="${escapeHtml(prefill || '')}">
+           <button type="button" id="dict-go" style="width:100%;margin-top:0.5rem;min-height:48px;background:var(--accent);color:#111;font-weight:600">Search</button>
+           <div id="dict-results" style="margin-top:1rem"></div>
+           <p style="margin-top:1rem;font-size:0.8em;color:var(--text-dim)">${escapeHtml(pack.attribution || '')}</p>`
+        : `<p style="line-height:1.55;margin-bottom:1rem">No dictionary installed yet.</p>
+           <p style="line-height:1.55;margin-bottom:1rem">Install the free <strong>Strong's</strong> pack (Hebrew &amp; Greek word meanings):</p>
+           <p style="line-height:1.55;margin-bottom:1rem">Menu → <strong>Import Dictionary (Strong's)</strong> → choose the lexicon file.</p>
+           <button type="button" id="dict-import-now" style="width:100%;min-height:52px">Import Dictionary now</button>`}
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+
+  if (!hasLex) {
+    $('#dict-import-now', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
+    return;
+  }
+
+  async function runSearch() {
+    const q = $('#dict-q', overlay).value.trim();
+    const box = $('#dict-results', overlay);
+    if (!q) { box.innerHTML = ''; return; }
+    box.innerHTML = '<p style="color:var(--text-dim)">Searching…</p>';
+    const hits = await storage.searchLexicon(q);
+    if (!hits.length) {
+      box.innerHTML = '<p style="color:var(--text-dim)">No matches.</p>';
+      return;
+    }
+    box.innerHTML = hits.map(h => `
+      <div style="padding:0.75rem 0;border-bottom:1px solid var(--border)">
+        <div style="font-weight:600;color:var(--accent)">${escapeHtml(h.id)}
+          <span style="color:var(--text);font-weight:500"> ${escapeHtml(h.lemma || '')}</span>
+          <span style="color:var(--text-dim);font-weight:400;font-size:0.9em"> ${escapeHtml(h.xlit || '')}</span>
+        </div>
+        ${h.pron ? `<div style="font-size:0.9em;color:var(--text-dim)">${escapeHtml(h.pron)}</div>` : ''}
+        <div style="margin-top:0.35rem">${escapeHtml(h.gloss || '')}</div>
+        ${h.kjv ? `<div style="margin-top:0.25rem;font-size:0.9em;color:var(--text-dim)">KJV: ${escapeHtml(h.kjv)}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  $('#dict-go', overlay).onclick = runSearch;
+  $('#dict-q', overlay).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSearch();
+  });
+  if (prefill) runSearch();
+  setTimeout(() => $('#dict-q', overlay).focus(), 100);
+}
+
+function openImportLexicon() {
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Import Dictionary</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p style="line-height:1.55;margin-bottom:0.9rem">
+        Choose the <code>strongs-lexicon.json</code> file (Strong's Hebrew &amp; Greek, public domain).
+        Import once; it stays on this device.
+      </p>
+      <div class="import-zone">
+        <p>Select strongs-lexicon.json</p>
+        <input type="file" id="lex-file" accept=".json,application/json">
+      </div>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('#lex-file', overlay).onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const json = JSON.parse(await file.text());
+      if (json.format !== 'nasb-study-lexicon' || !json.entries) {
+        throw new Error('Not a valid Strong\'s lexicon file for this app');
+      }
+      await storage.saveLexiconPack(json);
+      closeOverlay(overlay);
+      alert(`Dictionary installed: ${json.entryCount || Object.keys(json.entries).length} entries.`);
+    } catch (err) {
+      alert('Import failed: ' + (err.message || err));
+    }
+  };
+}
+
 function openHelp() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -1413,7 +1515,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.7.0</h2>
+      <h2>About – NASB Study v3.8.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1433,7 +1535,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.7.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.8.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
