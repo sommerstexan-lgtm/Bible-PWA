@@ -749,3 +749,48 @@ body.chrome-is-hidden main#main {
   font-weight: 700 !important;
   border: 1px solid #2ecc71 !important;
 }
+
+
+/* Book navigator — canonical list */
+.testament-heading {
+  margin: 1rem 0 0.45rem;
+  font-size: 0.95rem;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.book-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.2rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.book-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.book-meta {
+  font-size: 0.82em;
+  color: var(--text-dim);
+}
+.book-row.not-loaded {
+  cursor: default;
+  opacity: 0.95;
+}
+.btn-import-book {
+  flex: 0 0 auto;
+  min-height: 40px;
+  min-width: 72px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #111;
+  border: none;
+  border-radius: 8px;
+}

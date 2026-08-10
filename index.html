@@ -20,13 +20,16 @@
   </div>
   <script type="module" src="app.js"></script>
   <script>
+    // Only show this if the module itself failed to load (not runtime errors later)
     window.addEventListener('error', function (e) {
+      var boot = document.getElementById('boot-msg');
+      if (!boot) return; // app already booted — ignore later runtime errors
       if (e.filename && e.filename.indexOf('app.js') !== -1) {
         var app = document.getElementById('app');
         if (app) {
           app.innerHTML = '<div style="padding:2rem;max-width:420px;margin:2rem auto;color:#e8e8e8;background:#16213e;border-radius:12px;line-height:1.6">' +
             '<h2 style="color:#e57373">Could not load app.js</h2>' +
-            '<p>Make sure all 12 files are uploaded to the repo root, then hard-refresh.</p></div>';
+            '<p>Make sure all 12 files are uploaded to the repo root, then use Menu → Force refresh app (or hard-refresh).</p></div>';
         }
       }
     }, true);

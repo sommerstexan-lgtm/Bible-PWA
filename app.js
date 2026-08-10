@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.5.0
+/* app.js – Main application controller. NASB Study PWA v4.7.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -103,6 +103,8 @@ async function init() {
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (refreshing) return;
+        // Don't wipe the UI mid-import / mid-note
+        if (document.querySelector('.overlay')) return;
         refreshing = true;
         location.reload();
       });
@@ -171,7 +173,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.5.0</div>
+      <div class="version-bar">v4.7.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <main id="main"></main>
@@ -409,7 +411,7 @@ function installSelectionWatchers(main) {
   });
 }
 
-async function renderChapter(bookId, chapterNum) {
+async function renderChapter(bookId, chapterNum, opts = {}) {
   const book = books.find(b => b.id === bookId);
   if (!book) return;
   const ch = book.chapters.find(c => c.number === chapterNum);
@@ -510,7 +512,18 @@ async function renderChapter(bookId, chapterNum) {
   if (m) m._chromeBound = false;
   installChromeAutoHide();
 
-  main.scrollTop = 0;
+  if (opts.scrollToKey) {
+    const el = document.getElementById('v-' + String(opts.scrollToKey).replace(/\./g, '-'));
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'instant' in window ? 'instant' : 'auto' });
+    } else {
+      main.scrollTop = 0;
+    }
+  } else if (typeof opts.preserveScroll === 'number') {
+    main.scrollTop = opts.preserveScroll;
+  } else {
+    main.scrollTop = 0;
+  }
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
   updateChapterButtons();
 }
@@ -532,23 +545,49 @@ function showEmptyState() {
 
 // ---------- Navigation ----------
 async function openBookNav() {
-  const list = books.map(b => `
-    <li data-book="${b.id}">
-      <strong>${b.name}</strong>
-      <span style="color:var(--text-dim);font-size:0.9em"> (${b.testament || ''} · ${b.chapters.length} ch)</span>
-    </li>
-  `).join('');
+  const loaded = new Map(books.map(b => [b.id, b]));
+
+  function rowHtml(meta) {
+    const b = loaded.get(meta.id);
+    if (b) {
+      return `<li class="book-row loaded" data-book="${meta.id}">
+        <div class="book-row-main">
+          <strong>${escapeHtml(b.name || meta.name)}</strong>
+          <span class="book-meta">${b.chapters.length} ch · Loaded</span>
+        </div>
+      </li>`;
+    }
+    return `<li class="book-row not-loaded" data-book="${meta.id}" data-name="${escapeHtml(meta.name)}">
+      <div class="book-row-main">
+        <strong style="color:var(--text-dim)">${escapeHtml(meta.name)}</strong>
+        <span class="book-meta">Not loaded</span>
+      </div>
+      <button type="button" class="btn-import-book" data-book="${meta.id}" data-name="${escapeHtml(meta.name)}">Import</button>
+    </li>`;
+  }
+
+  const ot = bible.CANONICAL_BOOKS.filter(b => b.testament === 'OT').map(rowHtml).join('');
+  const nt = bible.CANONICAL_BOOKS.filter(b => b.testament === 'NT').map(rowHtml).join('');
 
   const overlay = showOverlay(`
     <div class="panel">
       <button class="close" type="button" aria-label="Close">×</button>
       <h2>Books</h2>
-      <ul class="nav-list" id="book-list">${list || '<li>No books imported</li>'}</ul>
+      <p style="font-size:0.88em;color:var(--text-dim);margin-bottom:0.75rem;line-height:1.45">
+        Canonical order. Tap a loaded book to open chapters. Use <strong>Import</strong> to load a JSON book file.
+      </p>
+      <div id="book-list">
+        <h3 class="testament-heading">Old Testament</h3>
+        <ul class="nav-list">${ot}</ul>
+        <h3 class="testament-heading">New Testament</h3>
+        <ul class="nav-list">${nt}</ul>
+      </div>
       <div id="chapter-area" class="hidden">
-        <h2 id="ch-title" style="margin-top:1rem"></h2>
+        <h2 id="ch-title" style="margin-top:0.5rem"></h2>
         <div class="chapter-grid" id="ch-grid"></div>
         <button type="button" id="back-to-books" style="margin-top:1rem;width:100%">← Back to books</button>
       </div>
+      <input type="file" id="nav-file-input" accept=".json,application/json" hidden>
     </div>
   `);
 
@@ -558,23 +597,65 @@ async function openBookNav() {
     $('#chapter-area', overlay).classList.add('hidden');
   };
 
-  $$('#book-list li[data-book]', overlay).forEach(li => {
-    li.onclick = () => {
-      const book = books.find(b => b.id === li.dataset.book);
-      if (!book) return;
-      $('#book-list', overlay).classList.add('hidden');
-      $('#chapter-area', overlay).classList.remove('hidden');
-      $('#ch-title', overlay).textContent = book.name + ' – Chapters';
-      const grid = $('#ch-grid', overlay);
-      grid.innerHTML = book.chapters.map(c =>
-        `<button type="button" data-ch="${c.number}">${c.number}</button>`
-      ).join('');
-      $$('button[data-ch]', grid).forEach(btn => {
-        btn.onclick = async () => {
+  function showChapters(book) {
+    $('#book-list', overlay).classList.add('hidden');
+    $('#chapter-area', overlay).classList.remove('hidden');
+    $('#ch-title', overlay).textContent = book.name + ' – Chapters';
+    const grid = $('#ch-grid', overlay);
+    grid.innerHTML = book.chapters.map(c =>
+      `<button type="button" data-ch="${c.number}">${c.number}</button>`
+    ).join('');
+    $$('button[data-ch]', grid).forEach(btn => {
+      btn.onclick = async () => {
+        closeOverlay(overlay);
+        await renderChapter(book.id, +btn.dataset.ch);
+      };
+    });
+  }
+
+  $$('#book-list li.loaded[data-book]', overlay).forEach(li => {
+    li.onclick = (e) => {
+      if (e.target.closest('button')) return;
+      const book = loaded.get(li.dataset.book);
+      if (book) showChapters(book);
+    };
+  });
+
+  const fileInput = $('#nav-file-input', overlay);
+
+  $$('#book-list .btn-import-book', overlay).forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const expectId = btn.dataset.book;
+      const expectName = btn.dataset.name;
+      fileInput.onchange = async () => {
+        const file = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        if (!file) return;
+        try {
+          const json = JSON.parse(await file.text());
+          const imported = await bible.importBookJSON(json);
+          books = await storage.getAllBooks();
+          const match = imported.find(b => b.id === expectId) ||
+            imported.find(b => (b.name || '').toLowerCase() === expectName.toLowerCase()) ||
+            imported[0];
+          if (!match) {
+            alert('Import finished, but this file did not contain ' + expectName + '.');
+            closeOverlay(overlay);
+            openBookNav();
+            return;
+          }
           closeOverlay(overlay);
-          await renderChapter(book.id, +btn.dataset.ch);
-        };
-      });
+          alert(`Loaded ${match.name} (${match.chapters.length} chapters).`);
+          currentBookId = match.id;
+          currentChapter = 1;
+          await renderChapter(currentBookId, currentChapter);
+        } catch (err) {
+          console.error(err);
+          alert('Import failed: ' + (err.message || err));
+        }
+      };
+      fileInput.click();
     };
   });
 }
@@ -1057,7 +1138,7 @@ async function openNote(key) {
       await storage.setNote(key, body);
     }
     closeOverlay(overlay);
-    if (currentBookId) await renderChapter(currentBookId, currentChapter);
+    if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
   };
 
   const unlinkThis = $('#unlink-this', overlay);
@@ -1074,7 +1155,7 @@ async function openNote(key) {
       }
       await storage.setNote(key, body);
       closeOverlay(overlay);
-      if (currentBookId) await renderChapter(currentBookId, currentChapter);
+      if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
     };
   }
 
@@ -1085,7 +1166,7 @@ async function openNote(key) {
       if (!confirm('Delete this shared note for all linked verses?')) return;
       await storage.deleteSharedNote(shared.id);
       closeOverlay(overlay);
-      if (currentBookId) await renderChapter(currentBookId, currentChapter);
+      if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
     };
   }
 
@@ -1105,22 +1186,28 @@ const STARTER_XREFS = {
 
 async function openCrossRefs(key) {
   let refs = await storage.getCrossRefs(key);
-  // merge starter if none user-defined yet
+  // merge starter if none user-defined yet (copy so we can persist deletes)
   if (!refs.length && STARTER_XREFS[key]) {
-    refs = STARTER_XREFS[key];
+    refs = STARTER_XREFS[key].map(r => ({ ...r }));
   }
 
-  const list = refs.map((r, i) => `
-    <button type="button" class="xref-item" data-target="${r.target}" data-idx="${i}">
-      ${r.label || r.target}
-    </button>
-  `).join('') || '<p style="color:var(--text-dim)">No cross-references yet.</p>';
+  function renderListHtml(items) {
+    if (!items.length) return '<p style="color:var(--text-dim)">No cross-references yet.</p>';
+    return items.map((r, i) => `
+      <div class="xref-row" style="display:flex;gap:0.4rem;margin-bottom:0.45rem;align-items:stretch">
+        <button type="button" class="xref-item" data-target="${escapeHtml(r.target)}" data-idx="${i}"
+          style="flex:1;text-align:left">${escapeHtml(r.label || r.target)}</button>
+        <button type="button" class="xref-del" data-idx="${i}" title="Delete"
+          style="flex:0 0 auto;min-width:52px;min-height:48px;background:#8b2e2e;color:#fff;font-weight:700">✕</button>
+      </div>
+    `).join('');
+  }
 
   const overlay = showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
       <h2>Cross-references</h2>
-      <div id="xref-list">${list}</div>
+      <div id="xref-list">${renderListHtml(refs)}</div>
       <hr style="border-color:var(--border);margin:1rem 0">
       <label style="display:block;margin-bottom:0.4rem">Add new (e.g. jhn.3.16 or John 3:16)</label>
       <input type="text" id="new-xref" placeholder="book.chapter.verse or Book ch:vs"
@@ -1129,16 +1216,31 @@ async function openCrossRefs(key) {
       ${navStack.length ? '<button type="button" id="xref-back" style="width:100%;margin-top:0.6rem">← Back to previous</button>' : ''}
     </div>
   `);
-  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('.close', overlay).onclick = async () => {
+    closeOverlay(overlay);
+    if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
+  };
 
-  $$('.xref-item', overlay).forEach(btn => {
-    btn.onclick = async () => {
-      // push current location for back
-      navStack.push({ bookId: currentBookId, chapter: currentChapter });
-      closeOverlay(overlay);
-      await jumpToRef(btn.dataset.target);
-    };
-  });
+  function bindList() {
+    $$('.xref-item', overlay).forEach(btn => {
+      btn.onclick = async () => {
+        navStack.push({ bookId: currentBookId, chapter: currentChapter });
+        closeOverlay(overlay);
+        await jumpToRef(btn.dataset.target);
+      };
+    });
+    $$('.xref-del', overlay).forEach(btn => {
+      btn.onclick = async () => {
+        const idx = +btn.dataset.idx;
+        if (!confirm('Delete this cross-reference?')) return;
+        refs.splice(idx, 1);
+        await storage.setCrossRefs(key, refs);
+        $('#xref-list', overlay).innerHTML = renderListHtml(refs);
+        bindList();
+      };
+    });
+  }
+  bindList();
 
   $('#add-xref', overlay).onclick = async () => {
     const raw = $('#new-xref', overlay).value.trim();
@@ -1150,9 +1252,9 @@ async function openCrossRefs(key) {
     }
     refs.push({ target: parsed.key, label: parsed.label });
     await storage.setCrossRefs(key, refs);
-    closeOverlay(overlay);
-    if (currentBookId) await renderChapter(currentBookId, currentChapter);
-    openCrossRefs(key); // refresh panel
+    $('#new-xref', overlay).value = '';
+    $('#xref-list', overlay).innerHTML = renderListHtml(refs);
+    bindList();
   };
 
   const backBtn = $('#xref-back', overlay);
@@ -1365,12 +1467,17 @@ function openImport() {
       closeOverlay(overlay);
       alert(`Imported ${imported.length} book(s) successfully.`);
       if (imported.length) {
-        currentBookId = imported[0].id;
-        currentChapter = 1;
+        // Stay on current book if still available; otherwise open first imported
+        const stillHere = currentBookId && books.find(b => b.id === currentBookId);
+        if (!stillHere) {
+          currentBookId = imported[0].id;
+          currentChapter = 1;
+        }
         await renderChapter(currentBookId, currentChapter);
       }
     } catch (err) {
-      alert('Import failed: ' + (err.message || err));
+      console.error('Import failed', err);
+      alert('Import failed: ' + (err.message || err) + '\n\nYour existing books and notes are unchanged.');
     }
   };
 }
@@ -1635,7 +1742,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.5.0</h2>
+      <h2>About – NASB Study v4.7.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1655,7 +1762,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.5.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.7.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
