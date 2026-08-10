@@ -1,12 +1,15 @@
-# NASB Study PWA – v3.6.0
+# NASB Study PWA – v3.7.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Important
-- Built-in text is **KJV sample** (Genesis 1–2), not NASB.
-- Import your legal NASB 1995 as JSON via Menu → Import Book.
-- Highlights/notes key off verse references; they remain when NASB replaces sample for the same refs.
-- v3.6 fixes iOS status-bar covering Books/Search.
+## Fix in 3.7.0
+Segment highlighting on phones: selection is no longer lost when you tap Color.
+Previously the whole verse was colored because the selection collapsed before apply.
+
+## How to color only some words
+1. Long-press and select the words
+2. Tap Color
+3. Choose color → Apply Color
 
 ## Upload
-Delete all repo files, upload all 12 from this zip, hard-refresh. Confirm version bar shows **v3.6.0**.
+Replace all 12 files in the GitHub repo, hard-refresh until version bar shows v3.7.0.

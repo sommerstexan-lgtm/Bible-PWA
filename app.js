@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.6.0
+/* app.js – Main application controller. NASB Study PWA v3.7.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -145,7 +145,7 @@ function renderShell() {
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
-    <div class="version-bar">v3.6.0</div>
+    <div class="version-bar">v3.7.0</div>
     <main id="main"></main>
   `;
 
@@ -261,7 +261,8 @@ function uniqueColors(ranges) {
   return seen;
 }
 
-let pendingSelection = null; // { key, start, end, text }
+
+let pendingSelection = null; // { key, start, end, text } — never cleared by a failed capture
 
 function getSelectionOffsets(textEl) {
   const sel = window.getSelection();
@@ -269,53 +270,42 @@ function getSelectionOffsets(textEl) {
   const range = sel.getRangeAt(0);
   if (!textEl.contains(range.commonAncestorContainer)) return null;
 
-  // Build plain text and map offsets by walking text nodes
-  const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
-  let plain = "";
-  const nodes = [];
-  while (walker.nextNode()) {
-    nodes.push({ node: walker.currentNode, start: plain.length });
-    plain += walker.currentNode.textContent;
+  // Prefer range.toString against plain textContent for reliability with highlight spans
+  try {
+    const plain = textEl.textContent || "";
+    // Build absolute offsets by measuring pre-range string length
+    const pre = range.cloneRange();
+    pre.selectNodeContents(textEl);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const start = pre.toString().length;
+    const selected = range.toString();
+    const end = start + selected.length;
+    if (end <= start || start < 0 || end > plain.length + 5) return null;
+    // Clamp to plain length (spans can add tiny mismatches)
+    const s = Math.max(0, Math.min(plain.length, start));
+    const e = Math.max(s + 1, Math.min(plain.length, end));
+    return { start: s, end: e, text: plain.slice(s, e), plainLen: plain.length };
+  } catch (err) {
+    return null;
   }
-
-  function offsetInPlain(container, offset) {
-    for (const n of nodes) {
-      if (n.node === container) return n.start + offset;
-      // if container is an element, try its text children
-    }
-    // Fallback: use toString length of a pre-range
-    try {
-      const pre = range.cloneRange();
-      pre.selectNodeContents(textEl);
-      pre.setEnd(container, offset);
-      return pre.toString().length;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  const start = offsetInPlain(range.startContainer, range.startOffset);
-  const end = offsetInPlain(range.endContainer, range.endOffset);
-  if (start == null || end == null || end <= start) return null;
-  return { start, end, text: plain.slice(start, end), plainLen: plain.length };
 }
 
 function captureSelectionFromVerse(key) {
   const verseEl = document.getElementById("v-" + key.replace(/\./g, "-"));
-  if (!verseEl) { pendingSelection = null; return null; }
+  if (!verseEl) return null;
   const textEl = verseEl.querySelector(".verse-text");
   const result = getSelectionOffsets(textEl);
-  if (!result) { pendingSelection = null; return null; }
+  if (!result) return null; // IMPORTANT: do not wipe pendingSelection on failure
   pendingSelection = { key, start: result.start, end: result.end, text: result.text };
   return pendingSelection;
 }
 
 function installSelectionWatchers(main) {
-  // Capture selection as soon as the user finishes selecting (before button tap collapses it)
+  // Save selection whenever it is non-empty. Never clear on collapse —
+  // collapse happens the instant the user taps Color on mobile.
   const save = () => {
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return;
-    // Find which verse the selection is inside
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
     let node = sel.anchorNode;
     while (node && node !== main) {
       if (node.classList && node.classList.contains("verse") && node.dataset.key) {
@@ -328,9 +318,8 @@ function installSelectionWatchers(main) {
   main.addEventListener("mouseup", save);
   main.addEventListener("touchend", save, { passive: true });
   document.addEventListener("selectionchange", () => {
-    // Debounce slightly
     clearTimeout(installSelectionWatchers._t);
-    installSelectionWatchers._t = setTimeout(save, 50);
+    installSelectionWatchers._t = setTimeout(save, 30);
   });
 }
 
@@ -403,8 +392,9 @@ async function renderChapter(bookId, chapterNum) {
     const act = btn.dataset.act;
     const key = btn.dataset.key;
 
-    // Prefer already-captured selection; fall back to live capture
-    if (!pendingSelection || pendingSelection.key !== key) {
+    // Prefer already-captured selection. Only capture live if still selected —
+    // do not clear pending when selection has already collapsed (mobile).
+    if (!(pendingSelection && pendingSelection.key === key)) {
       captureSelectionFromVerse(key);
     }
 
@@ -681,7 +671,8 @@ async function openColorPicker(key) {
   const plain = bible.getVerseText(books, bookId, chapter, verse) || "";
   let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
 
-  if (!pendingSelection || pendingSelection.key !== key) {
+  // Only try live capture if nothing is pending; never overwrite a good pending selection
+  if (!(pendingSelection && pendingSelection.key === key)) {
     captureSelectionFromVerse(key);
   }
   const sel = pendingSelection && pendingSelection.key === key ? pendingSelection : null;
@@ -1396,8 +1387,11 @@ function openHelp() {
         To use <strong>NASB 1995</strong>: prepare a JSON file of your legal text, then Menu → <strong>Import Book (JSON)</strong>.<br>
         Highlights and notes are stored by verse reference (e.g. gen.1.1). They stay when you replace sample text with NASB for the same book/chapter/verse numbers.</p>
 
-        <p style="margin-bottom:1rem"><strong>Color a few words</strong><br>
-        Long-press and select → Color → choose color → Apply Color.</p>
+        <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
+        1. Long-press the verse and drag to select only the words you want.<br>
+        2. Lift your finger (keep the selection visible a moment).<br>
+        3. Tap <strong>Color</strong> → choose color → <strong>Apply Color</strong>.<br>
+        The app remembers the selection even after the blue highlight disappears on phones.</p>
 
         <p style="margin-bottom:1rem"><strong>Shared notes</strong><br>
         Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
@@ -1419,7 +1413,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.6.0</h2>
+      <h2>About – NASB Study v3.7.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1439,7 +1433,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.6.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.7.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
