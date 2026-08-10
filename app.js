@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.9.0
+/* app.js – Main application controller. NASB Study PWA v5.0.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -173,7 +173,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.9.0</div>
+      <div class="version-bar">v5.0.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -380,104 +380,138 @@ function uniqueColors(ranges) {
 let pendingSelection = null; // { key, start, end, text } — never cleared by a failed capture
 
 /**
- * Map a DOM boundary (container + offset) to a character offset inside textEl.
- * Handles Text nodes and Element boundaries (child-index offsets), which iOS
- * often uses when the selection starts on the first word of a verse.
+ * Locate `selected` inside `plain`, preferring the occurrence nearest to approxStart.
+ * range.toString() is the source of truth for what the user highlighted.
  */
-function absoluteOffsetIn(textEl, container, offset) {
-  if (!textEl) return 0;
-  // Selection boundary is the element itself with a child index
-  if (container.nodeType === Node.ELEMENT_NODE) {
-    let abs = 0;
-    const kids = container.childNodes;
-    const limit = Math.min(offset, kids.length);
-    for (let i = 0; i < limit; i++) {
-      const k = kids[i];
-      if (textEl === k || textEl.contains(k)) {
-        abs += (k.textContent || "").length;
-      } else if (k.contains && k.contains(textEl)) {
-        // textEl is deeper inside this child — should not happen for our structure
-        return abs;
-      }
-    }
-    // If container is outside textEl, fall through to intersection logic
-    if (!textEl.contains(container) && container !== textEl) {
-      // Boundary is outside .verse-text: clamp to start or end by document order
-      const pos = container.compareDocumentPosition(textEl);
-      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return 0; // container before textEl
-      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return (textEl.textContent || "").length;
-    }
-    if (container === textEl) return abs;
-    // container is an ancestor; count text inside textEl that is before the offset child
-    return abs;
+function locateSelected(plain, selected, approxStart) {
+  if (!selected || !plain) return null;
+  const len = selected.length;
+  if (approxStart >= 0 && plain.slice(approxStart, approxStart + len) === selected) {
+    return { start: approxStart, end: approxStart + len };
   }
-
-  // Text node
-  if (container.nodeType === Node.TEXT_NODE) {
-    if (!textEl.contains(container)) {
-      const pos = container.compareDocumentPosition(textEl);
-      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return 0;
-      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return (textEl.textContent || "").length;
-      return 0;
+  let best = -1;
+  let bestDist = Infinity;
+  let from = 0;
+  while (from <= plain.length - len) {
+    const idx = plain.indexOf(selected, from);
+    if (idx < 0) break;
+    const dist = Math.abs(idx - approxStart);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = idx;
+      if (dist === 0) break;
     }
-    let abs = 0;
-    const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const n = walker.currentNode;
-      if (n === container) return abs + Math.max(0, Math.min(n.nodeValue.length, offset));
-      abs += n.nodeValue.length;
-    }
-    return abs;
+    from = idx + 1;
   }
-  return 0;
+  if (best < 0) return null;
+  return { start: best, end: best + len };
 }
 
 function getSelectionOffsets(textEl) {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount || !textEl) return null;
   const range = sel.getRangeAt(0);
-  const plain = textEl.textContent || "";
+
+  // Selection must intersect this verse's text (allow common ancestor = .verse)
+  const verseEl = textEl.closest('.verse');
+  const ancestor = range.commonAncestorContainer;
+  const insideText = textEl === ancestor || textEl.contains(ancestor);
+  const insideVerse = verseEl && (verseEl === ancestor || verseEl.contains(ancestor));
+  if (!insideText && !insideVerse) return null;
+
+  const plain = textEl.textContent || '';
   if (!plain) return null;
 
-  // Allow selection that *intersects* .verse-text (e.g. started on verse number)
-  const textRange = document.createRange();
+  // What the user actually selected — authoritative on iOS
+  let selected = '';
   try {
-    textRange.selectNodeContents(textEl);
+    selected = range.toString();
   } catch (_) {
     return null;
   }
-  // No overlap?
-  if (range.compareBoundaryPoints(Range.END_TO_START, textRange) <= 0 ||
-      range.compareBoundaryPoints(Range.START_TO_END, textRange) >= 0) {
-    return null;
-  }
+  // If selection included the verse number, strip leading number artifacts only when
+  // the match still works against plain (do not invent text)
+  if (!selected) return null;
 
+  // Estimate start offset inside .verse-text (v4.8 method, with safe fallback)
+  let approxStart = 0;
   try {
-    let start = absoluteOffsetIn(textEl, range.startContainer, range.startOffset);
-    let end = absoluteOffsetIn(textEl, range.endContainer, range.endOffset);
-
-    // Clamp selection to textEl bounds
-    start = Math.max(0, Math.min(plain.length, start));
-    end = Math.max(0, Math.min(plain.length, end));
-    if (end < start) { const t = start; start = end; end = t; }
-    if (end === start) return null;
-
-    // Sanity: selected DOM string should roughly match slice (ignore whitespace drift)
-    const slice = plain.slice(start, end);
-    return { start, end, text: slice, plainLen: plain.length };
-  } catch (err) {
-    console.warn("getSelectionOffsets failed", err);
-    return null;
+    const pre = range.cloneRange();
+    pre.selectNodeContents(textEl);
+    // If range starts before textEl, approxStart stays 0
+    const textRange = document.createRange();
+    textRange.selectNodeContents(textEl);
+    if (range.compareBoundaryPoints(Range.START_TO_START, textRange) <= 0) {
+      approxStart = 0;
+    } else {
+      try {
+        pre.setEnd(range.startContainer, range.startOffset);
+        approxStart = pre.toString().length;
+      } catch (_) {
+        // Element boundary Safari quirk: walk text nodes
+        approxStart = 0;
+        if (range.startContainer.nodeType === Node.TEXT_NODE && textEl.contains(range.startContainer)) {
+          const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const n = walker.currentNode;
+            if (n === range.startContainer) {
+              approxStart += Math.min(n.nodeValue.length, range.startOffset);
+              break;
+            }
+            approxStart += n.nodeValue.length;
+          }
+        }
+      }
+    }
+  } catch (_) {
+    approxStart = 0;
   }
+
+  approxStart = Math.max(0, Math.min(plain.length, approxStart));
+
+  // Primary path: place the selected string at/near approxStart
+  let located = locateSelected(plain, selected, approxStart);
+
+  // If selection spilled into verse-num ("5 but he…"), try without a leading "N " / "N"
+  if (!located && verseEl) {
+    const trimmed = selected.replace(/^\s*\d+\s*/, '');
+    if (trimmed && trimmed !== selected) {
+      located = locateSelected(plain, trimmed, 0);
+      selected = trimmed;
+    }
+  }
+
+  // If selected is longer than plain (grabbed multiple blocks), clamp to intersection text
+  if (!located && selected.length > plain.length) {
+    // take the portion that appears in plain
+    for (let len = plain.length; len > 0; len--) {
+      const chunk = selected.substring(0, len);
+      located = locateSelected(plain, chunk, 0);
+      if (located) {
+        selected = chunk;
+        break;
+      }
+    }
+  }
+
+  if (!located) return null;
+  if (located.end <= located.start) return null;
+
+  return {
+    start: located.start,
+    end: located.end,
+    text: plain.slice(located.start, located.end),
+    plainLen: plain.length
+  };
 }
 
 function captureSelectionFromVerse(key) {
-  const verseEl = document.getElementById("v-" + key.replace(/\./g, "-"));
+  const verseEl = document.getElementById('v-' + key.replace(/\./g, '-'));
   if (!verseEl) return null;
-  const textEl = verseEl.querySelector(".verse-text");
+  const textEl = verseEl.querySelector('.verse-text');
   if (!textEl) return null;
   const result = getSelectionOffsets(textEl);
-  if (!result) return null; // IMPORTANT: do not wipe pendingSelection on failure
+  if (!result) return null; // do not wipe pendingSelection on failure
   pendingSelection = { key, start: result.start, end: result.end, text: result.text };
   return pendingSelection;
 }
@@ -1053,15 +1087,16 @@ async function openColorPicker(key) {
     }
     const colorId = chosen.value;
 
-    // Re-check live selection one more time before applying (first-word edge cases)
-    if (!(pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)) {
-      captureSelectionFromVerse(key);
-    }
-    const useSel = (pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)
+    // Prefer pending snapshot (mobile collapses selection when tapping Color).
+    // One last live capture only if we do not already have a valid pending range.
+    let useSel = (pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)
       ? pendingSelection
       : null;
+    if (!useSel) {
+      useSel = captureSelectionFromVerse(key);
+    }
 
-    if (useSel) {
+    if (useSel && useSel.end > useSel.start) {
       const punched = [];
       for (const r of ranges) {
         if (r.end <= useSel.start || r.start >= useSel.end) {
@@ -1074,7 +1109,7 @@ async function openColorPicker(key) {
       punched.push({ color: colorId, start: useSel.start, end: useSel.end });
       ranges = punched;
     } else {
-      // Explicit whole-verse only when nothing was selected
+      // No selection → whole verse (same behavior as before v4.9)
       ranges = [{ color: colorId, start: 0, end: plain.length }];
     }
 
@@ -1855,7 +1890,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.9.0</h2>
+      <h2>About – NASB Study v5.0.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1875,7 +1910,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.9.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.0.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
