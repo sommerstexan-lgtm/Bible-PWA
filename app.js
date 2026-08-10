@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.9.0
+/* app.js – Main application controller. NASB Study PWA v4.0.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -129,24 +129,27 @@ async function init() {
 function renderShell() {
   const app = $('#app');
   app.innerHTML = `
-    <header>
-      <button type="button" id="btn-nav" title="Books & Chapters" aria-label="Navigate">☰ Books</button>
-      <div class="title" id="header-title">NASB Study</div>
-      <button type="button" id="btn-search" aria-label="Search">Search</button>
-      <button type="button" id="btn-menu" aria-label="Menu">Menu</button>
-    </header>
-    <div class="toolbar" id="toolbar">
-      <button type="button" id="btn-font-down" aria-label="Smaller text">A−</button>
-      <button type="button" id="btn-font-up" aria-label="Larger text">A+</button>
-      <button type="button" id="btn-colors" title="Color Index">Colors</button>
-      <button type="button" id="btn-review" title="Review by color">Review</button>
-      <button type="button" id="btn-help" title="Help">Help</button>
-      <button type="button" id="btn-dict" title="Dictionary">Dict</button>
-      <span class="spacer"></span>
-      <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
-      <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
+    <div id="chrome" class="chrome">
+      <header class="chrome-header">
+        <button type="button" id="btn-nav" title="Books" aria-label="Books">☰</button>
+        <div class="title" id="header-title">NASB Study</div>
+        <button type="button" id="btn-search" title="Search" aria-label="Search">Search</button>
+        <button type="button" id="btn-menu" title="Menu" aria-label="Menu">Menu</button>
+      </header>
+      <div class="toolbar" id="toolbar">
+        <button type="button" id="btn-font-down" aria-label="Smaller text">A−</button>
+        <button type="button" id="btn-font-up" aria-label="Larger text">A+</button>
+        <button type="button" id="btn-colors" title="Color Index">Colors</button>
+        <button type="button" id="btn-review" title="Review by color">Review</button>
+        <button type="button" id="btn-help" title="Help">Help</button>
+        <button type="button" id="btn-dict" title="Dictionary">Dict</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
+        <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
+      </div>
+      <div class="version-bar">v4.0.0</div>
     </div>
-    <div class="version-bar">v3.9.0</div>
+    <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <main id="main"></main>
   `;
 
@@ -159,7 +162,6 @@ function renderShell() {
   $('#btn-review').onclick = openReviewByColor;
   $('#btn-help').onclick = openHelp;
   $('#btn-dict').onclick = () => {
-    // Prefer current text selection / pending segment selection as lookup word
     let q = '';
     if (pendingSelection && pendingSelection.text) {
       q = pendingSelection.text.trim();
@@ -167,13 +169,66 @@ function renderShell() {
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) q = sel.toString().trim();
     }
-    // Use first word if multi-word selection
     if (q) q = q.split(/\s+/)[0].replace(/[^a-zA-Z'-]/g, '');
     openDictionary(q);
   };
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
+  $('#chrome-reveal').onclick = () => showChrome();
+
+  installChromeAutoHide();
 }
+
+let chromeHidden = false;
+let lastScrollTop = 0;
+
+function showChrome() {
+  const chrome = document.getElementById('chrome');
+  const reveal = document.getElementById('chrome-reveal');
+  if (!chrome) return;
+  chrome.classList.remove('chrome-hidden');
+  if (reveal) reveal.hidden = true;
+  chromeHidden = false;
+}
+
+function hideChrome() {
+  // Never hide while an overlay panel is open
+  if (document.querySelector('.overlay')) return;
+  const chrome = document.getElementById('chrome');
+  const reveal = document.getElementById('chrome-reveal');
+  if (!chrome) return;
+  chrome.classList.add('chrome-hidden');
+  if (reveal) reveal.hidden = false;
+  chromeHidden = true;
+}
+
+function installChromeAutoHide() {
+  const main = document.getElementById('main');
+  if (!main) return;
+  if (main._chromeBound) return;
+  main._chromeBound = true;
+  lastScrollTop = 0;
+
+  const onScroll = () => {
+    const st = main.scrollTop;
+    const delta = st - lastScrollTop;
+    lastScrollTop = st;
+    if (st < 20) {
+      showChrome();
+      return;
+    }
+    if (delta > 6) hideChrome();
+    else if (delta < -10) showChrome();
+  };
+  main.addEventListener('scroll', onScroll, { passive: true });
+
+  main.addEventListener('click', (e) => {
+    if (!chromeHidden) return;
+    if (e.target.closest('button, a, input, textarea, .hl, .verse-actions')) return;
+    showChrome();
+  });
+}
+
 
 async function changeFont(delta) {
   settings.fontSize = Math.max(0.95, Math.min(2.4, +(settings.fontSize + delta).toFixed(2)));
@@ -419,6 +474,10 @@ async function renderChapter(bookId, chapterNum) {
   };
 
   installSelectionWatchers(main);
+  // Re-enable chrome auto-hide on the (possibly new) main content
+  const m = document.getElementById('main');
+  if (m) m._chromeBound = false;
+  installChromeAutoHide();
 
   main.scrollTop = 0;
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
@@ -1527,7 +1586,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.9.0</h2>
+      <h2>About – NASB Study v4.0.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1547,7 +1606,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.9.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.0.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -1,13 +1,15 @@
-# NASB Study PWA – v3.9.0
+# NASB Study PWA – v4.0.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Dictionary lookup
-1. Select a word in the verse (e.g. "rested")
-2. Tap **Dict**
-3. Search box is filled — tap **Search**
+## Layout
+- Compact single-line header (title truncates instead of stacking)
+- Toolbar scrolls horizontally on small screens
 
-Or open Dict and type any word / Strong's number (H1, G26).
+## Reading chrome
+- Scroll down in the chapter → controls hide
+- Tap the verse area or **Controls** button → controls return
+- Scroll near the top → controls return
 
 ## Upload
-Replace all 12 files on GitHub; hard-refresh until v3.9.0.
+Replace all 12 files on GitHub; hard-refresh until v4.0.0.

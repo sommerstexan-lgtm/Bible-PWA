@@ -114,9 +114,10 @@ header button:active, .toolbar button:active {
 .toolbar .spacer { flex: 1; }
 
 /* Main reading area — must scroll independently */
-main {
-  flex: 1 1 auto;
-  min-height: 0; /* critical for flex child scrolling */
+main#main {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 0; /* forces flex child to take remaining space and scroll */
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 1rem 1.1rem 4rem;
@@ -627,4 +628,104 @@ header button:disabled {
 }
 header {
   padding-top: 0.55rem;
+}
+
+
+/* ===== v4.0 compact chrome + auto-hide ===== */
+.chrome {
+  flex-shrink: 0;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  z-index: 30;
+  transition: transform 0.2s ease, opacity 0.2s ease, max-height 0.2s ease;
+  max-height: 200px;
+  overflow: hidden;
+}
+.chrome.chrome-hidden {
+  max-height: 0 !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  border-bottom: none !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.chrome-header {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-alt);
+}
+.chrome-header .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.98rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  text-align: center;
+}
+.chrome-header button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.88rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.3rem;
+  padding: 0.35rem 0.5rem 0.45rem;
+  align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.toolbar::-webkit-scrollbar { display: none; }
+.toolbar button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.88rem;
+}
+.toolbar .spacer { flex: 1 1 auto; min-width: 0.4rem; }
+
+.version-bar {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  padding: 0.1rem 0 0.25rem;
+  background: var(--bg-alt);
+}
+
+.chrome-reveal {
+  flex-shrink: 0;
+  align-self: center;
+  margin: 0.35rem auto;
+  min-height: 36px;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--btn);
+  color: var(--text);
+  z-index: 25;
+}
+.chrome-reveal[hidden] {
+  display: none !important;
+}
+
+/* Kill old multi-wrap header rules that fight compact layout */
+header {
+  flex-wrap: nowrap !important;
 }
