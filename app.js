@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.3.0
+/* app.js – Main application controller. KJV Study PWA v5.4.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.3.0</div>
+      <div class="version-bar">v5.4.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -677,20 +677,21 @@ function showEmptyState() {
 }
 
 // ---------- Navigation ----------
+
 async function openBookNav() {
   const loaded = new Map(books.map(b => [b.id, b]));
 
   function rowHtml(meta) {
     const b = loaded.get(meta.id);
     if (b) {
-      return `<li class="book-row loaded" data-book="${meta.id}">
+      return `<li class="book-row loaded" data-book="${meta.id}" data-name="${escapeHtml((b.name || meta.name).toLowerCase())}" data-id="${meta.id}">
         <div class="book-row-main">
           <strong>${escapeHtml(b.name || meta.name)}</strong>
           <span class="book-meta">${b.chapters.length} ch · Loaded</span>
         </div>
       </li>`;
     }
-    return `<li class="book-row not-loaded" data-book="${meta.id}" data-name="${escapeHtml(meta.name)}">
+    return `<li class="book-row not-loaded" data-book="${meta.id}" data-name="${escapeHtml(meta.name.toLowerCase())}" data-id="${meta.id}">
       <div class="book-row-main">
         <strong style="color:var(--text-dim)">${escapeHtml(meta.name)}</strong>
         <span class="book-meta">Not loaded</span>
@@ -706,14 +707,18 @@ async function openBookNav() {
     <div class="panel">
       <button class="close" type="button" aria-label="Close">×</button>
       <h2>Books</h2>
-      <p style="font-size:0.88em;color:var(--text-dim);margin-bottom:0.75rem;line-height:1.45">
+      <input type="search" id="book-search" placeholder="Search books (e.g. gen, matthew, 1 cor)…"
+        style="width:100%;padding:0.7rem 0.85rem;font-size:1.05rem;border-radius:8px;border:1px solid var(--border);
+               background:var(--bg);color:var(--text);margin-bottom:0.75rem;min-height:48px;box-sizing:border-box"
+        autocomplete="off" enterkeyhint="search">
+      <p id="book-search-hint" style="font-size:0.88em;color:var(--text-dim);margin-bottom:0.75rem;line-height:1.45">
         Canonical order. Tap a loaded book to open chapters. Use <strong>Import</strong> to load a JSON book file.
       </p>
       <div id="book-list">
-        <h3 class="testament-heading">Old Testament</h3>
-        <ul class="nav-list">${ot}</ul>
-        <h3 class="testament-heading">New Testament</h3>
-        <ul class="nav-list">${nt}</ul>
+        <h3 class="testament-heading" data-test="OT">Old Testament</h3>
+        <ul class="nav-list" data-test="OT">${ot}</ul>
+        <h3 class="testament-heading" data-test="NT">New Testament</h3>
+        <ul class="nav-list" data-test="NT">${nt}</ul>
       </div>
       <div id="chapter-area" class="hidden">
         <h2 id="ch-title" style="margin-top:0.5rem"></h2>
@@ -728,11 +733,156 @@ async function openBookNav() {
   $('#back-to-books', overlay).onclick = () => {
     $('#book-list', overlay).classList.remove('hidden');
     $('#chapter-area', overlay).classList.add('hidden');
+    // restore search visibility
+    const s = $('#book-search', overlay);
+    if (s) s.style.display = '';
+    const h = $('#book-search-hint', overlay);
+    if (h) h.style.display = '';
   };
+
+  // --- Smart book search ---
+  const searchInput = $('#book-search', overlay);
+  const hintEl = $('#book-search-hint', overlay);
+
+  function normalize(s) {
+    return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  // Common abbreviations / aliases for smarter matching
+  const ALIASES = {
+    gen: 'genesis', ge: 'genesis', gn: 'genesis',
+    ex: 'exodus', exo: 'exodus',
+    lev: 'leviticus', le: 'leviticus',
+    num: 'numbers', nu: 'numbers',
+    deu: 'deuteronomy', deut: 'deuteronomy', dt: 'deuteronomy',
+    jos: 'joshua', josh: 'joshua',
+    jdg: 'judges', judg: 'judges', ju: 'judges',
+    rut: 'ruth', ru: 'ruth',
+    '1sa': '1samuel', '1sam': '1samuel', '1s': '1samuel',
+    '2sa': '2samuel', '2sam': '2samuel', '2s': '2samuel',
+    '1ki': '1kings', '1k': '1kings', '1kg': '1kings',
+    '2ki': '2kings', '2k': '2kings', '2kg': '2kings',
+    '1ch': '1chronicles', '1chr': '1chronicles',
+    '2ch': '2chronicles', '2chr': '2chronicles',
+    ezr: 'ezra', ez: 'ezra',
+    neh: 'nehemiah', ne: 'nehemiah',
+    est: 'esther', es: 'esther',
+    job: 'job',
+    psa: 'psalms', ps: 'psalms', psalm: 'psalms',
+    pro: 'proverbs', pr: 'proverbs', prov: 'proverbs',
+    ecc: 'ecclesiastes', ec: 'ecclesiastes', eocl: 'ecclesiastes',
+    sng: 'songofsolomon', song: 'songofsolomon', sos: 'songofsolomon', cant: 'songofsolomon',
+    isa: 'isaiah', is: 'isaiah',
+    jer: 'jeremiah', je: 'jeremiah',
+    lam: 'lamentations', la: 'lamentations',
+    eze: 'ezekiel', ezk: 'ezekiel', ezek: 'ezekiel',
+    dan: 'daniel', da: 'daniel',
+    hos: 'hosea', ho: 'hosea',
+    joe: 'joel', jol: 'joel',
+    amo: 'amos', am: 'amos',
+    oba: 'obadiah', ob: 'obadiah',
+    jon: 'jonah',
+    mic: 'micah',
+    nah: 'nahum', na: 'nahum',
+    hab: 'habakkuk',
+    zep: 'zephaniah', zepn: 'zephaniah',
+    hag: 'haggai',
+    zec: 'zechariah', zech: 'zechariah',
+    mal: 'malachi',
+    mat: 'matthew', mt: 'matthew', matt: 'matthew',
+    mrk: 'mark', mk: 'mark',
+    luk: 'luke', lk: 'luke',
+    jhn: 'john', jn: 'john', joh: 'john',
+    act: 'acts', ac: 'acts',
+    rom: 'romans', ro: 'romans',
+    '1co': '1corinthians', '1cor': '1corinthians', '1c': '1corinthians',
+    '2co': '2corinthians', '2cor': '2corinthians', '2c': '2corinthians',
+    gal: 'galatians', ga: 'galatians',
+    eph: 'ephesians',
+    php: 'philippians', phil: 'philippians',
+    col: 'colossians',
+    '1th': '1thessalonians', '1thess': '1thessalonians', '1thes': '1thessalonians',
+    '2th': '2thessalonians', '2thess': '2thessalonians', '2thes': '2thessalonians',
+    '1ti': '1timothy', '1tim': '1timothy',
+    '2ti': '2timothy', '2tim': '2timothy',
+    tit: 'titus',
+    phm: 'philemon', phlm: 'philemon',
+    heb: 'hebrews',
+    jas: 'james', jam: 'james',
+    '1pe': '1peter', '1pet': '1peter', '1p': '1peter',
+    '2pe': '2peter', '2pet': '2peter', '2p': '2peter',
+    '1jn': '1john', '1j': '1john', '1jo': '1john',
+    '2jn': '2john', '2j': '2john', '2jo': '2john',
+    '3jn': '3john', '3j': '3john', '3jo': '3john',
+    jud: 'jude',
+    rev: 'revelation', re: 'revelation', revn: 'revelation'
+  };
+
+  function bookMatches(q, name, id) {
+    if (!q) return true;
+    const nq = normalize(q);
+    const nname = normalize(name);
+    const nid = normalize(id);
+    if (nname.includes(nq) || nid.includes(nq) || nname.startsWith(nq) || nid.startsWith(nq)) return true;
+    // alias expansion
+    const expanded = ALIASES[nq] || ALIASES[q.toLowerCase().trim()];
+    if (expanded && (nname.includes(expanded) || nname === expanded || nid === nq)) return true;
+    // also try stripping leading numbers for "1 corinthians" style
+    const stripped = nq.replace(/^[123]/, '');
+    if (stripped.length >= 2 && (nname.includes(stripped) || nid.includes(stripped))) return true;
+    return false;
+  }
+
+  function applyBookFilter() {
+    const q = (searchInput.value || '').trim();
+    const rows = $$('#book-list li.book-row', overlay);
+    let visibleOT = 0, visibleNT = 0;
+    rows.forEach(li => {
+      const name = li.dataset.name || '';
+      const id = li.dataset.id || li.dataset.book || '';
+      const match = bookMatches(q, name, id);
+      li.style.display = match ? '' : 'none';
+      if (match) {
+        // determine testament from parent ul
+        const ul = li.closest('ul.nav-list');
+        if (ul && ul.dataset.test === 'OT') visibleOT++;
+        if (ul && ul.dataset.test === 'NT') visibleNT++;
+      }
+    });
+    // Hide empty testament headings
+    $$('.testament-heading', overlay).forEach(h => {
+      const t = h.dataset.test;
+      if (t === 'OT') h.style.display = visibleOT ? '' : 'none';
+      if (t === 'NT') h.style.display = visibleNT ? '' : 'none';
+    });
+    if (hintEl) {
+      if (q) {
+        const total = visibleOT + visibleNT;
+        hintEl.textContent = total === 0
+          ? 'No books match “' + q + '”.'
+          : total + ' book' + (total === 1 ? '' : 's') + ' match.';
+      } else {
+        hintEl.innerHTML = 'Canonical order. Tap a loaded book to open chapters. Use <strong>Import</strong> to load a JSON book file.';
+      }
+    }
+  }
+
+  searchInput.addEventListener('input', applyBookFilter);
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      applyBookFilter();
+      searchInput.blur();
+    }
+  });
+  // Auto-focus search on open for quick typing (desktop + many mobile keyboards)
+  setTimeout(() => { try { searchInput.focus(); } catch (_) {} }, 80);
 
   function showChapters(book) {
     $('#book-list', overlay).classList.add('hidden');
     $('#chapter-area', overlay).classList.remove('hidden');
+    if (searchInput) searchInput.style.display = 'none';
+    if (hintEl) hintEl.style.display = 'none';
     $('#ch-title', overlay).textContent = book.name + ' – Chapters';
     const grid = $('#ch-grid', overlay);
     grid.innerHTML = book.chapters.map(c =>
@@ -778,11 +928,9 @@ async function openBookNav() {
             openBookNav();
             return;
           }
+          alert('Imported ' + (match.name || expectName) + ' successfully.');
           closeOverlay(overlay);
-          alert(`Loaded ${match.name} (${match.chapters.length} chapters).`);
-          currentBookId = match.id;
-          currentChapter = 1;
-          await renderChapter(currentBookId, currentChapter);
+          openBookNav();
         } catch (err) {
           console.error(err);
           alert('Import failed: ' + (err.message || err));
@@ -793,7 +941,7 @@ async function openBookNav() {
   });
 }
 
-// ---------- Color Index ----------
+
 function openColorIndex() {
   const items = analyze.allColors().map(c => `
     <li data-color="${c.id}">
@@ -1862,6 +2010,7 @@ const COMMENTARY_SOURCES = [
   { id: "tyndale", label: "Tyndale Open Study Notes", short: "Tyndale" }
 ];
 
+
 async function openResearch() {
   if (!currentBookId || !currentChapter) {
     alert("Open a chapter first, then use Research.");
@@ -1872,6 +2021,29 @@ async function openResearch() {
   const bookName = bookMeta ? bookMeta.name : currentBookId;
 
   let preferred = localStorage.getItem("kjv-research-source") || "tyndale";
+
+  // Scroll memory: key = sourceId:bookId:chapter  →  scrollTop number
+  function scrollKey(src) {
+    return `${src}:${currentBookId}:${currentChapter}`;
+  }
+  function loadScrollMap() {
+    try {
+      return JSON.parse(localStorage.getItem("kjv-research-scroll") || "{}") || {};
+    } catch (_) { return {}; }
+  }
+  function saveScrollPos(src, top) {
+    const map = loadScrollMap();
+    map[scrollKey(src)] = Math.max(0, Math.round(top || 0));
+    // Keep map from growing forever – prune to last ~80 entries
+    const keys = Object.keys(map);
+    if (keys.length > 80) {
+      keys.slice(0, keys.length - 80).forEach(k => delete map[k]);
+    }
+    try { localStorage.setItem("kjv-research-scroll", JSON.stringify(map)); } catch (_) {}
+  }
+  function getSavedScroll(src) {
+    return loadScrollMap()[scrollKey(src)] || 0;
+  }
 
   const overlay = showOverlay(`
     <div class="panel" style="max-width:720px">
@@ -1891,19 +2063,39 @@ async function openResearch() {
       <div id="research-body" style="line-height:1.55;max-height:60vh;overflow:auto"></div>
       <p style="margin-top:0.8rem;font-size:0.78em;color:var(--text-dim)">
         Sources: public-domain / CC via <a href="https://bible.helloao.org" target="_blank" rel="noopener" style="color:var(--accent)">bible.helloao.org</a>.
-        Chapters are cached on this device after first load.
+        Chapters are cached on this device after first load. Your place in the notes is remembered.
       </p>
     </div>
   `);
-  $(".close", overlay).onclick = () => closeOverlay(overlay);
 
   const statusEl = $("#research-status", overlay);
   const bodyEl = $("#research-body", overlay);
+  let activeSource = preferred;
+  let scrollTimer = null;
+
+  function persistCurrentScroll() {
+    if (bodyEl) saveScrollPos(activeSource, bodyEl.scrollTop);
+  }
+
+  // Save scroll while reading (throttled)
+  bodyEl.addEventListener("scroll", () => {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(persistCurrentScroll, 120);
+  }, { passive: true });
+
+  // Also save when the overlay is closed
+  $(".close", overlay).onclick = () => {
+    persistCurrentScroll();
+    closeOverlay(overlay);
+  };
 
   async function loadSource(sourceId) {
+    // Save previous source's scroll before switching
+    persistCurrentScroll();
+    activeSource = sourceId;
     preferred = sourceId;
     localStorage.setItem("kjv-research-source", sourceId);
-    // Update button styles
+
     overlay.querySelectorAll(".research-src").forEach(btn => {
       const active = btn.dataset.id === sourceId;
       btn.style.background = active ? "var(--accent)" : "var(--bg)";
@@ -1938,7 +2130,6 @@ async function openResearch() {
           throw new Error(`HTTP ${resp.status}`);
         }
         data = await resp.json();
-        // Cache it
         try {
           await storage.saveCachedCommentary(cacheKey, { payload: data, sourceId, book: apiBook, chapter: currentChapter });
         } catch (e) {
@@ -1947,13 +2138,12 @@ async function openResearch() {
       } catch (err) {
         console.error(err);
         statusEl.textContent = "Could not load commentary.";
-        bodyEl.innerHTML = `<p style="color:var(--danger)">Network error or offline. ${fromCache ? "" : "Connect once to download this chapter, then it will work offline."}</p>
+        bodyEl.innerHTML = `<p style="color:var(--danger)">Network error or offline. Connect once to download this chapter, then it will work offline.</p>
           <p style="font-size:0.9em;color:var(--text-dim)">${escapeHtml(String(err.message || err))}</p>`;
         return;
       }
     }
 
-    // Render
     const srcLabel = (COMMENTARY_SOURCES.find(s => s.id === sourceId) || {}).label || sourceId;
     statusEl.textContent = fromCache
       ? `${srcLabel} · cached on this device`
@@ -1976,14 +2166,20 @@ async function openResearch() {
         const num = v.number;
         const notes = Array.isArray(v.content) ? v.content : (v.content ? [v.content] : []);
         if (!notes.length) continue;
-        const isCurrent = false; // could highlight if we track selected verse
-        html += `<div style="margin-bottom:1rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border)">
+        html += `<div class="research-verse" data-verse="${num}" style="margin-bottom:1rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border)">
           <div style="font-weight:700;margin-bottom:0.3rem;color:var(--accent)">Verse ${escapeHtml(String(num))}</div>
           ${notes.map(n => `<div style="margin-bottom:0.45rem;white-space:pre-wrap">${escapeHtml(String(n))}</div>`).join("")}
         </div>`;
       }
     }
     bodyEl.innerHTML = html || `<p style="color:var(--text-dim)">No content.</p>`;
+
+    // Restore previous scroll position for this source/chapter
+    const saved = getSavedScroll(sourceId);
+    // Use rAF so layout is complete before scrolling
+    requestAnimationFrame(() => {
+      bodyEl.scrollTop = saved;
+    });
   }
 
   overlay.querySelectorAll(".research-src").forEach(btn => {
@@ -1993,7 +2189,6 @@ async function openResearch() {
   // Initial load
   loadSource(preferred);
 }
-
 
 function openHelp() {
   const overlay = showOverlay(`
@@ -2027,7 +2222,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.3.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.4.0</p>
       </div>
     </div>
   `);
@@ -2038,7 +2233,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.3.0</h2>
+      <h2>About – KJV Study v5.4.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2062,7 +2257,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.3.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.4.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

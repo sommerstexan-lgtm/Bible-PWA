@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v5.3.0 */
+/* bible.js – Book loading, navigation helpers, search. v5.4.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 

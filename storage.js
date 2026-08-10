@@ -1,4 +1,4 @@
-/* storage.js – IndexedDB wrapper for all private data. v5.3.0
+/* storage.js – IndexedDB wrapper for all private data. v5.4.0
    Everything stays on-device. No network calls.
 */
 
