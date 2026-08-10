@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.4.0
+/* app.js – Main application controller. NASB Study PWA v4.5.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -171,7 +171,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.4.0</div>
+      <div class="version-bar">v4.5.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <main id="main"></main>
@@ -427,8 +427,20 @@ async function renderChapter(bookId, chapterNum) {
 
   const keys = ch.verses.map(v => bible.verseKey(bookId, chapterNum, v.number));
   const highlightMap = {};
+  const noteMap = {};
+  const xrefMap = {};
   await Promise.all(keys.map(async (k) => {
-    highlightMap[k] = await storage.getHighlights(k);
+    const [hl, note, xrefs, shared] = await Promise.all([
+      storage.getHighlights(k),
+      storage.getNote(k),
+      storage.getCrossRefs(k),
+      storage.findSharedNoteForVerse(k)
+    ]);
+    highlightMap[k] = hl;
+    const hasPrivate = !!(note && String(note).trim());
+    const hasShared = !!(shared && shared.body && String(shared.body).trim());
+    noteMap[k] = hasPrivate || hasShared;
+    xrefMap[k] = Array.isArray(xrefs) && xrefs.length > 0;
   }));
 
   for (const v of ch.verses) {
@@ -456,6 +468,8 @@ async function renderChapter(bookId, chapterNum) {
     }).join('');
 
     const coloredText = buildColoredHtml(v.text, ranges);
+    const noteCls = noteMap[key] ? ' has-content' : '';
+    const xrefCls = xrefMap[key] ? ' has-content' : '';
 
     verseEl.innerHTML = `
       <span class="verse-num">${v.number}</span>
@@ -464,8 +478,8 @@ async function renderChapter(bookId, chapterNum) {
       <div class="verse-actions">
         <button type="button" data-act="analyze" data-key="${key}">Analyze</button>
         <button type="button" data-act="color" data-key="${key}">Color</button>
-        <button type="button" data-act="note" data-key="${key}">Note</button>
-        <button type="button" data-act="xref" data-key="${key}">Cross-refs</button>
+        <button type="button" data-act="note" data-key="${key}" class="${noteCls.trim()}">Note</button>
+        <button type="button" data-act="xref" data-key="${key}" class="${xrefCls.trim()}">Cross-refs</button>
       </div>
     `;
     main.appendChild(verseEl);
@@ -1043,6 +1057,7 @@ async function openNote(key) {
       await storage.setNote(key, body);
     }
     closeOverlay(overlay);
+    if (currentBookId) await renderChapter(currentBookId, currentChapter);
   };
 
   const unlinkThis = $('#unlink-this', overlay);
@@ -1059,6 +1074,7 @@ async function openNote(key) {
       }
       await storage.setNote(key, body);
       closeOverlay(overlay);
+      if (currentBookId) await renderChapter(currentBookId, currentChapter);
     };
   }
 
@@ -1069,6 +1085,7 @@ async function openNote(key) {
       if (!confirm('Delete this shared note for all linked verses?')) return;
       await storage.deleteSharedNote(shared.id);
       closeOverlay(overlay);
+      if (currentBookId) await renderChapter(currentBookId, currentChapter);
     };
   }
 
@@ -1134,7 +1151,8 @@ async function openCrossRefs(key) {
     refs.push({ target: parsed.key, label: parsed.label });
     await storage.setCrossRefs(key, refs);
     closeOverlay(overlay);
-    openCrossRefs(key); // refresh
+    if (currentBookId) await renderChapter(currentBookId, currentChapter);
+    openCrossRefs(key); // refresh panel
   };
 
   const backBtn = $('#xref-back', overlay);
@@ -1617,7 +1635,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.4.0</h2>
+      <h2>About – NASB Study v4.5.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1637,7 +1655,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.4.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.5.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

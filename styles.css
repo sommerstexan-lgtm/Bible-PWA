@@ -740,3 +740,12 @@ header {
 body.chrome-is-hidden main#main {
   padding-top: calc(env(safe-area-inset-top, 0px) + 2.4rem);
 }
+
+
+/* Verse action indicators: note / cross-ref present */
+.verse-actions button.has-content {
+  background: #1b7a3d !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border: 1px solid #2ecc71 !important;
+}
