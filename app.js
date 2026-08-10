@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.8.0
+/* app.js – Main application controller. NASB Study PWA v4.9.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -173,7 +173,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.8.0</div>
+      <div class="version-bar">v4.9.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -379,28 +379,94 @@ function uniqueColors(ranges) {
 
 let pendingSelection = null; // { key, start, end, text } — never cleared by a failed capture
 
+/**
+ * Map a DOM boundary (container + offset) to a character offset inside textEl.
+ * Handles Text nodes and Element boundaries (child-index offsets), which iOS
+ * often uses when the selection starts on the first word of a verse.
+ */
+function absoluteOffsetIn(textEl, container, offset) {
+  if (!textEl) return 0;
+  // Selection boundary is the element itself with a child index
+  if (container.nodeType === Node.ELEMENT_NODE) {
+    let abs = 0;
+    const kids = container.childNodes;
+    const limit = Math.min(offset, kids.length);
+    for (let i = 0; i < limit; i++) {
+      const k = kids[i];
+      if (textEl === k || textEl.contains(k)) {
+        abs += (k.textContent || "").length;
+      } else if (k.contains && k.contains(textEl)) {
+        // textEl is deeper inside this child — should not happen for our structure
+        return abs;
+      }
+    }
+    // If container is outside textEl, fall through to intersection logic
+    if (!textEl.contains(container) && container !== textEl) {
+      // Boundary is outside .verse-text: clamp to start or end by document order
+      const pos = container.compareDocumentPosition(textEl);
+      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return 0; // container before textEl
+      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return (textEl.textContent || "").length;
+    }
+    if (container === textEl) return abs;
+    // container is an ancestor; count text inside textEl that is before the offset child
+    return abs;
+  }
+
+  // Text node
+  if (container.nodeType === Node.TEXT_NODE) {
+    if (!textEl.contains(container)) {
+      const pos = container.compareDocumentPosition(textEl);
+      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return 0;
+      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return (textEl.textContent || "").length;
+      return 0;
+    }
+    let abs = 0;
+    const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const n = walker.currentNode;
+      if (n === container) return abs + Math.max(0, Math.min(n.nodeValue.length, offset));
+      abs += n.nodeValue.length;
+    }
+    return abs;
+  }
+  return 0;
+}
+
 function getSelectionOffsets(textEl) {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount || !textEl) return null;
   const range = sel.getRangeAt(0);
-  if (!textEl.contains(range.commonAncestorContainer)) return null;
+  const plain = textEl.textContent || "";
+  if (!plain) return null;
 
-  // Prefer range.toString against plain textContent for reliability with highlight spans
+  // Allow selection that *intersects* .verse-text (e.g. started on verse number)
+  const textRange = document.createRange();
   try {
-    const plain = textEl.textContent || "";
-    // Build absolute offsets by measuring pre-range string length
-    const pre = range.cloneRange();
-    pre.selectNodeContents(textEl);
-    pre.setEnd(range.startContainer, range.startOffset);
-    const start = pre.toString().length;
-    const selected = range.toString();
-    const end = start + selected.length;
-    if (end <= start || start < 0 || end > plain.length + 5) return null;
-    // Clamp to plain length (spans can add tiny mismatches)
-    const s = Math.max(0, Math.min(plain.length, start));
-    const e = Math.max(s + 1, Math.min(plain.length, end));
-    return { start: s, end: e, text: plain.slice(s, e), plainLen: plain.length };
+    textRange.selectNodeContents(textEl);
+  } catch (_) {
+    return null;
+  }
+  // No overlap?
+  if (range.compareBoundaryPoints(Range.END_TO_START, textRange) <= 0 ||
+      range.compareBoundaryPoints(Range.START_TO_END, textRange) >= 0) {
+    return null;
+  }
+
+  try {
+    let start = absoluteOffsetIn(textEl, range.startContainer, range.startOffset);
+    let end = absoluteOffsetIn(textEl, range.endContainer, range.endOffset);
+
+    // Clamp selection to textEl bounds
+    start = Math.max(0, Math.min(plain.length, start));
+    end = Math.max(0, Math.min(plain.length, end));
+    if (end < start) { const t = start; start = end; end = t; }
+    if (end === start) return null;
+
+    // Sanity: selected DOM string should roughly match slice (ignore whitespace drift)
+    const slice = plain.slice(start, end);
+    return { start, end, text: slice, plainLen: plain.length };
   } catch (err) {
+    console.warn("getSelectionOffsets failed", err);
     return null;
   }
 }
@@ -409,6 +475,7 @@ function captureSelectionFromVerse(key) {
   const verseEl = document.getElementById("v-" + key.replace(/\./g, "-"));
   if (!verseEl) return null;
   const textEl = verseEl.querySelector(".verse-text");
+  if (!textEl) return null;
   const result = getSelectionOffsets(textEl);
   if (!result) return null; // IMPORTANT: do not wipe pendingSelection on failure
   pendingSelection = { key, start: result.start, end: result.end, text: result.text };
@@ -986,31 +1053,35 @@ async function openColorPicker(key) {
     }
     const colorId = chosen.value;
 
-    if (sel) {
-      // Remove overlapping parts first, then add the new range
+    // Re-check live selection one more time before applying (first-word edge cases)
+    if (!(pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)) {
+      captureSelectionFromVerse(key);
+    }
+    const useSel = (pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)
+      ? pendingSelection
+      : null;
+
+    if (useSel) {
       const punched = [];
       for (const r of ranges) {
-        if (r.end <= sel.start || r.start >= sel.end) {
+        if (r.end <= useSel.start || r.start >= useSel.end) {
           punched.push(r);
         } else {
-          if (r.start < sel.start) punched.push({ color: r.color, start: r.start, end: sel.start });
-          if (r.end > sel.end) punched.push({ color: r.color, start: sel.end, end: r.end });
+          if (r.start < useSel.start) punched.push({ color: r.color, start: r.start, end: useSel.start });
+          if (r.end > useSel.end) punched.push({ color: r.color, start: useSel.end, end: r.end });
         }
       }
-      punched.push({ color: colorId, start: sel.start, end: sel.end });
+      punched.push({ color: colorId, start: useSel.start, end: useSel.end });
       ranges = punched;
     } else {
+      // Explicit whole-verse only when nothing was selected
       ranges = [{ color: colorId, start: 0, end: plain.length }];
     }
 
     await storage.setHighlights(key, ranges);
     pendingSelection = null;
     closeOverlay(overlay);
-    await renderChapter(currentBookId, currentChapter);
-    setTimeout(() => {
-      const t = document.getElementById("v-" + key.replace(/\./g, "-"));
-      if (t) t.scrollIntoView({ block: "center" });
-    }, 80);
+    await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
   };
 }
 
@@ -1784,7 +1855,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.8.0</h2>
+      <h2>About – NASB Study v4.9.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1804,7 +1875,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.8.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.9.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

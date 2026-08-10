@@ -824,3 +824,18 @@ body.chrome-is-hidden main#main {
 .chrome-reveal {
   /* already fixed center */
 }
+
+
+/* Keep verse numbers out of text selection so first-word select stays accurate */
+.verse-num {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.verse-actions, .color-chips {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.verse-text {
+  -webkit-user-select: text;
+  user-select: text;
+}
