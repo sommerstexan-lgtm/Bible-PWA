@@ -1,9 +1,9 @@
-/* storage.js – IndexedDB wrapper for all private data. v5.2.0
+/* storage.js – IndexedDB wrapper for all private data. v5.3.0
    Everything stays on-device. No network calls.
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let db = null;
 
@@ -39,6 +39,9 @@ export function openDB() {
       }
       if (!database.objectStoreNames.contains('lexicon')) {
         database.createObjectStore('lexicon', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('commentaryCache')) {
+        database.createObjectStore('commentaryCache', { keyPath: 'key' });
       }
     };
     req.onsuccess = (e) => {
@@ -347,6 +350,26 @@ export async function searchLexicon(query) {
     }
   }
   return results;
+}
+
+
+/* ----- Commentary cache (Adam Clarke / Tyndale from bible.helloao.org) ----- */
+export async function getCachedCommentary(key) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('commentaryCache').get(key);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function saveCachedCommentary(key, data) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('commentaryCache', 'readwrite').put({ key, ...data, cachedAt: new Date().toISOString() });
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
 }
 
 /* ----- Export / Import all personal data ----- */

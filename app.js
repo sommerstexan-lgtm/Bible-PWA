@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.2.0
+/* app.js – Main application controller. KJV Study PWA v5.3.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -170,11 +170,12 @@ function renderShell() {
         <button type="button" id="btn-review" title="Review by color">Review</button>
         <button type="button" id="btn-help" title="Help">Help</button>
         <button type="button" id="btn-dict" title="Dictionary">Dict</button>
+        <button type="button" id="btn-research" title="Commentary / Research">Research</button>
         <span class="spacer"></span>
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.2.0</div>
+      <div class="version-bar">v5.3.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -200,6 +201,7 @@ function renderShell() {
     if (q) q = q.split(/\s+/)[0].replace(/[^a-zA-Z'-]/g, '');
     openDictionary(q);
   };
+  $('#btn-research').onclick = () => openResearch();
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
   $('#chrome-reveal').onclick = () => showChrome();
@@ -1853,6 +1855,146 @@ function openImportLexicon() {
   };
 }
 
+
+// ---------- Research / Commentary (bible.helloao.org – Adam Clarke + Tyndale) ----------
+const COMMENTARY_SOURCES = [
+  { id: "adam-clarke", label: "Adam Clarke", short: "Clarke" },
+  { id: "tyndale", label: "Tyndale Open Study Notes", short: "Tyndale" }
+];
+
+async function openResearch() {
+  if (!currentBookId || !currentChapter) {
+    alert("Open a chapter first, then use Research.");
+    return;
+  }
+  const apiBook = bible.toApiBookCode(currentBookId);
+  const bookMeta = bible.CANONICAL_BOOKS.find(b => b.id === currentBookId);
+  const bookName = bookMeta ? bookMeta.name : currentBookId;
+
+  let preferred = localStorage.getItem("kjv-research-source") || "tyndale";
+
+  const overlay = showOverlay(`
+    <div class="panel" style="max-width:720px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;gap:0.5rem">
+        <h2 style="margin:0;border:none;padding:0;font-size:1.15rem">Research – ${escapeHtml(bookName)} ${currentChapter}</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.8rem;flex-wrap:wrap">
+        ${COMMENTARY_SOURCES.map(s => `
+          <button type="button" class="research-src" data-id="${s.id}"
+            style="min-height:44px;padding:0.4rem 0.9rem;border-radius:8px;border:1px solid var(--border);
+                   background:${s.id === preferred ? "var(--accent)" : "var(--bg)"};color:${s.id === preferred ? "#111" : "var(--text)"};font-weight:600">
+            ${s.short}
+          </button>`).join("")}
+      </div>
+      <div id="research-status" style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.6rem">Loading…</div>
+      <div id="research-body" style="line-height:1.55;max-height:60vh;overflow:auto"></div>
+      <p style="margin-top:0.8rem;font-size:0.78em;color:var(--text-dim)">
+        Sources: public-domain / CC via <a href="https://bible.helloao.org" target="_blank" rel="noopener" style="color:var(--accent)">bible.helloao.org</a>.
+        Chapters are cached on this device after first load.
+      </p>
+    </div>
+  `);
+  $(".close", overlay).onclick = () => closeOverlay(overlay);
+
+  const statusEl = $("#research-status", overlay);
+  const bodyEl = $("#research-body", overlay);
+
+  async function loadSource(sourceId) {
+    preferred = sourceId;
+    localStorage.setItem("kjv-research-source", sourceId);
+    // Update button styles
+    overlay.querySelectorAll(".research-src").forEach(btn => {
+      const active = btn.dataset.id === sourceId;
+      btn.style.background = active ? "var(--accent)" : "var(--bg)";
+      btn.style.color = active ? "#111" : "var(--text)";
+    });
+
+    statusEl.textContent = "Loading…";
+    bodyEl.innerHTML = "";
+
+    const cacheKey = `${sourceId}:${apiBook}:${currentChapter}`;
+    let data = null;
+    let fromCache = false;
+
+    try {
+      const cached = await storage.getCachedCommentary(cacheKey);
+      if (cached && cached.payload) {
+        data = cached.payload;
+        fromCache = true;
+      }
+    } catch (_) {}
+
+    if (!data) {
+      try {
+        const url = `https://bible.helloao.org/api/c/${sourceId}/${apiBook}/${currentChapter}.json`;
+        const resp = await fetch(url, { mode: "cors" });
+        if (!resp.ok) {
+          if (resp.status === 404) {
+            statusEl.textContent = "No notes available for this book/chapter in the selected commentary.";
+            bodyEl.innerHTML = `<p style="color:var(--text-dim)">The free commentary source does not currently have notes for <strong>${escapeHtml(apiBook)} ${currentChapter}</strong>.</p>`;
+            return;
+          }
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        data = await resp.json();
+        // Cache it
+        try {
+          await storage.saveCachedCommentary(cacheKey, { payload: data, sourceId, book: apiBook, chapter: currentChapter });
+        } catch (e) {
+          console.warn("Could not cache commentary", e);
+        }
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "Could not load commentary.";
+        bodyEl.innerHTML = `<p style="color:var(--danger)">Network error or offline. ${fromCache ? "" : "Connect once to download this chapter, then it will work offline."}</p>
+          <p style="font-size:0.9em;color:var(--text-dim)">${escapeHtml(String(err.message || err))}</p>`;
+        return;
+      }
+    }
+
+    // Render
+    const srcLabel = (COMMENTARY_SOURCES.find(s => s.id === sourceId) || {}).label || sourceId;
+    statusEl.textContent = fromCache
+      ? `${srcLabel} · cached on this device`
+      : `${srcLabel} · just downloaded & cached`;
+
+    const ch = data.chapter || {};
+    let html = "";
+    if (ch.introduction) {
+      html += `<div style="margin-bottom:1rem;padding:0.7rem;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+        <strong style="font-size:0.9em">Chapter introduction</strong>
+        <div style="margin-top:0.35rem;white-space:pre-wrap">${escapeHtml(ch.introduction)}</div>
+      </div>`;
+    }
+
+    const verses = Array.isArray(ch.content) ? ch.content.filter(v => v && v.type === "verse") : [];
+    if (!verses.length && !ch.introduction) {
+      html += `<p style="color:var(--text-dim)">No verse notes found for this chapter.</p>`;
+    } else {
+      for (const v of verses) {
+        const num = v.number;
+        const notes = Array.isArray(v.content) ? v.content : (v.content ? [v.content] : []);
+        if (!notes.length) continue;
+        const isCurrent = false; // could highlight if we track selected verse
+        html += `<div style="margin-bottom:1rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border)">
+          <div style="font-weight:700;margin-bottom:0.3rem;color:var(--accent)">Verse ${escapeHtml(String(num))}</div>
+          ${notes.map(n => `<div style="margin-bottom:0.45rem;white-space:pre-wrap">${escapeHtml(String(n))}</div>`).join("")}
+        </div>`;
+      }
+    }
+    bodyEl.innerHTML = html || `<p style="color:var(--text-dim)">No content.</p>`;
+  }
+
+  overlay.querySelectorAll(".research-src").forEach(btn => {
+    btn.onclick = () => loadSource(btn.dataset.id);
+  });
+
+  // Initial load
+  loadSource(preferred);
+}
+
+
 function openHelp() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -1878,10 +2020,14 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Chapters</strong><br>
         ◀ ▶ move chapters. Dim at first/last. Sample has Gen 1–2.</p>
 
+        <p style="margin-bottom:1rem"><strong>Research / Commentary</strong><br>
+        Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke or Tyndale Open Study Notes.
+        Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
+
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.2.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.3.0</p>
       </div>
     </div>
   `);
@@ -1892,7 +2038,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.2.0</h2>
+      <h2>About – KJV Study v5.3.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1908,11 +2054,15 @@ function openAbout() {
         Import your own free KJV (or other public-domain) text in the documented JSON format.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
+        <strong>Research:</strong> Adam Clarke’s Commentary and Tyndale Open Study Notes
+        (via the free bible.helloao.org API). Chapters are cached locally after first load.
+      </p>
+      <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Install:</strong> On supported browsers (Chrome, Edge, Safari on iOS/iPadOS,
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.2.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.3.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v5.2.0 */
+/* bible.js – Book loading, navigation helpers, search. v5.3.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -75,6 +75,30 @@ export const CANONICAL_BOOKS = [
   { id: 'rev', name: 'Revelation', testament: 'NT' }
 ];
 
+
+
+/** Map our internal lowercase book ids to bible.helloao.org commentary book codes */
+export const API_BOOK_CODE = {
+  gen: "GEN", exo: "EXO", lev: "LEV", num: "NUM", deu: "DEU",
+  jos: "JOS", jdg: "JDG", rut: "RUT",
+  "1sa": "1SA", "2sa": "2SA", "1ki": "1KI", "2ki": "2KI",
+  "1ch": "1CH", "2ch": "2CH", ezr: "EZR", neh: "NEH", est: "EST",
+  job: "JOB", psa: "PSA", pro: "PRO", ecc: "ECC", sng: "SNG",
+  isa: "ISA", jer: "JER", lam: "LAM", eze: "EZK", dan: "DAN",
+  hos: "HOS", joe: "JOL", amo: "AMO", oba: "OBA", jon: "JON",
+  mic: "MIC", nah: "NAM", hab: "HAB", zep: "ZEP", hag: "HAG",
+  zec: "ZEC", mal: "MAL",
+  mat: "MAT", mrk: "MRK", luk: "LUK", jhn: "JHN", act: "ACT",
+  rom: "ROM", "1co": "1CO", "2co": "2CO", gal: "GAL", eph: "EPH",
+  php: "PHP", col: "COL", "1th": "1TH", "2th": "2TH",
+  "1ti": "1TI", "2ti": "2TI", tit: "TIT", phm: "PHM", heb: "HEB",
+  jas: "JAS", "1pe": "1PE", "2pe": "2PE", "1jn": "1JN", "2jn": "2JN",
+  "3jn": "3JN", jud: "JUD", rev: "REV"
+};
+
+export function toApiBookCode(bookId) {
+  return API_BOOK_CODE[(bookId || "").toLowerCase()] || (bookId || "").toUpperCase();
+}
 
 export function verseKey(bookId, chapter, verse) {
   return `${bookId}.${chapter}.${verse}`;
