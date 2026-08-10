@@ -1,15 +1,10 @@
-# NASB Study PWA – v4.2.0
+# NASB Study PWA – v4.3.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Fix
-- Large empty gap under status bar removed
-- Controls chip sits fixed just under the clock/battery row
-- Verses start higher on the screen
-
-## Controls
-- Tap Controls to show toolbar
-- Any scroll hides it
+## Fix: update takes effect on first reload
+Previously the service worker used cache-first, so you often had to hard-close twice.
+v4.3.0 uses network-first for app files and auto-reloads once when a new worker activates.
 
 ## Upload
-Replace all 12 files; hard-refresh until v4.2.0.
+Replace all 12 files on GitHub. After deploy, one hard-refresh / reopen should be enough.

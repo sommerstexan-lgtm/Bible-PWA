@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.2.0
+/* app.js – Main application controller. NASB Study PWA v4.3.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -99,7 +99,30 @@ async function init() {
   // Register service worker
   if ('serviceWorker' in navigator) {
     try {
-      await navigator.serviceWorker.register('./sw.js');
+      // When a new SW takes control, reload once so the new shell loads
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        location.reload();
+      });
+
+      const reg = await navigator.serviceWorker.register('./sw.js');
+      // If an updated worker is already waiting, activate it now
+      if (reg.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            nw.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+      // Check for updates on each launch
+      try { reg.update(); } catch (_) {}
     } catch (e) {
       console.warn('SW registration failed (normal on file://)', e);
     }
@@ -147,7 +170,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.2.0</div>
+      <div class="version-bar">v4.3.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <main id="main"></main>
@@ -1579,7 +1602,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.2.0</h2>
+      <h2>About – NASB Study v4.3.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1599,7 +1622,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.2.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.3.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
