@@ -1,10 +1,13 @@
-# NASB Study PWA – v4.3.0
+# NASB Study PWA – v4.4.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Fix: update takes effect on first reload
-Previously the service worker used cache-first, so you often had to hard-close twice.
-v4.3.0 uses network-first for app files and auto-reloads once when a new worker activates.
+## Version update fix
+- Service worker registered with `?v=4.4.0` and `updateViaCache: 'none'` so iOS re-fetches it
+- Menu → **Force refresh app** unregisters the worker, clears caches, and reloads
 
-## Upload
-Replace all 12 files on GitHub. After deploy, one hard-refresh / reopen should be enough.
+## After uploading
+1. Replace all 12 files on GitHub
+2. Open the site
+3. If the version bar is still old: Menu → **Force refresh app**
+4. Version bar should show **v4.4.0**
