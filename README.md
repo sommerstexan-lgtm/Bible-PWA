@@ -1,15 +1,14 @@
-# NASB Study PWA – v4.0.0
+# NASB Study PWA – v4.1.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Layout
-- Compact single-line header (title truncates instead of stacking)
-- Toolbar scrolls horizontally on small screens
+## Controls behavior
+- Tap **Controls** to show the toolbar
+- Scroll any direction to hide it
+- Verse taps do not open the toolbar
 
-## Reading chrome
-- Scroll down in the chapter → controls hide
-- Tap the verse area or **Controls** button → controls return
-- Scroll near the top → controls return
+## Layout
+Tighter top spacing under the status bar.
 
 ## Upload
-Replace all 12 files on GitHub; hard-refresh until v4.0.0.
+Replace all 12 files on GitHub; hard-refresh until v4.1.0.

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.0.0
+/* app.js – Main application controller. NASB Study PWA v4.1.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -147,7 +147,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.0.0</div>
+      <div class="version-bar">v4.1.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <main id="main"></main>
@@ -207,26 +207,17 @@ function installChromeAutoHide() {
   if (!main) return;
   if (main._chromeBound) return;
   main._chromeBound = true;
-  lastScrollTop = 0;
+  lastScrollTop = main.scrollTop || 0;
 
-  const onScroll = () => {
+  // ANY scroll (up or down) hides controls. Only the Controls button shows them.
+  main.addEventListener('scroll', () => {
     const st = main.scrollTop;
-    const delta = st - lastScrollTop;
+    const delta = Math.abs(st - lastScrollTop);
     lastScrollTop = st;
-    if (st < 20) {
-      showChrome();
-      return;
-    }
-    if (delta > 6) hideChrome();
-    else if (delta < -10) showChrome();
-  };
-  main.addEventListener('scroll', onScroll, { passive: true });
-
-  main.addEventListener('click', (e) => {
-    if (!chromeHidden) return;
-    if (e.target.closest('button, a, input, textarea, .hl, .verse-actions')) return;
-    showChrome();
-  });
+    if (delta < 4) return; // ignore tiny jitter
+    if (!chromeHidden) hideChrome();
+  }, { passive: true });
+  // No click-to-show on verse background — Controls button only.
 }
 
 
@@ -1586,7 +1577,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.0.0</h2>
+      <h2>About – NASB Study v4.1.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1606,7 +1597,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.0.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.1.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
