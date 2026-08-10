@@ -1,14 +1,15 @@
-# NASB Study PWA – v4.1.0
+# NASB Study PWA – v4.2.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Controls behavior
-- Tap **Controls** to show the toolbar
-- Scroll any direction to hide it
-- Verse taps do not open the toolbar
+## Fix
+- Large empty gap under status bar removed
+- Controls chip sits fixed just under the clock/battery row
+- Verses start higher on the screen
 
-## Layout
-Tighter top spacing under the status bar.
+## Controls
+- Tap Controls to show toolbar
+- Any scroll hides it
 
 ## Upload
-Replace all 12 files on GitHub; hard-refresh until v4.1.0.
+Replace all 12 files; hard-refresh until v4.2.0.

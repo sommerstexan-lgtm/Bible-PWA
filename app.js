@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.1.0
+/* app.js – Main application controller. NASB Study PWA v4.2.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -147,7 +147,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.1.0</div>
+      <div class="version-bar">v4.2.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <main id="main"></main>
@@ -187,6 +187,7 @@ function showChrome() {
   const reveal = document.getElementById('chrome-reveal');
   if (!chrome) return;
   chrome.classList.remove('chrome-hidden');
+  document.body.classList.remove('chrome-is-hidden');
   if (reveal) reveal.hidden = true;
   chromeHidden = false;
 }
@@ -198,6 +199,7 @@ function hideChrome() {
   const reveal = document.getElementById('chrome-reveal');
   if (!chrome) return;
   chrome.classList.add('chrome-hidden');
+  document.body.classList.add('chrome-is-hidden');
   if (reveal) reveal.hidden = false;
   chromeHidden = true;
 }
@@ -1577,7 +1579,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.1.0</h2>
+      <h2>About – NASB Study v4.2.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1597,7 +1599,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.1.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.2.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
