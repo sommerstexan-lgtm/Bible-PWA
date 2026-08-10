@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v5.1.0
+/* app.js – Main application controller. KJV Study PWA v5.2.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -8,17 +8,17 @@ import * as bible from './bible.js';
 import * as analyze from './analyze.js';
 
 // ---------- Password gate (client-side only) ----------
-const APP_PASSWORD = 'NASB-Study-1995-Private';
+const APP_PASSWORD = 'KJV-Study-Private';
 
 function checkPassword() {
-  if (localStorage.getItem('nasb-unlocked') === 'yes') return true;
+  if (localStorage.getItem('kjv-unlocked') === 'yes') return true;
 
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'overlay center';
     overlay.innerHTML = `
       <div class="modal" style="max-width:380px;text-align:center">
-        <h2 style="margin-bottom:1rem">NASB Study</h2>
+        <h2 style="margin-bottom:1rem">KJV Study</h2>
         <p style="margin-bottom:1.2rem;color:var(--text-dim);font-size:0.95em">
           Private study app. Enter password to continue.
         </p>
@@ -44,7 +44,7 @@ function checkPassword() {
 
     function tryUnlock() {
       if (input.value === APP_PASSWORD) {
-        localStorage.setItem('nasb-unlocked', 'yes');
+        localStorage.setItem('kjv-unlocked', 'yes');
         overlay.remove();
         resolve(true);
       } else {
@@ -159,7 +159,7 @@ function renderShell() {
     <div id="chrome" class="chrome">
       <header class="chrome-header">
         <button type="button" id="btn-nav" title="Books" aria-label="Books">☰</button>
-        <div class="title" id="header-title">NASB Study</div>
+        <div class="title" id="header-title">KJV Study</div>
         <button type="button" id="btn-search" title="Search" aria-label="Search">Search</button>
         <button type="button" id="btn-menu" title="Menu" aria-label="Menu">Menu</button>
       </header>
@@ -174,7 +174,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.1.0</div>
+      <div class="version-bar">v5.2.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -1550,7 +1550,7 @@ function openMenu() {
     location.reload(true);
   };
   $('#menu-lock', overlay).onclick = () => {
-    localStorage.removeItem('nasb-unlocked');
+    localStorage.removeItem('kjv-unlocked');
     location.reload();
   };
   $('#menu-clear-sample', overlay).onclick = async () => {
@@ -1688,7 +1688,7 @@ async function doExportData() {
     const a = document.createElement('a');
     const stamp = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `nasb-study-backup-${stamp}.json`;
+    a.download = `kjv-study-backup-${stamp}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1708,7 +1708,7 @@ function openImportData() {
       </div>
       <p style="margin-bottom:0.9rem;line-height:1.5;font-size:0.95em">
         Choose a backup file previously exported from this app
-        (<code>nasb-study-backup-….json</code>).
+        (<code>kjv-study-backup-….json</code>).
         This restores highlights, notes, cross-references, learning data, settings, and any books in the backup.
       </p>
       <div class="import-zone">
@@ -1841,7 +1841,7 @@ function openImportLexicon() {
     if (!file) return;
     try {
       const json = JSON.parse(await file.text());
-      if (json.format !== 'nasb-study-lexicon' || !json.entries) {
+      if ((json.format !== 'kjv-study-lexicon' && json.format !== 'nasb-study-lexicon') || !json.entries) {
         throw new Error('Not a valid Strong\'s lexicon file for this app');
       }
       await storage.saveLexiconPack(json);
@@ -1862,9 +1862,9 @@ function openHelp() {
       </div>
       <div style="line-height:1.65;font-size:1.02em">
         <p style="margin-bottom:1rem"><strong>Which Bible text am I reading?</strong><br>
-        The built-in sample is <strong>public-domain KJV</strong> (Genesis 1–2 only), not NASB.<br>
-        To use <strong>NASB 1995</strong>: prepare a JSON file of your legal text, then Menu → <strong>Import Book (JSON)</strong>.<br>
-        Highlights and notes are stored by verse reference (e.g. gen.1.1). They stay when you replace sample text with NASB for the same book/chapter/verse numbers.</p>
+        The built-in sample is <strong>public-domain KJV</strong> (Genesis 1–2 only).<br>
+        To use the full free KJV (or any compatible public-domain text): prepare a JSON file of the book(s), then Menu → <strong>Import Book (JSON)</strong>.<br>
+        Highlights and notes are stored by verse reference (e.g. gen.1.1). They stay when you replace or add text for the same book/chapter/verse numbers.</p>
 
         <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
         1. Long-press the verse and drag to select only the words you want.<br>
@@ -1881,7 +1881,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 3.6.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.2.0</p>
       </div>
     </div>
   `);
@@ -1892,7 +1892,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v5.1.0</h2>
+      <h2>About – KJV Study v5.2.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1903,16 +1903,16 @@ function openAbout() {
         Analyze learning data remain on this device only (IndexedDB).
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
-        <strong>Text:</strong> This app never ships copyrighted NASB text.
-        A public-domain KJV Genesis sample is included only for testing.
-        Import your own legally obtained NASB 1995 text in the documented JSON format.
+        <strong>Text:</strong> This app is for free public-domain Bible text (KJV).
+        A public-domain KJV Genesis sample is included for testing.
+        Import your own free KJV (or other public-domain) text in the documented JSON format.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Install:</strong> On supported browsers (Chrome, Edge, Safari on iOS/iPadOS,
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.1.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.2.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

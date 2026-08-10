@@ -1,6 +1,6 @@
 {
   "version": "SAMPLE-KJV-PublicDomain",
-  "note": "PUBLIC DOMAIN sample (KJV) Genesis 1\u20132 for testing. Replace with your NASB 1995 via Import Book.",
+  "note": "PUBLIC DOMAIN sample (KJV) Genesis 1–2 for testing. Import full free public-domain KJV books via Menu → Import Book.",
   "books": [
     {
       "id": "gen",

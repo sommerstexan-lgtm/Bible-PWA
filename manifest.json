@@ -1,7 +1,7 @@
 {
-  "name": "NASB Study (Private)",
-  "short_name": "NASB Study",
-  "description": "Private Bible study app for NASB 1995. Personal data stays on your device only.",
+  "name": "KJV Study (Private)",
+  "short_name": "KJV Study",
+  "description": "Private Bible study app for free public-domain KJV. Personal data stays on your device only.",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "any",

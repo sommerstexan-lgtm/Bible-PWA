@@ -1,4 +1,4 @@
-/* storage.js – IndexedDB wrapper for all private data. v1.0.0
+/* storage.js – IndexedDB wrapper for all private data. v5.2.0
    Everything stays on-device. No network calls.
 */
 
@@ -372,7 +372,7 @@ export async function exportAllData() {
   ]);
 
   return {
-    format: 'nasb-study-backup',
+    format: 'kjv-study-backup',
     version: 2,
     exportedAt: new Date().toISOString(),
     books,
@@ -387,8 +387,8 @@ export async function exportAllData() {
 }
 
 export async function importAllData(data, { replace = true } = {}) {
-  if (!data || data.format !== 'nasb-study-backup') {
-    throw new Error('Not a valid NASB Study backup file');
+  if (!data || (data.format !== 'kjv-study-backup' && data.format !== 'nasb-study-backup')) {
+    throw new Error('Not a valid KJV Study backup file');
   }
   await openDB();
 

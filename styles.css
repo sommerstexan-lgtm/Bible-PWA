@@ -1,4 +1,4 @@
-/* NASB Study PWA v5.1.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v5.2.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -498,7 +498,7 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 }
 
 
-/* ===== v5.1 segment highlights – true solid fills + pure black/white text ===== */
+/* ===== v5.2 segment highlights – true solid fills + pure black/white text ===== */
 .verse-text {
   /* allow selection */
   -webkit-user-select: text;
