@@ -1,12 +1,10 @@
-# NASB Study PWA – v4.7.0
+# NASB Study PWA – v4.8.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Books navigator
-- Old Testament and New Testament sections
-- Books in standard Bible order
-- Loaded books open chapters when tapped
-- Not loaded books show Import — pick the matching WEB JSON file
+## Fix
+After opening a cross-reference, a **← Back** button appears (top-left).
+Tap it to return to the verse you came from.
 
 ## Upload
-Replace all 12 files; hard-refresh until v4.7.0.
+Replace all 12 files; hard-refresh until v4.8.0.

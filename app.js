@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v4.7.0
+/* app.js – Main application controller. NASB Study PWA v4.8.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -173,9 +173,10 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v4.7.0</div>
+      <div class="version-bar">v4.8.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
+    <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
     <main id="main"></main>
   `;
 
@@ -201,8 +202,10 @@ function renderShell() {
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
   $('#chrome-reveal').onclick = () => showChrome();
+  $('#nav-back').onclick = () => goNavBack();
 
   installChromeAutoHide();
+  updateNavBackButton();
 }
 
 let chromeHidden = false;
@@ -228,6 +231,30 @@ function hideChrome() {
   document.body.classList.add('chrome-is-hidden');
   if (reveal) reveal.hidden = false;
   chromeHidden = true;
+}
+
+
+async function goNavBack() {
+  if (!navStack.length) return;
+  const prev = navStack.pop();
+  updateNavBackButton();
+  await renderChapter(prev.bookId, prev.chapter, {
+    scrollToKey: prev.verseKey || null,
+    preserveScroll: prev.scrollTop
+  });
+}
+
+function updateNavBackButton() {
+  const btn = document.getElementById('nav-back');
+  if (!btn) return;
+  if (navStack.length) {
+    btn.hidden = false;
+    const top = navStack[navStack.length - 1];
+    const label = top.label || (top.bookId + ' ' + top.chapter);
+    btn.textContent = '← Back' + (label ? ' · ' + label : '');
+  } else {
+    btn.hidden = true;
+  }
 }
 
 function installChromeAutoHide() {
@@ -526,6 +553,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   }
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
   updateChapterButtons();
+  updateNavBackButton();
 }
 
 function escapeHtml(str) {
@@ -1224,7 +1252,17 @@ async function openCrossRefs(key) {
   function bindList() {
     $$('.xref-item', overlay).forEach(btn => {
       btn.onclick = async () => {
-        navStack.push({ bookId: currentBookId, chapter: currentChapter });
+        const main = document.getElementById('main');
+        const book = books.find(b => b.id === currentBookId);
+        const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+        navStack.push({
+          bookId: currentBookId,
+          chapter: currentChapter,
+          verseKey: key,
+          scrollTop: main ? main.scrollTop : 0,
+          label
+        });
+        updateNavBackButton();
         closeOverlay(overlay);
         await jumpToRef(btn.dataset.target);
       };
@@ -1300,9 +1338,13 @@ async function jumpToRef(targetKey) {
   // If the target book is not loaded, just inform the user
   if (!books.find(b => b.id === bookId)) {
     alert(`Book “${bookId}” is not loaded yet. Import it first, then the cross-reference will work.`);
+    // undo stack push if we cannot complete the jump
+    if (navStack.length) navStack.pop();
+    updateNavBackButton();
     return;
   }
-  await renderChapter(bookId, chapter);
+  await renderChapter(bookId, chapter, { scrollToKey: targetKey });
+  updateNavBackButton();
   setTimeout(() => {
     const t = document.getElementById('v-' + targetKey.replace(/\./g, '-'));
     if (t) {
@@ -1310,7 +1352,7 @@ async function jumpToRef(targetKey) {
       t.style.outline = '2px solid var(--accent)';
       setTimeout(() => { t.style.outline = ''; }, 2500);
     }
-  }, 150);
+  }, 80);
 }
 
 // ---------- Search ----------
@@ -1742,7 +1784,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v4.7.0</h2>
+      <h2>About – NASB Study v4.8.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1762,7 +1804,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.7.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 4.8.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -794,3 +794,33 @@ body.chrome-is-hidden main#main {
   border: none;
   border-radius: 8px;
 }
+
+
+/* Back after following a cross-reference */
+.nav-back {
+  position: fixed;
+  top: max(4px, env(safe-area-inset-top, 0px));
+  left: 0.5rem;
+  z-index: 41;
+  margin: 0;
+  min-height: 32px;
+  max-width: calc(50vw - 0.5rem);
+  padding: 0.28rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: #111;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-back[hidden] {
+  display: none !important;
+}
+/* Keep Controls centered; Back sits left */
+.chrome-reveal {
+  /* already fixed center */
+}
