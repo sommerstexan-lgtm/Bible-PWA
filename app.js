@@ -1,5 +1,6 @@
-/* app.js – Main application controller. NASB Study PWA v5.0.0
+/* app.js – Main application controller. NASB Study PWA v5.1.0
    Client-side only. Personal data never leaves the device.
+   Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
 
 import * as storage from './storage.js';
@@ -173,7 +174,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.0.0</div>
+      <div class="version-bar">v5.1.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -343,6 +344,7 @@ function normalizeRanges(raw, textLen) {
 function buildColoredHtml(text, ranges) {
   if (!ranges.length) return escapeHtml(text);
   const len = text.length;
+  // Last range wins on any overlapping pixels (apply logic punches holes first)
   const cover = Array.from({ length: len }, () => null);
   for (const r of ranges) {
     for (let i = r.start; i < r.end; i++) cover[i] = r.color;
@@ -356,10 +358,10 @@ function buildColoredHtml(text, ranges) {
     const slice = escapeHtml(text.slice(i, j));
     if (col) {
       const meta = analyze.getColorMeta(col);
-      // Pure solid color – no transparency, correct text color
-      const bg = meta ? meta.hex : "#666666";
-      const fg = meta ? meta.text : "#ffffff";
-      html += `<span class="hl" data-color="${col}" style="background-color:${bg};color:${fg}">${slice}</span>`;
+      // True solid background fill + mandatory pure black/white text for max contrast
+      const bg = (meta && meta.hex) ? meta.hex : "#666666";
+      const fg = (meta && meta.text) ? meta.text : analyze.contrastTextColor(bg);
+      html += `<span class="hl" data-color="${col}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}">${slice}</span>`;
     } else {
       html += slice;
     }
@@ -1890,7 +1892,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v5.0.0</h2>
+      <h2>About – NASB Study v5.1.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1910,7 +1912,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.0.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.1.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

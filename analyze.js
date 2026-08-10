@@ -1,23 +1,63 @@
-/* analyze.js – Rule-based color suggestion engine + local learning. v1.0.0
+/* analyze.js – Rule-based color suggestion engine + local learning. v5.1.0
    All learning stays in IndexedDB. User corrections improve future suggestions.
+   Highlight text color is ALWAYS computed for max contrast (pure black or pure white).
 */
 
 import { getLearningModel, saveLearningModel } from './storage.js';
 
+/**
+ * Convert #rrggbb (or #rgb) to [r,g,b] 0–255.
+ */
+function hexToRgb(hex) {
+  if (!hex || typeof hex !== 'string') return [128, 128, 128];
+  let h = hex.replace('#', '').trim();
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  if (h.length !== 6) return [128, 128, 128];
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return [128, 128, 128];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Relative luminance (sRGB, WCAG).
+ */
+function relativeLuminance(hex) {
+  const [r, g, b] = hexToRgb(hex).map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Mandatory high-contrast text color for any highlight background.
+ * Returns pure '#000000' or pure '#ffffff' — whichever has higher contrast ratio.
+ * Never returns grey or intermediate values.
+ */
+export function contrastTextColor(bgHex) {
+  const L = relativeLuminance(bgHex);
+  // Contrast vs black = (L + 0.05) / 0.05 ; vs white = 1.05 / (L + 0.05)
+  // Prefer the larger ratio. Tie → white for dark backgrounds bias.
+  const contrastBlack = (L + 0.05) / 0.05;
+  const contrastWhite = 1.05 / (L + 0.05);
+  return contrastBlack >= contrastWhite ? '#000000' : '#ffffff';
+}
+
+// Base palette – text field is ignored at runtime; always recomputed via contrastTextColor.
 export const COLORS = [
-  { id: 'red',     label: 'Red',          meaning: 'Jesus said',                    hex: '#c41e3a', text: '#fff' },
-  { id: 'yellow',  label: 'Yellow',       meaning: 'Holy Spirit',                   hex: '#ffd700', text: '#111' },
-  { id: 'yg',      label: 'Yellow/Green', meaning: 'Figures of speech & parables',  hex: '#9acd32', text: '#111' },
-  { id: 'orange',  label: 'Orange',       meaning: 'Observations (not figures)',    hex: '#ff8c00', text: '#111' },
-  { id: 'magenta', label: 'Magenta',      meaning: 'Repetition',                    hex: '#c71585', text: '#fff' },
-  { id: 'blue',    label: 'Blue',         meaning: 'Words of God',                  hex: '#1e90ff', text: '#fff' },
-  { id: 'tan',     label: 'Tan',          meaning: 'Tribulation',                   hex: '#d2b48c', text: '#111' },
-  { id: 'brown',   label: 'Brown',        meaning: 'Words requiring look up',       hex: '#8b4513', text: '#fff' },
-  { id: 'lblue',   label: 'Light Blue',   meaning: 'Prophecy',                      hex: '#add8e6', text: '#111' },
-  { id: 'aqua',    label: 'Aqua Green',   meaning: 'Rapture',                       hex: '#00ced1', text: '#111' },
-  { id: 'pink',    label: 'Pink',         meaning: 'Antichrist',                   hex: '#ff69b4', text: '#111' },
-  { id: 'grey',    label: 'Grey',         meaning: 'Satan',                         hex: '#808080', text: '#fff' },
-  { id: 'violet',  label: 'Violet',       meaning: 'Questions of importance',       hex: '#8a2be2', text: '#fff' }
+  { id: 'red',     label: 'Red',          meaning: 'Jesus said',                    hex: '#c41e3a' },
+  { id: 'yellow',  label: 'Yellow',       meaning: 'Holy Spirit',                   hex: '#ffd700' },
+  { id: 'yg',      label: 'Yellow/Green', meaning: 'Figures of speech & parables',  hex: '#9acd32' },
+  { id: 'orange',  label: 'Orange',       meaning: 'Observations (not figures)',    hex: '#ff8c00' },
+  { id: 'magenta', label: 'Magenta',      meaning: 'Repetition',                    hex: '#c71585' },
+  { id: 'blue',    label: 'Blue',         meaning: 'Words of God',                  hex: '#1e90ff' },
+  { id: 'tan',     label: 'Tan',          meaning: 'Tribulation',                   hex: '#d2b48c' },
+  { id: 'brown',   label: 'Brown',        meaning: 'Words requiring look up',       hex: '#8b4513' },
+  { id: 'lblue',   label: 'Light Blue',   meaning: 'Prophecy',                      hex: '#add8e6' },
+  { id: 'aqua',    label: 'Aqua Green',   meaning: 'Rapture',                       hex: '#00ced1' },
+  { id: 'pink',    label: 'Pink',         meaning: 'Antichrist',                   hex: '#ff69b4' },
+  { id: 'grey',    label: 'Grey',         meaning: 'Satan',                         hex: '#808080' },
+  { id: 'violet',  label: 'Violet',       meaning: 'Questions of importance',       hex: '#8a2be2' }
 ];
 
 const COLOR_MAP = Object.fromEntries(COLORS.map(c => [c.id, c]));
@@ -166,9 +206,18 @@ export async function recordFeedback(colorId, reasons, action) {
 }
 
 export function getColorMeta(id) {
-  return COLOR_MAP[id] || null;
+  const base = COLOR_MAP[id];
+  if (!base) return null;
+  // Always recompute pure black/white for maximum legibility
+  return {
+    ...base,
+    text: contrastTextColor(base.hex)
+  };
 }
 
 export function allColors() {
-  return COLORS;
+  return COLORS.map(c => ({
+    ...c,
+    text: contrastTextColor(c.hex)
+  }));
 }

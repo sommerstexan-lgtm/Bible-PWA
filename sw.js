@@ -1,8 +1,8 @@
-/* NASB Study PWA – Service Worker  v5.0.0
+/* NASB Study PWA – Service Worker  v5.1.0
    Network-first for app shell so updates apply on the first reload.
    IndexedDB data is never cached by the SW.
 */
-const CACHE_NAME = 'nasb-study-v5.0.0';
+const CACHE_NAME = 'nasb-study-v5.1.0';
 const SHELL = [
   './',
   './index.html',

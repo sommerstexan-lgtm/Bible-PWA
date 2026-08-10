@@ -1,4 +1,6 @@
-/* NASB Study PWA v1.0.0 – Senior-friendly, high-contrast, calm */
+/* NASB Study PWA v5.1.0 – Senior-friendly, high-contrast, calm
+   Highlight spans use solid background fills + pure black/white text (set inline).
+*/
 
 :root {
   --bg: #1a1a2e;
@@ -496,7 +498,7 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 }
 
 
-/* ===== v3.1 segment highlights – pure colors, correct text ===== */
+/* ===== v5.1 segment highlights – true solid fills + pure black/white text ===== */
 .verse-text {
   /* allow selection */
   -webkit-user-select: text;
@@ -509,10 +511,13 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   margin: 0 -0.02em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  /* solid color only – never transparent */
+  /* solid color only – never transparent, never underline */
   background-clip: padding-box;
-  /* text color is set inline from the color definition and must win */
+  text-decoration: none !important;
+  /* inline style sets background-color + color + -webkit-text-fill-color and must win */
   -webkit-text-fill-color: currentColor;
+  /* prevent inheritance from any parent tint */
+  font-weight: inherit;
 }
 
 /* Kill any leftover full-verse background tints from older versions */
