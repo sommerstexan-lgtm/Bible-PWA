@@ -1,4 +1,4 @@
-/* app.js – Main application controller. NASB Study PWA v3.8.0
+/* app.js – Main application controller. NASB Study PWA v3.9.0
    Client-side only. Personal data never leaves the device.
 */
 
@@ -146,7 +146,7 @@ function renderShell() {
       <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
       <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
     </div>
-    <div class="version-bar">v3.8.0</div>
+    <div class="version-bar">v3.9.0</div>
     <main id="main"></main>
   `;
 
@@ -158,7 +158,19 @@ function renderShell() {
   $('#btn-colors').onclick = openColorIndex;
   $('#btn-review').onclick = openReviewByColor;
   $('#btn-help').onclick = openHelp;
-  $('#btn-dict').onclick = openDictionary;
+  $('#btn-dict').onclick = () => {
+    // Prefer current text selection / pending segment selection as lookup word
+    let q = '';
+    if (pendingSelection && pendingSelection.text) {
+      q = pendingSelection.text.trim();
+    } else {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) q = sel.toString().trim();
+    }
+    // Use first word if multi-word selection
+    if (q) q = q.split(/\s+/)[0].replace(/[^a-zA-Z'-]/g, '');
+    openDictionary(q);
+  };
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
 }
@@ -333,10 +345,10 @@ async function renderChapter(bookId, chapterNum) {
 
   currentBookId = bookId;
   currentChapter = chapterNum;
-  const isSample = (book.id === 'gen' && book.name === 'Genesis');
+  const isSample = book.translation !== 'WEB' && book.id === 'gen' && (!book.chapters || book.chapters.length <= 2);
   $('#header-title').textContent = isSample
     ? `${book.name} ${chapterNum} (KJV sample)`
-    : `${book.name} ${chapterNum}`;
+    : `${book.name} ${chapterNum}${book.translation ? ' (' + book.translation + ')' : ''}`;
 
   const main = $('#main');
   main.innerHTML = `<div class="chapter-header">${book.name} ${chapterNum}</div>`;
@@ -1515,7 +1527,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – NASB Study v3.8.0</h2>
+      <h2>About – NASB Study v3.9.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -1535,7 +1547,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.8.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 3.9.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

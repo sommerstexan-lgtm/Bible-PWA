@@ -1,14 +1,13 @@
-# NASB Study PWA – v3.8.0
+# NASB Study PWA – v3.9.0
 
 **Password:** `NASB-Study-1995-Private`
 
-## Dictionary (Strong's)
-1. Download strongs-lexicon.json (separate file).
-2. In the app: Menu → Import Dictionary (Strong's) → choose that file (once).
-3. Tap **Dict** on the toolbar.
-4. Search an English word (e.g. love) or a number (H1, G26).
+## Dictionary lookup
+1. Select a word in the verse (e.g. "rested")
+2. Tap **Dict**
+3. Search box is filled — tap **Search**
 
-Data stays on your device. Attribution is shown in the Dictionary panel.
+Or open Dict and type any word / Strong's number (H1, G26).
 
-## Upload app
-Replace all 12 app files from this zip on GitHub, hard-refresh until v3.8.0.
+## Upload
+Replace all 12 files on GitHub; hard-refresh until v3.9.0.
