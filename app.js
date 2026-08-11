@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.12.0
+/* app.js – Main application controller. KJV Study PWA v5.13.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=5.12.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=5.13.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.12.0</div>
+      <div class="version-bar">v5.13.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -1732,60 +1732,135 @@ async function jumpToRef(targetKey) {
   }, 80);
 }
 
-// ---------- Search ----------
+// ---------- Search (v5.13.0: sticky header + hierarchical book → verse) ----------
 function openSearch() {
   const overlay = showOverlay(`
-    <div class="panel">
-      <button class="close" type="button">×</button>
-      <h2>Search (loaded books only)</h2>
-      <input type="search" class="search-box" id="search-input" placeholder="Type at least 2 characters…" autofocus>
-      <div id="search-results"></div>
+    <div class="panel search-panel">
+      <div class="search-header">
+        <div class="search-header-top">
+          <h2 class="search-title">Search (loaded books only)</h2>
+          <button type="button" class="close search-close" aria-label="Close">×</button>
+        </div>
+        <input type="search" class="search-box" id="search-input" placeholder="Type at least 2 characters…" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div id="search-results" class="search-body"></div>
     </div>
   `);
-  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+
   const input = $('#search-input', overlay);
+  const resultsEl = $('#search-results', overlay);
   let timer = null;
+  let lastResults = [];   // flat matches from last search
+  let viewMode = 'books'; // 'books' | 'verses'
+  let selectedBookId = null;
+
+  // Canonical order index for stable sorting
+  const canonIndex = new Map(bible.CANONICAL_BOOKS.map((b, i) => [b.id, i]));
+
+  function groupByBook(results) {
+    const map = new Map();
+    for (const r of results) {
+      if (!map.has(r.bookId)) {
+        map.set(r.bookId, { bookId: r.bookId, bookName: r.bookName, matches: [] });
+      }
+      map.get(r.bookId).matches.push(r);
+    }
+    // Sort groups by canonical order; verses already in chapter/verse order from search
+    return Array.from(map.values()).sort((a, b) => {
+      const ia = canonIndex.has(a.bookId) ? canonIndex.get(a.bookId) : 999;
+      const ib = canonIndex.has(b.bookId) ? canonIndex.get(b.bookId) : 999;
+      return ia - ib;
+    });
+  }
+
+  function bindVerseClicks(container) {
+    $$('.search-result', container).forEach(row => {
+      row.onclick = async () => {
+        // Push origin so the chrome ← Back can return to this chapter/verse
+        // (same pattern as Cross-ref jumps in openCrossRefs).
+        if (currentBookId) {
+          const main = document.getElementById('main');
+          const book = books.find(b => b.id === currentBookId);
+          const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+          navStack.push({
+            bookId: currentBookId,
+            chapter: currentChapter,
+            verseKey: getNearestVerseKey() || null,
+            scrollTop: main ? main.scrollTop : 0,
+            label
+          });
+          updateNavBackButton();
+        }
+        closeOverlay(overlay);
+        await jumpToRef(row.dataset.key);
+      };
+    });
+  }
+
+  function renderBookList() {
+    viewMode = 'books';
+    selectedBookId = null;
+    const groups = groupByBook(lastResults);
+    if (!groups.length) {
+      const q = input.value.trim();
+      resultsEl.innerHTML = q.length >= 2 ? '<p style="color:var(--text-dim);padding:0.5rem 0">No matches.</p>' : '';
+      return;
+    }
+    resultsEl.innerHTML = groups.map(g => `
+      <div class="search-book-row" data-book-id="${escapeHtml(g.bookId)}" role="button" tabindex="0">
+        <span class="book-name">${escapeHtml(g.bookName)}</span>
+        <span class="match-count">${g.matches.length}</span>
+      </div>
+    `).join('');
+    $$('.search-book-row', resultsEl).forEach(row => {
+      const go = () => {
+        selectedBookId = row.dataset.bookId;
+        renderVerseList();
+      };
+      row.onclick = go;
+      row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+  }
+
+  function renderVerseList() {
+    viewMode = 'verses';
+    const groups = groupByBook(lastResults);
+    const group = groups.find(g => g.bookId === selectedBookId);
+    if (!group) {
+      renderBookList();
+      return;
+    }
+    const verseHtml = group.matches.map(r => `
+      <div class="search-result" data-key="${r.key}">
+        <span class="ref">${escapeHtml(r.bookName)} ${r.chapter}:${r.verse}</span>
+        ${escapeHtml(r.snippet)}
+      </div>
+    `).join('');
+    resultsEl.innerHTML = `
+      <div class="search-back-row">
+        <button type="button" class="search-back-btn" id="search-back">← Back to books</button>
+      </div>
+      <p style="font-size:0.9em;color:var(--text-dim);margin:0 0 0.5rem">${escapeHtml(group.bookName)} · ${group.matches.length} match${group.matches.length === 1 ? '' : 'es'}</p>
+      ${verseHtml}
+    `;
+    $('#search-back', resultsEl).onclick = () => renderBookList();
+    bindVerseClicks(resultsEl);
+  }
+
   input.oninput = () => {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       const q = input.value.trim();
-      const results = await bible.searchBooks(q, books);
-      const el = $('#search-results', overlay);
-      if (!results.length) {
-        el.innerHTML = q.length >= 2 ? '<p style="color:var(--text-dim)">No matches.</p>' : '';
-        return;
-      }
-      el.innerHTML = results.map(r => `
-        <div class="search-result" data-key="${r.key}">
-          <span class="ref">${r.bookName} ${r.chapter}:${r.verse}</span>
-          ${escapeHtml(r.snippet)}
-        </div>
-      `).join('');
-      $$('.search-result', el).forEach(row => {
-        row.onclick = async () => {
-          // Push origin so the chrome ← Back can return to this chapter/verse
-          // (same pattern as Cross-ref jumps in openCrossRefs).
-          if (currentBookId) {
-            const main = document.getElementById('main');
-            const book = books.find(b => b.id === currentBookId);
-            const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
-            navStack.push({
-              bookId: currentBookId,
-              chapter: currentChapter,
-              verseKey: getNearestVerseKey() || null,
-              scrollTop: main ? main.scrollTop : 0,
-              label
-            });
-            updateNavBackButton();
-          }
-          closeOverlay(overlay);
-          await jumpToRef(row.dataset.key);
-        };
-      });
+      lastResults = await bible.searchBooks(q, books);
+      // Any new search returns to book-list view
+      renderBookList();
     }, 220);
   };
-  setTimeout(() => input.focus(), 100);
+
+  setTimeout(() => { try { input.focus(); } catch (_) {} }, 100);
 }
+
 
 // ---------- Menu (Import, Settings, About) ----------
 function openMenu() {
@@ -2393,7 +2468,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.12.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.13.0</p>
       </div>
     </div>
   `);
@@ -2404,7 +2479,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.12.0</h2>
+      <h2>About – KJV Study v5.13.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2428,7 +2503,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.12.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.13.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

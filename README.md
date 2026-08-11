@@ -1,17 +1,24 @@
-# KJV Study PWA – v5.12.0
+# KJV Study PWA – v5.13.0
 
 **Password:** `KJV-Study-Private`
 
-## Fixed in v5.12 — Search / Cross-ref back navigation
+## Fixed in v5.13 — Search screen usability
 
-Search result jumps now push the current location onto the same `navStack` used by Cross-references. A chain of Search → verse → Cross-ref → verse … can be unwound with the main ← Back button all the way to the original starting chapter/verse (scroll restored when captured).
+- Close (X) + title + search input stay sticky at the top of the Search panel; only the results area scrolls.
+- Search results are hierarchical: first a short list of matching books in strict canonical order (with match counts); tap a book to see only that book’s matching verses (chapter/verse order).
+- Clear “Back to books” control returns to the book list without losing the original query.
+- Large touch targets preserved for senior-friendly use.
 
-## Test (Search + Cross-ref chain)
+Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-references so ← Back can unwind the chain.
 
-1. Hard-refresh until version bar shows **v5.12.0**
-2. Open any chapter and note the verse near the top of the screen
-3. Tap Search → type a word → tap any result → land on the new verse; ← Back should be visible and labeled with the origin
-4. From there open Cross-refs on a verse and jump to another reference
-5. Press ← Back repeatedly; each press steps back one jump until you return to the original chapter/verse and the Back button hides
+## Test (Search hierarchical + sticky header)
+
+1. Hard-refresh until version bar shows **v5.13.0**
+2. Open Search → type a common word (e.g. “love” or “God”)
+3. Confirm a short book list appears first, in biblical order, with counts
+4. Tap a book → only that book’s verses appear; “← Back to books” is visible and large
+5. Scroll the verse list; X / title / search box remain visible at the top
+6. Press Back to books, then change the query or close with X
+7. Jumping to a verse still pushes navStack; main ← Back still works as before
 
 Highlight, note, Research, and ordinary chapter navigation behavior is unchanged.
