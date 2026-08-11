@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.10.0
+/* app.js – Main application controller. KJV Study PWA v5.11.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.10.0</div>
+      <div class="version-bar">v5.11.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -2176,14 +2176,20 @@ async function openResearch() {
   let activeSource = preferred;
   let scrollTimer = null;
 
+  // True only after commentary HTML has been rendered into bodyEl
+  let bodyHasContent = false;
+
   function persistCurrentScroll() {
-    if (bodyEl) saveScrollPos(activeSource, bodyEl.scrollTop);
+    // Never write 0 over a real saved position when the body is empty
+    // (that was wiping memory every time Research opened).
+    if (!bodyEl || !bodyHasContent) return;
+    saveScrollPos(activeSource, bodyEl.scrollTop);
   }
 
-  // Only the notes body scrolls — track it
+  // Only the commentary body scrolls — track it
   bodyEl.addEventListener("scroll", () => {
     if (scrollTimer) clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(persistCurrentScroll, 80);
+    scrollTimer = setTimeout(persistCurrentScroll, 60);
   }, { passive: true });
 
   function doClose() {
@@ -2201,7 +2207,7 @@ async function openResearch() {
     closeBtn.addEventListener('touchend', onClose, { passive: false });
   }
 
-  // Backdrop tap also saves then closes (showOverlay already closes; we just save first)
+  // Backdrop tap: save first (showOverlay also closes on backdrop)
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) {
       persistCurrentScroll();
@@ -2211,23 +2217,32 @@ async function openResearch() {
   function restoreScroll(src) {
     const saved = getSavedScroll(src);
     if (!saved || !bodyEl) return;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        bodyEl.scrollTop = saved;
-        setTimeout(() => {
-          if (Math.abs(bodyEl.scrollTop - saved) > 2) {
-            bodyEl.scrollTop = saved;
-          }
-        }, 50);
-      });
-    });
+
+    const tryRestore = (attempt) => {
+      if (!bodyEl) return;
+      // Wait until content has real height so iOS does not clamp scrollTop to 0
+      const ready = bodyEl.scrollHeight > bodyEl.clientHeight + 20 || attempt >= 12;
+      if (!ready) {
+        setTimeout(() => tryRestore(attempt + 1), 40);
+        return;
+      }
+      bodyEl.scrollTop = saved;
+      if (Math.abs(bodyEl.scrollTop - saved) > 2 && attempt < 15) {
+        setTimeout(() => tryRestore(attempt + 1), 50);
+      }
+    };
+    requestAnimationFrame(() => tryRestore(0));
   }
 
   async function loadSource(sourceId) {
-    persistCurrentScroll();
+    // Save previous source position only if we actually had content on screen
+    if (bodyHasContent && bodyEl) {
+      saveScrollPos(activeSource, bodyEl.scrollTop);
+    }
     activeSource = sourceId;
     preferred = sourceId;
     localStorage.setItem("kjv-research-source", sourceId);
+    bodyHasContent = false;
 
     overlay.querySelectorAll(".research-src").forEach(btn => {
       const active = btn.dataset.id === sourceId;
@@ -2306,6 +2321,7 @@ async function openResearch() {
       }
     }
     bodyEl.innerHTML = html || `<p style="color:var(--text-dim)">No content.</p>`;
+    bodyHasContent = true;
     restoreScroll(sourceId);
   }
 
@@ -2348,7 +2364,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.10.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.11.0</p>
       </div>
     </div>
   `);
@@ -2359,7 +2375,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.10.0</h2>
+      <h2>About – KJV Study v5.11.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2383,7 +2399,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.10.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.11.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
