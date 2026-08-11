@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.13.0
+/* app.js – Main application controller. KJV Study PWA v5.14.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=5.13.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=5.14.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.13.0</div>
+      <div class="version-bar">v5.14.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -1036,7 +1036,7 @@ function openColorIndex() {
   });
 }
 
-// ---------- Review by color ----------
+// ---------- Review by color (v5.14.0: hierarchical book → verse + Back to books) ----------
 async function openReviewByColor(preselectColor = null) {
   const allHighlights = await storage.getAllHighlights();
   const colorFilter = preselectColor;
@@ -1045,78 +1045,159 @@ async function openReviewByColor(preselectColor = null) {
     `<option value="${c.id}" ${c.id === colorFilter ? 'selected' : ''}>${c.label} – ${c.meaning}</option>`
   ).join('');
 
+  // Reuse the same panel structure / styles as hierarchical Search for consistency
   const overlay = showOverlay(`
-    <div class="panel">
-      <button class="close" type="button">×</button>
-      <h2>Review by Color</h2>
-      <label style="display:block;margin-bottom:0.6rem">
-        Color:
-        <select id="review-color" style="width:100%;padding:0.6rem;font-size:1.05rem;margin-top:0.3rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px">
-          <option value="">— choose a color —</option>
-          ${colorOptions}
-        </select>
-      </label>
-      <label style="display:block;margin-bottom:0.8rem">
-        Book filter:
-        <select id="review-book" style="width:100%;padding:0.6rem;font-size:1.05rem;margin-top:0.3rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px">
-          <option value="">All loaded books</option>
-          ${books.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
-        </select>
-      </label>
-      <div id="review-results"></div>
+    <div class="panel search-panel">
+      <div class="search-header">
+        <div class="search-header-top">
+          <h2 class="search-title">Review by Color</h2>
+          <button type="button" class="close search-close" aria-label="Close">×</button>
+        </div>
+        <label style="display:block;margin:0 0 0.4rem;font-size:0.95em;color:var(--text-dim)">
+          Color
+          <select id="review-color" style="width:100%;padding:0.6rem;font-size:1.05rem;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px">
+            <option value="">— choose a color —</option>
+            ${colorOptions}
+          </select>
+        </label>
+      </div>
+      <div id="review-results" class="search-body"></div>
     </div>
   `);
-  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
 
-  async function refresh() {
-    const color = $('#review-color', overlay).value;
-    const bookFilter = $('#review-book', overlay).value;
-    const resultsEl = $('#review-results', overlay);
-    if (!color) {
-      resultsEl.innerHTML = '<p style="color:var(--text-dim)">Select a color to see matching verses.</p>';
-      return;
-    }
-    const matches = allHighlights.filter(h => {
-      const ranges = h.ranges || [];
-      return ranges.some(r => r.color === color);
-    });
-    const filtered = bookFilter
-      ? matches.filter(h => h.key.startsWith(bookFilter + '.'))
-      : matches;
+  const resultsEl = $('#review-results', overlay);
+  let lastMatches = [];   // flat list of matching highlight rows for the chosen color
+  let viewMode = 'books'; // 'books' | 'verses'
+  let selectedBookId = null;
 
-    if (!filtered.length) {
-      resultsEl.innerHTML = '<p style="color:var(--text-dim)">No verses marked with this color yet.</p>';
-      return;
-    }
+  // Canonical order index (same approach as Search)
+  const canonIndex = new Map(bible.CANONICAL_BOOKS.map((b, i) => [b.id, i]));
 
-    resultsEl.innerHTML = filtered.map(h => {
+  function groupByBook(matches) {
+    const map = new Map();
+    for (const h of matches) {
       const { bookId, chapter, verse } = bible.parseKey(h.key);
-      const book = books.find(b => b.id === bookId);
-      const text = bible.getVerseText(books, bookId, chapter, verse) || '';
-      return `
-        <div class="search-result" data-key="${h.key}">
-          <span class="ref">${book ? book.name : bookId} ${chapter}:${verse}</span>
-          ${escapeHtml(text.slice(0, 140))}${text.length > 140 ? '…' : ''}
-        </div>
-      `;
-    }).join('');
+      if (!map.has(bookId)) {
+        const book = books.find(b => b.id === bookId);
+        map.set(bookId, {
+          bookId,
+          bookName: book ? book.name : bookId,
+          items: []
+        });
+      }
+      map.get(bookId).items.push({
+        key: h.key,
+        bookId,
+        chapter,
+        verse,
+        text: bible.getVerseText(books, bookId, chapter, verse) || ''
+      });
+    }
+    // Sort groups by canonical order; verses inside a book by chapter then verse
+    const groups = Array.from(map.values()).sort((a, b) => {
+      const ia = canonIndex.has(a.bookId) ? canonIndex.get(a.bookId) : 999;
+      const ib = canonIndex.has(b.bookId) ? canonIndex.get(b.bookId) : 999;
+      return ia - ib;
+    });
+    for (const g of groups) {
+      g.items.sort((a, b) => (a.chapter - b.chapter) || (a.verse - b.verse));
+    }
+    return groups;
+  }
 
-    $$('.search-result', resultsEl).forEach(el => {
-      el.onclick = async () => {
-        const { bookId, chapter } = bible.parseKey(el.dataset.key);
+  function bindVerseClicks(container) {
+    $$('.search-result', container).forEach(row => {
+      row.onclick = async () => {
+        // Push current reading location so the main chrome ← Back can return here
+        // (identical pattern to hierarchical Search and Cross-refs).
+        if (currentBookId) {
+          const main = document.getElementById('main');
+          const book = books.find(b => b.id === currentBookId);
+          const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+          navStack.push({
+            bookId: currentBookId,
+            chapter: currentChapter,
+            verseKey: getNearestVerseKey() || null,
+            scrollTop: main ? main.scrollTop : 0,
+            label
+          });
+          updateNavBackButton();
+        }
         closeOverlay(overlay);
-        await renderChapter(bookId, chapter);
-        // scroll to verse after short delay
-        setTimeout(() => {
-          const target = document.getElementById('v-' + el.dataset.key.replace(/\./g, '-'));
-          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 120);
+        await jumpToRef(row.dataset.key);
       };
     });
   }
 
+  function renderBookList() {
+    viewMode = 'books';
+    selectedBookId = null;
+    const groups = groupByBook(lastMatches);
+    if (!groups.length) {
+      const color = $('#review-color', overlay).value;
+      resultsEl.innerHTML = color
+        ? '<p style="color:var(--text-dim);padding:0.5rem 0">No verses marked with this color yet.</p>'
+        : '<p style="color:var(--text-dim);padding:0.5rem 0">Select a color to see matching verses.</p>';
+      return;
+    }
+    resultsEl.innerHTML = groups.map(g => `
+      <div class="search-book-row" data-book-id="${escapeHtml(g.bookId)}" role="button" tabindex="0">
+        <span class="book-name">${escapeHtml(g.bookName)}</span>
+        <span class="match-count">${g.items.length}</span>
+      </div>
+    `).join('');
+    $$('.search-book-row', resultsEl).forEach(row => {
+      const go = () => {
+        selectedBookId = row.dataset.bookId;
+        renderVerseList();
+      };
+      row.onclick = go;
+      row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+  }
+
+  function renderVerseList() {
+    viewMode = 'verses';
+    const groups = groupByBook(lastMatches);
+    const group = groups.find(g => g.bookId === selectedBookId);
+    if (!group) {
+      renderBookList();
+      return;
+    }
+    const verseHtml = group.items.map(r => `
+      <div class="search-result" data-key="${r.key}">
+        <span class="ref">${escapeHtml(r.bookName || group.bookName)} ${r.chapter}:${r.verse}</span>
+        ${escapeHtml((r.text || '').slice(0, 140))}${(r.text || '').length > 140 ? '…' : ''}
+      </div>
+    `).join('');
+    resultsEl.innerHTML = `
+      <div class="search-back-row">
+        <button type="button" class="search-back-btn" id="review-back">← Back to books</button>
+      </div>
+      <p style="font-size:0.9em;color:var(--text-dim);margin:0 0 0.5rem">${escapeHtml(group.bookName)} · ${group.items.length} verse${group.items.length === 1 ? '' : 's'}</p>
+      ${verseHtml}
+    `;
+    $('#review-back', resultsEl).onclick = () => renderBookList();
+    bindVerseClicks(resultsEl);
+  }
+
+  function refresh() {
+    const color = $('#review-color', overlay).value;
+    if (!color) {
+      lastMatches = [];
+      renderBookList();
+      return;
+    }
+    lastMatches = allHighlights.filter(h => {
+      const ranges = h.ranges || [];
+      return ranges.some(r => r.color === color);
+    });
+    // Any color change returns to the book-list view
+    renderBookList();
+  }
+
   $('#review-color', overlay).onchange = refresh;
-  $('#review-book', overlay).onchange = refresh;
   if (colorFilter) refresh();
 }
 
@@ -1732,7 +1813,7 @@ async function jumpToRef(targetKey) {
   }, 80);
 }
 
-// ---------- Search (v5.13.0: sticky header + hierarchical book → verse) ----------
+// ---------- Search (v5.14.0: sticky header + hierarchical book → verse) ----------
 function openSearch() {
   const overlay = showOverlay(`
     <div class="panel search-panel">
@@ -2468,7 +2549,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.13.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.14.0</p>
       </div>
     </div>
   `);
@@ -2479,7 +2560,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.13.0</h2>
+      <h2>About – KJV Study v5.14.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2503,7 +2584,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.13.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.14.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

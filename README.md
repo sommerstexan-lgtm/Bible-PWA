@@ -1,6 +1,14 @@
-# KJV Study PWA – v5.13.0
+# KJV Study PWA – v5.14.0
 
 **Password:** `KJV-Study-Private`
+
+## Fixed in v5.14 — Review by Color hierarchical + Back
+
+- After selecting a color, results are hierarchical: first a short list of books that contain that color, shown in strict canonical order with verse counts.
+- Tap a book → only that book’s matching verses appear (chapter/verse order) with a large “← Back to books” control so you can continue reviewing other books without losing the color selection.
+- Selecting a verse pushes the current location onto `navStack` (same pattern as Search / Cross-refs) so the main chrome ← Back returns you to where you were reading.
+- Sticky header (color selector + Close) stays visible while the results area scrolls; large touch targets preserved for senior-friendly use.
+- The old flat “Book filter” dropdown was removed; the hierarchical book list replaces it.
 
 ## Fixed in v5.13 — Search screen usability
 
@@ -11,14 +19,14 @@
 
 Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-references so ← Back can unwind the chain.
 
-## Test (Search hierarchical + sticky header)
+## Test (Review hierarchical)
 
-1. Hard-refresh until version bar shows **v5.13.0**
-2. Open Search → type a common word (e.g. “love” or “God”)
-3. Confirm a short book list appears first, in biblical order, with counts
-4. Tap a book → only that book’s verses appear; “← Back to books” is visible and large
-5. Scroll the verse list; X / title / search box remain visible at the top
-6. Press Back to books, then change the query or close with X
-7. Jumping to a verse still pushes navStack; main ← Back still works as before
+1. Hard-refresh until version bar shows **v5.14.0**
+2. Mark a few verses with the same color in at least two different books
+3. Open Review → choose that color
+4. Confirm a short book list appears first, in biblical order, with verse counts
+5. Tap a book → only that book’s verses appear; “← Back to books” is visible and large
+6. Press Back to books, then open another book or change color
+7. Jump to a verse; main chrome ← Back returns to the chapter you were on before opening Review
 
-Highlight, note, Research, and ordinary chapter navigation behavior is unchanged.
+Highlight, note, Research, Search, and ordinary chapter navigation behavior is unchanged.
