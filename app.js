@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.14.0
+/* app.js – Main application controller. KJV Study PWA v5.15.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=5.14.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=5.15.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.14.0</div>
+      <div class="version-bar">v5.15.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -362,13 +362,23 @@ function normalizeRanges(raw, textLen) {
     .filter(r => r.end > r.start);
 }
 
-function buildColoredHtml(text, ranges) {
-  if (!ranges.length) return escapeHtml(text);
+/**
+ * Build verse HTML with solid highlight fills + optional Tap-a-word Strong's outlines.
+ * When enableTap is true, every alphabetic word is wrapped in .tap-word so it can be
+ * tapped for Strong's. Outline color follows the agreed rule:
+ *   - no highlight → soft fixed accent (CSS --tap-outline-default)
+ *   - has highlight → brighter version of that highlight color (never disappears)
+ * Text content / character offsets are preserved so selection logic stays intact.
+ */
+function buildColoredHtml(text, ranges, enableTap = false) {
+  if (!ranges.length && !enableTap) return escapeHtml(text);
   const len = text.length;
   // Last range wins on any overlapping pixels (apply logic punches holes first)
   const cover = Array.from({ length: len }, () => null);
   for (const r of ranges) {
-    for (let i = r.start; i < r.end; i++) cover[i] = r.color;
+    for (let i = r.start; i < r.end; i++) {
+      if (i >= 0 && i < len) cover[i] = r.color;
+    }
   }
   let html = "";
   let i = 0;
@@ -376,15 +386,41 @@ function buildColoredHtml(text, ranges) {
     const col = cover[i];
     let j = i + 1;
     while (j < len && cover[j] === col) j++;
-    const slice = escapeHtml(text.slice(i, j));
-    if (col) {
-      const meta = analyze.getColorMeta(col);
-      // True solid background fill + mandatory pure black/white text for max contrast
-      const bg = (meta && meta.hex) ? meta.hex : "#666666";
-      const fg = (meta && meta.text) ? meta.text : analyze.contrastTextColor(bg);
-      html += `<span class="hl" data-color="${col}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}">${slice}</span>`;
+    const rawSlice = text.slice(i, j);
+    if (enableTap) {
+      // Split run into words (letter + optional apostrophes) and non-word runs
+      const wordRe = /[A-Za-z][A-Za-z']*/g;
+      let last = 0;
+      let m;
+      while ((m = wordRe.exec(rawSlice)) !== null) {
+        if (m.index > last) {
+          html += escapeHtml(rawSlice.slice(last, m.index));
+        }
+        const word = m[0];
+        const esc = escapeHtml(word);
+        if (col) {
+          const meta = analyze.getColorMeta(col);
+          const bg = (meta && meta.hex) ? meta.hex : "#666666";
+          const fg = (meta && meta.text) ? meta.text : analyze.contrastTextColor(bg);
+          const outline = analyze.outlineColorForHighlight(bg);
+          html += `<span class="hl tap-word" data-color="${col}" data-word="${esc}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg};--tap-outline:${outline}">${esc}</span>`;
+        } else {
+          html += `<span class="tap-word" data-word="${esc}">${esc}</span>`;
+        }
+        last = m.index + word.length;
+      }
+      if (last < rawSlice.length) html += escapeHtml(rawSlice.slice(last));
     } else {
-      html += slice;
+      const slice = escapeHtml(rawSlice);
+      if (col) {
+        const meta = analyze.getColorMeta(col);
+        // True solid background fill + mandatory pure black/white text for max contrast
+        const bg = (meta && meta.hex) ? meta.hex : "#666666";
+        const fg = (meta && meta.text) ? meta.text : analyze.contrastTextColor(bg);
+        html += `<span class="hl" data-color="${col}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}">${slice}</span>`;
+      } else {
+        html += slice;
+      }
     }
     i = j;
   }
@@ -616,19 +652,24 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const highlightMap = {};
   const noteMap = {};
   const xrefMap = {};
-  await Promise.all(keys.map(async (k) => {
-    const [hl, note, xrefs, shared] = await Promise.all([
-      storage.getHighlights(k),
-      storage.getNote(k),
-      storage.getCrossRefs(k),
-      storage.findSharedNoteForVerse(k)
-    ]);
-    highlightMap[k] = hl;
-    const hasPrivate = !!(note && String(note).trim());
-    const hasShared = !!(shared && shared.body && String(shared.body).trim());
-    noteMap[k] = hasPrivate || hasShared;
-    xrefMap[k] = Array.isArray(xrefs) && xrefs.length > 0;
-  }));
+  // Lexicon presence enables Tap-a-word Strong's outlines (fully offline)
+  const [lexPack] = await Promise.all([
+    storage.getLexiconPack(),
+    ...keys.map(async (k) => {
+      const [hl, note, xrefs, shared] = await Promise.all([
+        storage.getHighlights(k),
+        storage.getNote(k),
+        storage.getCrossRefs(k),
+        storage.findSharedNoteForVerse(k)
+      ]);
+      highlightMap[k] = hl;
+      const hasPrivate = !!(note && String(note).trim());
+      const hasShared = !!(shared && shared.body && String(shared.body).trim());
+      noteMap[k] = hasPrivate || hasShared;
+      xrefMap[k] = Array.isArray(xrefs) && xrefs.length > 0;
+    })
+  ]);
+  const enableTap = !!(lexPack && lexPack.entries);
 
   for (const v of ch.verses) {
     const key = bible.verseKey(bookId, chapterNum, v.number);
@@ -654,7 +695,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       return `<span class="color-chip" style="background:${meta ? meta.hex : '#666'}" title="${meta ? meta.label : c}"></span>`;
     }).join('');
 
-    const coloredText = buildColoredHtml(v.text, ranges);
+    const coloredText = buildColoredHtml(v.text, ranges, enableTap);
     const noteCls = noteMap[key] ? ' has-content' : '';
     const xrefCls = xrefMap[key] ? ' has-content' : '';
 
@@ -686,6 +727,18 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   main.addEventListener('mousedown', earlyCapture, { capture: true });
 
   main.onclick = async (e) => {
+    // Tap-a-word Strong's: only when selection is collapsed (user tapped, not selected)
+    const wordEl = e.target.closest && e.target.closest('.tap-word');
+    if (wordEl && wordEl.dataset.word) {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return; // user is selecting text for highlight
+      e.preventDefault();
+      e.stopPropagation();
+      const verseEl = wordEl.closest('.verse');
+      openStrongsForWord(wordEl.dataset.word, verseEl ? verseEl.dataset.key : null);
+      return;
+    }
+
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
@@ -1036,7 +1089,7 @@ function openColorIndex() {
   });
 }
 
-// ---------- Review by color (v5.14.0: hierarchical book → verse + Back to books) ----------
+// ---------- Review by color (v5.15.0: hierarchical book → verse + Back to books) ----------
 async function openReviewByColor(preselectColor = null) {
   const allHighlights = await storage.getAllHighlights();
   const colorFilter = preselectColor;
@@ -1813,7 +1866,7 @@ async function jumpToRef(targetKey) {
   }, 80);
 }
 
-// ---------- Search (v5.14.0: sticky header + hierarchical book → verse) ----------
+// ---------- Search (v5.15.0: sticky header + hierarchical book → verse) ----------
 function openSearch() {
   const overlay = showOverlay(`
     <div class="panel search-panel">
@@ -2282,10 +2335,147 @@ function openImportLexicon() {
       await storage.saveLexiconPack(json);
       closeOverlay(overlay);
       alert(`Dictionary installed: ${json.entryCount || Object.keys(json.entries).length} entries.`);
+      // Re-render current chapter so Tap-a-word outlines appear immediately
+      if (currentBookId && currentChapter) {
+        await renderChapter(currentBookId, currentChapter, { preserveScroll: document.getElementById('main')?.scrollTop || 0 });
+      }
     } catch (err) {
       alert('Import failed: ' + (err.message || err));
     }
   };
+}
+
+
+/**
+ * Tap-a-word Strong's (v5.15.0 mid-level)
+ * Uses only the installed lexicon pack + loaded book text. Fully offline.
+ * Shows Strong's number, gloss, transliteration/pron, and a few other verses
+ * that contain the same English word (approximation of same-Strong occurrences
+ * because verse text is not Strong's-tagged).
+ */
+async function openStrongsForWord(word, verseKey) {
+  const clean = (word || '').trim();
+  if (!clean) return;
+
+  const pack = await storage.getLexiconPack();
+  if (!pack || !pack.entries) {
+    const overlay = showOverlay(`
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+          <h2 style="margin:0;border:none;padding:0">Strong's</h2>
+          <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+        </div>
+        <p style="line-height:1.55;margin-bottom:1rem">No dictionary installed yet.</p>
+        <p style="line-height:1.55;margin-bottom:1rem">Install the free Strong's pack via Menu → Import Dictionary (Strong's).</p>
+        <button type="button" id="strong-import-now" style="width:100%;min-height:52px">Import Dictionary now</button>
+      </div>
+    `);
+    $('.close', overlay).onclick = () => closeOverlay(overlay);
+    $('#strong-import-now', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
+    return;
+  }
+
+  const hits = await storage.searchLexicon(clean);
+  // Prefer an entry whose KJV forms include the exact word (case-insensitive)
+  let best = hits[0] || null;
+  if (hits.length > 1) {
+    const lower = clean.toLowerCase();
+    const exact = hits.find(h => {
+      const kjv = (h.kjv || '').toLowerCase();
+      return kjv.split(/[,;/\s]+/).some(w => w === lower);
+    });
+    if (exact) best = exact;
+  }
+
+  // Other occurrences: text search across loaded books for the same English word
+  let occHtml = '';
+  try {
+    const allHits = await bible.searchBooks(clean, books);
+    const others = allHits
+      .filter(r => r.key !== verseKey)
+      .slice(0, 6);
+    if (others.length) {
+      occHtml = `
+        <p style="margin:1rem 0 0.5rem;font-size:0.9em;color:var(--text-dim);font-weight:600">Other verses with this word</p>
+        ${others.map(r => `
+          <button type="button" class="strong-occ" data-key="${escapeHtml(r.key)}">
+            <div class="ref">${escapeHtml(r.bookName)} ${r.chapter}:${r.verse}</div>
+            <div class="snip">${escapeHtml(r.snippet || r.text.slice(0, 90))}</div>
+          </button>
+        `).join('')}
+      `;
+    } else {
+      occHtml = `<p style="margin-top:1rem;font-size:0.9em;color:var(--text-dim)">No other loaded verses contain “${escapeHtml(clean)}”.</p>`;
+    }
+  } catch (_) {
+    occHtml = '';
+  }
+
+  let body;
+  if (!best) {
+    body = `
+      <p style="line-height:1.55;margin-bottom:0.8rem">No Strong's entry found for <strong>“${escapeHtml(clean)}”</strong>.</p>
+      <p style="font-size:0.9em;color:var(--text-dim);margin-bottom:1rem">Try the full Dictionary for related forms or a Strong's number.</p>
+      <button type="button" id="strong-open-dict" style="width:100%;min-height:52px;margin-bottom:0.5rem">Open Dictionary</button>
+      ${occHtml}
+    `;
+  } else {
+    const lemma = best.lemma ? escapeHtml(best.lemma) : '';
+    const xlit = best.xlit ? escapeHtml(best.xlit) : '';
+    const pron = best.pron ? escapeHtml(best.pron) : '';
+    const gloss = best.gloss ? escapeHtml(best.gloss) : '';
+    const kjv = best.kjv ? escapeHtml(best.kjv) : '';
+    body = `
+      <div style="margin-bottom:0.9rem">
+        <div style="font-weight:700;font-size:1.15em;color:var(--accent);margin-bottom:0.25rem">${escapeHtml(best.id)}
+          ${lemma ? `<span style="color:var(--text);font-weight:500"> ${lemma}</span>` : ''}
+        </div>
+        ${xlit || pron ? `<div style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.35rem">${xlit}${pron && xlit ? ' · ' : ''}${pron}</div>` : ''}
+        ${gloss ? `<div style="line-height:1.5;margin-bottom:0.35rem">${gloss}</div>` : ''}
+        ${kjv ? `<div style="font-size:0.9em;color:var(--text-dim)">KJV: ${kjv}</div>` : ''}
+      </div>
+      ${hits.length > 1 ? `<p style="font-size:0.85em;color:var(--text-dim);margin-bottom:0.6rem">${hits.length} related entries — showing best match. Use Dictionary for full list.</p>` : ''}
+      ${occHtml}
+    `;
+  }
+
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Strong's · ${escapeHtml(clean)}</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${body}
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+
+  const dictBtn = $('#strong-open-dict', overlay);
+  if (dictBtn) {
+    dictBtn.onclick = () => { closeOverlay(overlay); openDictionary(clean); };
+  }
+
+  $$('.strong-occ', overlay).forEach(btn => {
+    btn.onclick = async () => {
+      const key = btn.dataset.key;
+      if (!key) return;
+      if (currentBookId) {
+        const main = document.getElementById('main');
+        const book = books.find(b => b.id === currentBookId);
+        const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+        navStack.push({
+          bookId: currentBookId,
+          chapter: currentChapter,
+          verseKey: getNearestVerseKey() || null,
+          scrollTop: main ? main.scrollTop : 0,
+          label
+        });
+        updateNavBackButton();
+      }
+      closeOverlay(overlay);
+      await jumpToRef(key);
+    };
+  });
 }
 
 
@@ -2549,7 +2739,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.14.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.15.0</p>
       </div>
     </div>
   `);
@@ -2560,7 +2750,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.14.0</h2>
+      <h2>About – KJV Study v5.15.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2584,7 +2774,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.14.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.15.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

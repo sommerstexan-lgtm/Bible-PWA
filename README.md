@@ -1,6 +1,19 @@
-# KJV Study PWA – v5.14.0
+# KJV Study PWA – v5.15.0
 
 **Password:** `KJV-Study-Private`
+
+## New in v5.15 — Tap-a-word Strong's (mid-level)
+
+- When a Strong's lexicon pack is installed, every alphabetic word in the verse text receives a thin outline / frame so it feels tappable.
+- **No highlight:** soft fixed muted blue-gray outline.
+- **Has highlight:** outline becomes a brighter / slightly more saturated version of that word's dominant highlight color (soft glow that never disappears on top of the solid fill).
+- Tap a word (selection must be collapsed) → compact bottom-sheet shows:
+  - Strong's number + lemma
+  - Transliteration and pronunciation (when present)
+  - Short gloss
+  - 3–6 other loaded verses that contain the same English word (practical offline approximation of same-Strong occurrences)
+- If no lexicon is installed the feature is inactive; a gentle prompt points to Menu → Import Dictionary (Strong's).
+- Existing partial-highlight selection, solid-fill + contrast text, notes, cross-refs, Review, Search, and chapter navigation are unchanged.
 
 ## Fixed in v5.14 — Review by Color hierarchical + Back
 
@@ -19,14 +32,16 @@
 
 Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-references so ← Back can unwind the chain.
 
-## Test (Review hierarchical)
+## Test checklist (v5.15 Tap-a-word Strong's)
 
-1. Hard-refresh until version bar shows **v5.14.0**
-2. Mark a few verses with the same color in at least two different books
-3. Open Review → choose that color
-4. Confirm a short book list appears first, in biblical order, with verse counts
-5. Tap a book → only that book’s verses appear; “← Back to books” is visible and large
-6. Press Back to books, then open another book or change color
-7. Jump to a verse; main chrome ← Back returns to the chapter you were on before opening Review
+1. Hard-refresh until version bar shows **v5.15.0**.
+2. With no lexicon installed: verse words have no outlines; tapping a word does nothing (or gently offers Import Dictionary).
+3. Menu → Import Dictionary (Strong's) → install a valid strongs-lexicon.json.
+4. Open a chapter: every word now has a thin soft outline.
+5. Apply a solid highlight to part of a verse; the outlined words inside the highlight show a brighter frame in that highlight’s color; the outline never disappears.
+6. Tap an outlined word (do not select text) → Strong's panel opens with number, gloss, transliteration/pron, and a short list of other verses.
+7. Tap an occurrence row → jumps to that verse; main chrome ← Back returns to the previous place.
+8. Select a few words (long-press + drag) then open Color: partial-highlight still works; selection logic is unchanged.
+9. Review, Search, notes, cross-refs, chapter navigation and Analyze continue to work as before.
 
 Highlight, note, Research, Search, and ordinary chapter navigation behavior is unchanged.

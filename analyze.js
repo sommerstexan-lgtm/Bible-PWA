@@ -1,4 +1,4 @@
-/* analyze.js – Rule-based color suggestion engine + local learning. v5.13.0
+/* analyze.js – Rule-based color suggestion engine + local learning. v5.15.0
    All learning stays in IndexedDB. User corrections improve future suggestions.
    Highlight text color is ALWAYS computed for max contrast (pure black or pure white).
 */
@@ -41,6 +41,19 @@ export function contrastTextColor(bgHex) {
   const contrastBlack = (L + 0.05) / 0.05;
   const contrastWhite = 1.05 / (L + 0.05);
   return contrastBlack >= contrastWhite ? '#000000' : '#ffffff';
+}
+
+/**
+ * Brighter / slightly more saturated outline color for a highlight background.
+ * Used by Tap-a-word Strong's so the frame remains visible on solid fills.
+ */
+export function outlineColorForHighlight(bgHex) {
+  const [r, g, b] = hexToRgb(bgHex);
+  // Mix ~40% toward white for a soft glow that still reads the original hue
+  const lr = Math.min(255, Math.round(r * 0.55 + 255 * 0.45));
+  const lg = Math.min(255, Math.round(g * 0.55 + 255 * 0.45));
+  const lb = Math.min(255, Math.round(b * 0.55 + 255 * 0.45));
+  return `rgba(${lr},${lg},${lb},0.9)`;
 }
 
 // Base palette – text field is ignored at runtime; always recomputed via contrastTextColor.

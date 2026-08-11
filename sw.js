@@ -1,8 +1,8 @@
-/* KJV Study PWA – Service Worker  v5.14.0
+/* KJV Study PWA – Service Worker  v5.15.0
    Network-first for app shell so updates apply on the first reload.
    IndexedDB data is never cached by the SW.
 */
-const CACHE_NAME = 'kjv-study-v5.14.0';
+const CACHE_NAME = 'kjv-study-v5.15.0';
 const SHELL = [
   './',
   './index.html',
