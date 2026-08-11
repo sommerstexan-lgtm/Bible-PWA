@@ -1,4 +1,4 @@
-/* KJV Study PWA v5.9.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v5.10.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -849,6 +849,9 @@ body.chrome-is-hidden main#main {
 .panel.research-panel {
   display: flex;
   flex-direction: column;
+  /* Explicit height (not only max-height) so iOS flex children can scroll */
+  height: 88vh;
+  height: 88dvh;
   max-height: 88vh;
   max-height: 88dvh;
   overflow: hidden;          /* panel itself does NOT scroll */
