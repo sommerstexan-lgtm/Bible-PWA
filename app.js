@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.5.0
+/* app.js – Main application controller. KJV Study PWA v5.9.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.5.0</div>
+      <div class="version-bar">v5.9.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -383,6 +383,7 @@ function uniqueColors(ranges) {
 
 let pendingSelection = null; // { key, start, end, text } — never cleared by a failed capture
 
+
 /**
  * Locate `selected` inside `plain`, preferring the occurrence nearest to approxStart.
  * range.toString() is the source of truth for what the user highlighted.
@@ -390,6 +391,7 @@ let pendingSelection = null; // { key, start, end, text } — never cleared by a
 function locateSelected(plain, selected, approxStart) {
   if (!selected || !plain) return null;
   const len = selected.length;
+  if (len === 0) return null;
   if (approxStart >= 0 && plain.slice(approxStart, approxStart + len) === selected) {
     return { start: approxStart, end: approxStart + len };
   }
@@ -411,12 +413,32 @@ function locateSelected(plain, selected, approxStart) {
   return { start: best, end: best + len };
 }
 
+/** Strip a leading verse number that iOS often includes in the selection string. */
+function stripLeadingVerseNum(selected) {
+  if (!selected) return selected;
+  // "1 In", "12 In", "1In", "1\nIn", " 1  In"
+  return selected.replace(/^\s*\d+\s*/, '');
+}
+
+
+/**
+ * Map the live DOM selection to start/end offsets inside .verse-text.
+ *
+ * Method: clamp the selection range to .verse-text, then measure character
+ * offsets from the text nodes only. No string search. This is the reliable
+ * path for first-word / first-two-words / full-verse on iOS.
+ */
 function getSelectionOffsets(textEl) {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount || !textEl) return null;
-  const range = sel.getRangeAt(0);
 
-  // Selection must intersect this verse's text (allow common ancestor = .verse)
+  let range;
+  try {
+    range = sel.getRangeAt(0);
+  } catch (_) {
+    return null;
+  }
+
   const verseEl = textEl.closest('.verse');
   const ancestor = range.commonAncestorContainer;
   const insideText = textEl === ancestor || textEl.contains(ancestor);
@@ -426,85 +448,97 @@ function getSelectionOffsets(textEl) {
   const plain = textEl.textContent || '';
   if (!plain) return null;
 
-  // What the user actually selected — authoritative on iOS
-  let selected = '';
+  // Range that covers the entire verse text
+  const textRange = document.createRange();
   try {
-    selected = range.toString();
+    textRange.selectNodeContents(textEl);
   } catch (_) {
     return null;
   }
-  // If selection included the verse number, strip leading number artifacts only when
-  // the match still works against plain (do not invent text)
+
+  // Clamp selection to textEl boundaries (drops verse-num and anything outside)
+  const clamped = range.cloneRange();
+  try {
+    if (clamped.compareBoundaryPoints(Range.START_TO_START, textRange) < 0) {
+      clamped.setStart(textRange.startContainer, textRange.startOffset);
+    }
+    if (clamped.compareBoundaryPoints(Range.END_TO_END, textRange) > 0) {
+      clamped.setEnd(textRange.endContainer, textRange.endOffset);
+    }
+  } catch (_) {
+    return null;
+  }
+
+  // If clamp left an empty range, nothing usable inside verse text
+  if (clamped.collapsed) return null;
+
+  let selected = '';
+  try {
+    selected = clamped.toString();
+  } catch (_) {
+    return null;
+  }
   if (!selected) return null;
 
-  // Estimate start offset inside .verse-text (v4.8 method, with safe fallback)
-  let approxStart = 0;
+  // Character offset from start of textEl to start of clamped range
+  let start = 0;
   try {
-    const pre = range.cloneRange();
+    const pre = document.createRange();
     pre.selectNodeContents(textEl);
-    // If range starts before textEl, approxStart stays 0
-    const textRange = document.createRange();
-    textRange.selectNodeContents(textEl);
-    if (range.compareBoundaryPoints(Range.START_TO_START, textRange) <= 0) {
-      approxStart = 0;
-    } else {
-      try {
-        pre.setEnd(range.startContainer, range.startOffset);
-        approxStart = pre.toString().length;
-      } catch (_) {
-        // Element boundary Safari quirk: walk text nodes
-        approxStart = 0;
-        if (range.startContainer.nodeType === Node.TEXT_NODE && textEl.contains(range.startContainer)) {
-          const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
-          while (walker.nextNode()) {
-            const n = walker.currentNode;
-            if (n === range.startContainer) {
-              approxStart += Math.min(n.nodeValue.length, range.startOffset);
-              break;
-            }
-            approxStart += n.nodeValue.length;
+    pre.setEnd(clamped.startContainer, clamped.startOffset);
+    start = pre.toString().length;
+  } catch (_) {
+    // Fallback: walk text nodes
+    try {
+      if (clamped.startContainer.nodeType === Node.TEXT_NODE && textEl.contains(clamped.startContainer)) {
+        const walker = document.createTreeWalker(textEl, NodeFilter.SHOW_TEXT);
+        let acc = 0;
+        while (walker.nextNode()) {
+          const n = walker.currentNode;
+          if (n === clamped.startContainer) {
+            acc += Math.min(n.nodeValue.length, clamped.startOffset);
+            break;
           }
+          acc += n.nodeValue.length;
+        }
+        start = acc;
+      }
+    } catch (__) {
+      start = 0;
+    }
+  }
+
+  start = Math.max(0, Math.min(plain.length, start));
+  let end = start + selected.length;
+  end = Math.max(start, Math.min(plain.length, end));
+
+  // If measurement drifted (iOS quirks), re-sync by locating selected text near start
+  const slice = plain.slice(start, end);
+  if (slice !== selected) {
+    const located = locateSelected(plain, selected, start);
+    if (located) {
+      start = located.start;
+      end = located.end;
+    } else {
+      // Strip verse-num leftovers from selected string and try again
+      const trimmed = stripLeadingVerseNum(selected).trim();
+      if (trimmed && trimmed !== selected) {
+        const loc2 = locateSelected(plain, trimmed, start);
+        if (loc2) {
+          start = loc2.start;
+          end = loc2.end;
+          selected = trimmed;
         }
       }
     }
-  } catch (_) {
-    approxStart = 0;
   }
 
-  approxStart = Math.max(0, Math.min(plain.length, approxStart));
-
-  // Primary path: place the selected string at/near approxStart
-  let located = locateSelected(plain, selected, approxStart);
-
-  // If selection spilled into verse-num ("5 but he…"), try without a leading "N " / "N"
-  if (!located && verseEl) {
-    const trimmed = selected.replace(/^\s*\d+\s*/, '');
-    if (trimmed && trimmed !== selected) {
-      located = locateSelected(plain, trimmed, 0);
-      selected = trimmed;
-    }
-  }
-
-  // If selected is longer than plain (grabbed multiple blocks), clamp to intersection text
-  if (!located && selected.length > plain.length) {
-    // take the portion that appears in plain
-    for (let len = plain.length; len > 0; len--) {
-      const chunk = selected.substring(0, len);
-      located = locateSelected(plain, chunk, 0);
-      if (located) {
-        selected = chunk;
-        break;
-      }
-    }
-  }
-
-  if (!located) return null;
-  if (located.end <= located.start) return null;
+  if (end <= start) return null;
 
   return {
-    start: located.start,
-    end: located.end,
-    text: plain.slice(located.start, located.end),
+    start,
+    end,
+    text: plain.slice(start, end),
     plainLen: plain.length
   };
 }
@@ -620,6 +654,18 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   }
 
   // Event delegation
+  // CRITICAL (iOS): selection collapses on button press. Snapshot on
+  // touchstart/mousedown in capture phase BEFORE the collapse.
+  const earlyCapture = (e) => {
+    const btn = e.target.closest && e.target.closest('button[data-act="color"]');
+    if (!btn) return;
+    const key = btn.dataset.key;
+    if (!key) return;
+    captureSelectionFromVerse(key);
+  };
+  main.addEventListener('touchstart', earlyCapture, { capture: true, passive: true });
+  main.addEventListener('mousedown', earlyCapture, { capture: true });
+
   main.onclick = async (e) => {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
@@ -1137,11 +1183,47 @@ async function openColorPicker(key) {
   const plain = bible.getVerseText(books, bookId, chapter, verse) || "";
   let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
 
-  // Only try live capture if nothing is pending; never overwrite a good pending selection
-  if (!(pendingSelection && pendingSelection.key === key)) {
+  // Snapshot selection NOW (may already be in pending from touchstart earlyCapture).
+  // One more live try if still nothing.
+  if (!(pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)) {
     captureSelectionFromVerse(key);
   }
-  const sel = pendingSelection && pendingSelection.key === key ? pendingSelection : null;
+
+  // LOCK a copy so Apply cannot lose it if pendingSelection is cleared later.
+  let lockedSel = null;
+  if (pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start) {
+    lockedSel = {
+      key: pendingSelection.key,
+      start: pendingSelection.start,
+      end: pendingSelection.end,
+      text: pendingSelection.text
+    };
+  }
+
+  // Re-map by text content so offsets stay correct for partial selections
+  // (first word, first two words, etc.)
+  if (lockedSel && lockedSel.text && plain) {
+    const selText = stripLeadingVerseNum(String(lockedSel.text)).trim();
+    if (selText && selText.length < plain.length) {
+      let located = locateSelected(plain, selText, lockedSel.start || 0);
+      if (!located && plain.startsWith(selText)) {
+        located = { start: 0, end: selText.length };
+      }
+      if (!located) {
+        located = locateSelected(plain, selText, 0);
+      }
+      if (located && (located.end - located.start) < plain.length) {
+        lockedSel = {
+          key,
+          start: located.start,
+          end: located.end,
+          text: plain.slice(located.start, located.end)
+        };
+      }
+    }
+  }
+
+  const sel = lockedSel;
 
   const modeHtml = sel
     ? `<p style="font-size:0.95em;color:var(--success);margin-bottom:0.8rem;line-height:1.45">
@@ -1239,16 +1321,32 @@ async function openColorPicker(key) {
     }
     const colorId = chosen.value;
 
-    // Prefer pending snapshot (mobile collapses selection when tapping Color).
-    // One last live capture only if we do not already have a valid pending range.
-    let useSel = (pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)
-      ? pendingSelection
-      : null;
-    if (!useSel) {
-      useSel = captureSelectionFromVerse(key);
+    // Use the selection locked when the picker opened — do not re-read live
+    // selection (already collapsed on iOS) and do not expand short text to whole verse.
+    let useSel = lockedSel;
+
+    if (useSel && useSel.text && plain) {
+      const selText = stripLeadingVerseNum(String(useSel.text)).trim();
+      if (selText && selText.length < plain.length) {
+        let located = locateSelected(plain, selText, useSel.start || 0);
+        if (!located && plain.startsWith(selText)) {
+          located = { start: 0, end: selText.length };
+        }
+        if (!located) {
+          located = locateSelected(plain, selText, 0);
+        }
+        if (located && (located.end - located.start) < plain.length) {
+          useSel = {
+            key,
+            start: located.start,
+            end: located.end,
+            text: plain.slice(located.start, located.end)
+          };
+        }
+      }
     }
 
-    if (useSel && useSel.end > useSel.start) {
+    if (useSel && useSel.end > useSel.start && (useSel.end - useSel.start) < plain.length) {
       const punched = [];
       for (const r of ranges) {
         if (r.end <= useSel.start || r.start >= useSel.end) {
@@ -1260,8 +1358,10 @@ async function openColorPicker(key) {
       }
       punched.push({ color: colorId, start: useSel.start, end: useSel.end });
       ranges = punched;
+    } else if (useSel && useSel.end > useSel.start && (useSel.end - useSel.start) >= plain.length) {
+      ranges = [{ color: colorId, start: 0, end: plain.length }];
     } else {
-      // No selection → whole verse (same behavior as before v4.9)
+      // No usable partial selection → whole verse
       ranges = [{ color: colorId, start: 0, end: plain.length }];
     }
 
@@ -2012,6 +2112,7 @@ const COMMENTARY_SOURCES = [
 
 
 
+
 async function openResearch() {
   if (!currentBookId || !currentChapter) {
     alert("Open a chapter first, then use Research.");
@@ -2023,7 +2124,6 @@ async function openResearch() {
 
   let preferred = localStorage.getItem("kjv-research-source") || "tyndale";
 
-  // Scroll memory key: sourceId:bookId:chapter → panel scrollTop
   function scrollKey(src) {
     return `${src}:${currentBookId}:${currentChapter}`;
   }
@@ -2045,59 +2145,61 @@ async function openResearch() {
     return loadScrollMap()[scrollKey(src)] || 0;
   }
 
-  // Single scroll container: the .panel itself.
-  // research-body must NOT have its own overflow/max-height.
+  // Layout: panel is flex column. Header (title + X) never scrolls.
+  // Only #research-body scrolls. That is the single scroll container we track.
   const overlay = showOverlay(`
-    <div class="panel research-panel" style="max-width:720px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;gap:0.5rem">
-        <h2 style="margin:0;border:none;padding:0;font-size:1.15rem">Research – ${escapeHtml(bookName)} ${currentChapter}</h2>
-        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+    <div class="panel research-panel">
+      <div class="research-header">
+        <h2 class="research-title">Research – ${escapeHtml(bookName)} ${currentChapter}</h2>
+        <button type="button" class="close research-close" aria-label="Close">×</button>
       </div>
-      <div style="display:flex;gap:0.5rem;margin-bottom:0.8rem;flex-wrap:wrap">
+      <div class="research-sources">
         ${COMMENTARY_SOURCES.map(s => `
           <button type="button" class="research-src" data-id="${s.id}"
-            style="min-height:44px;padding:0.4rem 0.9rem;border-radius:8px;border:1px solid var(--border);
-                   background:${s.id === preferred ? "var(--accent)" : "var(--bg)"};color:${s.id === preferred ? "#111" : "var(--text)"};font-weight:600">
+            style="background:${s.id === preferred ? "var(--accent)" : "var(--bg)"};color:${s.id === preferred ? "#111" : "var(--text)"}">
             ${s.short}
           </button>`).join("")}
       </div>
-      <div id="research-status" style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.6rem">Loading…</div>
-      <div id="research-body" style="line-height:1.55"></div>
-      <p style="margin-top:0.8rem;font-size:0.78em;color:var(--text-dim)">
-        Sources: public-domain / CC via <a href="https://bible.helloao.org" target="_blank" rel="noopener" style="color:var(--accent)">bible.helloao.org</a>.
-        Chapters are cached on this device after first load. Your place in the notes is remembered.
+      <div id="research-status" class="research-status">Loading…</div>
+      <div id="research-body" class="research-body"></div>
+      <p class="research-footer">
+        Sources: public-domain / CC via <a href="https://bible.helloao.org" target="_blank" rel="noopener">bible.helloao.org</a>.
+        Place in notes is remembered.
       </p>
     </div>
   `);
 
   const panelEl = overlay.querySelector(".panel");
-  const statusEl = $("#research-status", overlay);
   const bodyEl = $("#research-body", overlay);
+  const statusEl = $("#research-status", overlay);
+  const closeBtn = $(".research-close", overlay) || $(".close", overlay);
   let activeSource = preferred;
   let scrollTimer = null;
 
   function persistCurrentScroll() {
-    if (panelEl) saveScrollPos(activeSource, panelEl.scrollTop);
+    if (bodyEl) saveScrollPos(activeSource, bodyEl.scrollTop);
   }
 
-  // Continuous save while the user scrolls the panel
-  panelEl.addEventListener("scroll", () => {
+  // Only the notes body scrolls — track it
+  bodyEl.addEventListener("scroll", () => {
     if (scrollTimer) clearTimeout(scrollTimer);
     scrollTimer = setTimeout(persistCurrentScroll, 80);
   }, { passive: true });
 
-  // Save when closing via X
-  $(".close", overlay).onclick = () => {
+  function doClose() {
     persistCurrentScroll();
     closeOverlay(overlay);
-  };
+  }
 
-  // Also save if the backdrop is tapped (showOverlay closes on backdrop click)
-  const originalClose = closeOverlay;
-  // We cannot easily intercept the backdrop path without changing showOverlay,
-  // so we also save on any removal via a MutationObserver / beforeunload is overkill.
-  // Instead: the scroll listener already keeps the value fresh, and X path is explicit.
-  // To cover backdrop close, attach a one-shot listener on the overlay itself.
+  if (closeBtn) {
+    closeBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      doClose();
+    };
+  }
+
+  // Backdrop tap also saves then closes (showOverlay already closes; we just save first)
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) {
       persistCurrentScroll();
@@ -2106,15 +2208,13 @@ async function openResearch() {
 
   function restoreScroll(src) {
     const saved = getSavedScroll(src);
-    if (!saved || !panelEl) return;
-    // iOS needs layout to finish after innerHTML. Double rAF + short fallback.
+    if (!saved || !bodyEl) return;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        panelEl.scrollTop = saved;
-        // Fallback if first set was ignored
+        bodyEl.scrollTop = saved;
         setTimeout(() => {
-          if (Math.abs(panelEl.scrollTop - saved) > 2) {
-            panelEl.scrollTop = saved;
+          if (Math.abs(bodyEl.scrollTop - saved) > 2) {
+            bodyEl.scrollTop = saved;
           }
         }, 50);
       });
@@ -2183,8 +2283,8 @@ async function openResearch() {
     const ch = data.chapter || {};
     let html = "";
     if (ch.introduction) {
-      html += `<div style="margin-bottom:1rem;padding:0.7rem;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
-        <strong style="font-size:0.9em">Chapter introduction</strong>
+      html += `<div class="research-intro">
+        <strong>Chapter introduction</strong>
         <div style="margin-top:0.35rem;white-space:pre-wrap">${escapeHtml(ch.introduction)}</div>
       </div>`;
     }
@@ -2197,15 +2297,13 @@ async function openResearch() {
         const num = v.number;
         const notes = Array.isArray(v.content) ? v.content : (v.content ? [v.content] : []);
         if (!notes.length) continue;
-        html += `<div class="research-verse" data-verse="${num}" style="margin-bottom:1rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border)">
-          <div style="font-weight:700;margin-bottom:0.3rem;color:var(--accent)">Verse ${escapeHtml(String(num))}</div>
-          ${notes.map(n => `<div style="margin-bottom:0.45rem;white-space:pre-wrap">${escapeHtml(String(n))}</div>`).join("")}
+        html += `<div class="research-verse" data-verse="${num}">
+          <div class="research-verse-num">Verse ${escapeHtml(String(num))}</div>
+          ${notes.map(n => `<div class="research-note">${escapeHtml(String(n))}</div>`).join("")}
         </div>`;
       }
     }
     bodyEl.innerHTML = html || `<p style="color:var(--text-dim)">No content.</p>`;
-
-    // Restore the panel scroll position (the only scroll container)
     restoreScroll(sourceId);
   }
 
@@ -2248,7 +2346,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.5.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.9.0</p>
       </div>
     </div>
   `);
@@ -2259,7 +2357,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.5.0</h2>
+      <h2>About – KJV Study v5.9.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2283,7 +2381,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.5.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.9.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -1,4 +1,4 @@
-/* KJV Study PWA v5.5.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v5.9.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -843,4 +843,121 @@ body.chrome-is-hidden main#main {
 .verse-text {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* ===== Research panel: fixed header, single body scroller ===== */
+.panel.research-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  max-height: 88dvh;
+  overflow: hidden;          /* panel itself does NOT scroll */
+  padding: 0;
+  width: 100%;
+  max-width: 720px;
+}
+
+.research-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 1rem 1.2rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.research-title {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 1.15rem !important;
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+}
+
+.research-close {
+  flex-shrink: 0;
+  float: none !important;
+  min-width: 52px !important;
+  min-height: 52px !important;
+  font-size: 1.5rem !important;
+  line-height: 1 !important;
+  z-index: 6;
+  position: relative;
+}
+
+.research-sources {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 0.7rem 1.2rem 0.4rem;
+}
+
+.research-sources .research-src {
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.research-status {
+  font-size: 0.9em;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  padding: 0.2rem 1.2rem 0.5rem;
+}
+
+.research-body {
+  flex: 1 1 auto;
+  min-height: 0;             /* critical for flex child to scroll */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  line-height: 1.55;
+  padding: 0.4rem 1.2rem 0.8rem;
+}
+
+.research-footer {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.6rem 1.2rem 1rem;
+  font-size: 0.78em;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}
+
+.research-footer a {
+  color: var(--accent);
+}
+
+.research-intro {
+  margin-bottom: 1rem;
+  padding: 0.7rem;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.research-verse {
+  margin-bottom: 1rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.research-verse-num {
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+  color: var(--accent);
+}
+
+.research-note {
+  margin-bottom: 0.45rem;
+  white-space: pre-wrap;
 }
