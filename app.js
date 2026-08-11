@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.11.0
+/* app.js – Main application controller. KJV Study PWA v5.12.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -65,7 +65,7 @@ let books = [];
 let currentBookId = null;
 let currentChapter = 1;
 let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
-let navStack = []; // for cross-ref back navigation
+let navStack = []; // origin stack for Search + Cross-ref back navigation
 
 // ---------- DOM helpers ----------
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=4.4.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=5.12.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.11.0</div>
+      <div class="version-bar">v5.12.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -258,6 +258,25 @@ function updateNavBackButton() {
   } else {
     btn.hidden = true;
   }
+}
+
+/** Nearest verse currently near the top of the main scroll viewport (for Search origin). */
+function getNearestVerseKey() {
+  const main = document.getElementById('main');
+  if (!main) return null;
+  const verses = main.querySelectorAll('.verse[data-key]');
+  if (!verses.length) return null;
+  const mainTop = main.getBoundingClientRect().top;
+  let best = null;
+  let bestDist = Infinity;
+  for (const el of verses) {
+    const dist = Math.abs(el.getBoundingClientRect().top - mainTop - 8);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = el.dataset.key;
+    }
+  }
+  return best;
 }
 
 function installChromeAutoHide() {
@@ -1744,13 +1763,23 @@ function openSearch() {
       `).join('');
       $$('.search-result', el).forEach(row => {
         row.onclick = async () => {
-          const { bookId, chapter } = bible.parseKey(row.dataset.key);
+          // Push origin so the chrome ← Back can return to this chapter/verse
+          // (same pattern as Cross-ref jumps in openCrossRefs).
+          if (currentBookId) {
+            const main = document.getElementById('main');
+            const book = books.find(b => b.id === currentBookId);
+            const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+            navStack.push({
+              bookId: currentBookId,
+              chapter: currentChapter,
+              verseKey: getNearestVerseKey() || null,
+              scrollTop: main ? main.scrollTop : 0,
+              label
+            });
+            updateNavBackButton();
+          }
           closeOverlay(overlay);
-          await renderChapter(bookId, chapter);
-          setTimeout(() => {
-            const t = document.getElementById('v-' + row.dataset.key.replace(/\./g, '-'));
-            if (t) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }, 120);
+          await jumpToRef(row.dataset.key);
         };
       });
     }, 220);
@@ -2364,7 +2393,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.11.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.12.0</p>
       </div>
     </div>
   `);
@@ -2375,7 +2404,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.11.0</h2>
+      <h2>About – KJV Study v5.12.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2399,7 +2428,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.11.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.12.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

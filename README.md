@@ -1,22 +1,17 @@
-# KJV Study PWA – v5.11.0
+# KJV Study PWA – v5.12.0
 
 **Password:** `KJV-Study-Private`
 
-## Fixed in v5.11 — Research scroll memory
+## Fixed in v5.12 — Search / Cross-ref back navigation
 
-Root cause: every time Research opened, the empty panel saved scroll position `0` and overwrote your real place before the commentary loaded.
+Search result jumps now push the current location onto the same `navStack` used by Cross-references. A chain of Search → verse → Cross-ref → verse … can be unwound with the main ← Back button all the way to the original starting chapter/verse (scroll restored when captured).
 
-Fix:
-- Do not save scroll while the commentary body is empty
-- Save only after content is on screen (while scrolling, on close, when switching Clarke/Tyndale)
-- Restore retries until content height is ready (iOS)
+## Test (Search + Cross-ref chain)
 
-## Test
+1. Hard-refresh until version bar shows **v5.12.0**
+2. Open any chapter and note the verse near the top of the screen
+3. Tap Search → type a word → tap any result → land on the new verse; ← Back should be visible and labeled with the origin
+4. From there open Cross-refs on a verse and jump to another reference
+5. Press ← Back repeatedly; each press steps back one jump until you return to the original chapter/verse and the Back button hides
 
-1. Hard-refresh until version bar shows **v5.11.0**
-2. Open a chapter → Research → scroll halfway down
-3. Close with ×
-4. Open Research again on the same chapter
-5. You should return to the same place in the commentary
-
-Highlight fixes from v5.9 remain included.
+Highlight, note, Research, and ordinary chapter navigation behavior is unchanged.
