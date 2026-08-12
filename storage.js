@@ -1,9 +1,9 @@
-/* storage.js – IndexedDB wrapper for all private data. v6.18.0
+/* storage.js – IndexedDB wrapper for all private data. v6.19.0
    Everything stays on-device. No network calls.
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let db = null;
 
@@ -46,6 +46,10 @@ export function openDB() {
       if (!database.objectStoreNames.contains('wordMarks')) {
         // Per-occurrence Tap-a-word marks: key = verseKey, marks = [startOffset, ...]
         database.createObjectStore('wordMarks', { keyPath: 'key' });
+      }
+      if (!database.objectStoreNames.contains('tsk')) {
+        // Full TSK phrase-level pack from CrossReferences.org (CC BY 4.0)
+        database.createObjectStore('tsk', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -356,6 +360,31 @@ export async function searchLexicon(query) {
   return results;
 }
 
+/* ----- TSK Cross-reference pack (CrossReferences.org, CC BY 4.0) ----- */
+export async function saveTskPack(pack) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('tsk', 'readwrite').put({ id: 'tsk', ...pack });
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getTskPack() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('tsk').get('tsk');
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+/** Return phrase-level groups for one verse key, or [] if pack not installed / no data. */
+export async function getTskForVerse(key) {
+  const pack = await getTskPack();
+  if (!pack || !pack.verses) return [];
+  return pack.verses[key] || [];
+}
 
 /* ----- Word marks (Tap-a-word Strong's – per-occurrence user marks) ----- */
 /** @returns {number[]} sorted unique start offsets for marked words in this verse */

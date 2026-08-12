@@ -1,70 +1,41 @@
-# KJV Study PWA – v6.18.0
+# KJV Study PWA – v6.19.0
 
 Strictly private, local-only Progressive Web App for personal Bible study (public-domain KJV). All personal data stays on the device (IndexedDB). No accounts, no servers, no analytics.
 
-## New in v6.18 — Study-protocol alignment release
+## New in v6.19 — Full TSK phrase-level cross-references
 
-- Version bump to 6.18.0 to mark alignment with the refined external study protocol used to generate notes and cross-reference lists for this app.
-- No change to runtime behavior, storage schema, highlight system, Strong’s marks, search, review, or navigation.
-- All prior fixes from v5.17 remain in force (including native text-selection reliability after single-letter words).
-- Export / Import study data format remains backup version 3 (includes word marks).
+- **Menu → Import TSK Cross-references** installs the complete phrase-level Treasury of Scripture Knowledge dataset derived from CrossReferences.org (CC BY 4.0).
+- Data file included in this package: `crossrefs-kjv-tsk.json.gz` (≈1.7 MB compressed, ~29 000 verses).
+- After import, opening **Cross-refs** on any verse that has TSK data shows the original phrase anchors and their linked references.
+- Personal cross-references you add yourself continue to work exactly as before and take priority.
+- Double-tap a TSK reference to add it permanently to your personal list for that verse.
+- Fully offline after the one-time import. No network calls.
 
-## Fixed in v5.17 — Native selection after single-letter words
+## How to activate the cross-references
 
-- When a Strong’s lexicon is loaded, every alphabetic word is wrapped in a `.tap-word` span. Previous CSS used small negative margins so adjacent spans’ layout boxes overlapped.
-- On mobile WebKit those overlapping boxes made native text selection unreliable when the word immediately before the intended selection was a single letter (“a”, “I”, “O”): the browser often selected the letter plus only part of the next word, after which the selection handles became unresponsive.
-- Fix: remove the negative margins so the layout boxes no longer overlap (padding left unchanged). Strong’s tap-to-lookup, marks, highlights, and the existing selection-capture pipeline are unchanged. Visual difference is minimal.
+1. Unzip this package.
+2. Open the app (serve the folder or open `index.html` via a local server / PWA install).
+3. Menu → **Import TSK Cross-references**.
+4. Choose `crossrefs-kjv-tsk.json.gz` (or the uncompressed `.json` if your browser cannot decompress).
+5. Open any verse → tap **Cross-refs**. Phrase-level TSK groups appear automatically when you have no personal refs yet.
 
-## New in v5.16 — Tap-a-word Strong's (user-controlled marks)
+## Fixed / carried from v5.17–v6.18
 
-- The page starts **completely clean**. No automatic outlines on any words.
-- **Single quick tap** on any word (when the Strong's lexicon is installed) opens a compact Strong's panel:
-  - Strong's number, short gloss, transliteration / pronunciation
-  - 3–6 other loaded verses that contain the same English word
-  - Large **Mark this word** / **Remove mark** button
-- Only words the user has explicitly marked receive a thin outline:
-  - Marked, no highlight → soft fixed muted accent outline
-  - Marked + solid highlight → brighter / slightly more saturated version of that highlight color (outline never disappears on top of the fill)
-- Marks are stored **per occurrence** (this instance of the word in this verse), not globally for every occurrence of the English word.
-- **Long-press + drag** continues to work exclusively for text selection and the Color / partial-highlight system. Marks are never placed by long-press.
-- If no lexicon pack is installed, words are not wrapped for tap (tapping does nothing); Menu → Import Dictionary (Strong's) installs the pack offline.
-- Existing highlights, notes, cross-refs, Review, Search, Research, and chapter navigation are unchanged.
+- Native text-selection reliability after single-letter words (“a”, “I”, “O”).
+- Tap-a-word Strong’s (user-controlled marks only).
+- Hierarchical Search and Review-by-Color.
+- All prior highlight, note, and navigation behaviour unchanged.
 
-## Previous — v5.15 Tap-a-word Strong's (mid-level)
+## Test checklist (v6.19)
 
-- First introduction of offline Strong's lookup via installed lexicon pack and word wrappers.
-- v5.16 changes the visual rule from “outline every lookup-capable word” to “outline only user-marked words.”
+1. Hard-refresh until version bar shows **v6.19.0**.
+2. Menu → Import TSK Cross-references → select `crossrefs-kjv-tsk.json.gz`.
+3. Open John 3:16 → Cross-refs → you should see phrase anchors such as “God”, “gave”, “that whosoever” with their TSK links.
+4. Tap any TSK reference to jump; double-tap to keep it in your personal list.
+5. Personal add / delete still works.
+6. Strong’s, highlights, notes, Search, Review continue to work as before.
 
-## Fixed in v5.14 — Review by Color hierarchical + Back
+## License note for the TSK data
 
-- After selecting a color, results are hierarchical: first a short list of books that contain that color, shown in strict canonical order with verse counts.
-- Tap a book → only that book’s matching verses appear (chapter/verse order) with a large “← Back to books” control so you can continue reviewing other books without losing the color selection.
-- Selecting a verse pushes the current location onto `navStack` (same pattern as Search / Cross-refs) so the main chrome ← Back returns you to where you were reading.
-- Sticky header (color selector + Close) stays visible while the results area scrolls; large touch targets preserved for senior-friendly use.
-- The old flat “Book filter” dropdown was removed; the hierarchical book list replaces it.
-
-## Fixed in v5.13 — Search screen usability
-
-- Close (X) + title + search input stay sticky at the top of the Search panel; only the results area scrolls.
-- Search results are hierarchical: first a short list of matching books in strict canonical order (with match counts); tap a book to see only that book’s matching verses (chapter/verse order).
-- Clear “Back to books” control returns to the book list without losing the original query.
-- Large touch targets preserved for senior-friendly use.
-
-Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-references so ← Back can unwind the chain.
-
-## Test checklist (v6.18)
-
-1. Hard-refresh until version bar shows **v6.18.0**.
-2. With no lexicon installed: verse words have **no** outlines; tapping a word does nothing.
-3. Menu → Import Dictionary (Strong's) → install a valid strongs-lexicon.json.
-4. Open a chapter: page is still **clean** — no outlines on any words.
-5. Tap a word (do not select text) → Strong's panel opens with number, gloss, transliteration/pron, other verses, and a large **Mark this word** button.
-6. Tap **Mark this word** → panel closes; that occurrence now has a thin soft outline; other occurrences of the same English word stay unmarked.
-7. Apply a solid highlight that covers a marked word; the outline switches to a brighter frame in that highlight’s color and remains visible on top of the fill.
-8. Tap the marked word again → panel shows **Remove mark** → tap it → outline disappears; page stays clean.
-9. Select a few words (long-press + drag) then open Color: partial-highlight still works; selection logic is unchanged; long-press does not place marks.
-10. **Selection reliability (carried from v5.17):** long-press + drag starting on (or immediately after) a single-letter word such as “a”, “I”, or “O” should select the intended range cleanly; selection handles remain usable so the range can be adjusted.
-11. Review, Search, notes, cross-refs, chapter navigation and Analyze continue to work as before.
-12. Export / Import study data includes word marks (backup format version 3).
-
-Highlight, note, Research, Search, and ordinary chapter navigation behavior is unchanged.
+Cross-reference data: CC BY 4.0 — CrossReferences.org / Treasury of Scripture Knowledge lineage.  
+Credit the project when redistributing the data file.

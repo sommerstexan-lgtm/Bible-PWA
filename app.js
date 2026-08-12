@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.18.0
+/* app.js – Main application controller. KJV Study PWA v6.19.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.18.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.19.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.18.0</div>
+      <div class="version-bar">v6.19.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -1728,24 +1728,22 @@ async function openNote(key) {
 
 
 // ---------- Cross-references ----------
-const STARTER_XREFS = {
-  // Small public-domain common references (illustrative)
-  'gen.1.1': [{ target: 'jhn.1.1', label: 'John 1:1' }, { target: 'heb.11.3', label: 'Heb 11:3' }],
-  'gen.1.2': [{ target: 'psa.104.30', label: 'Ps 104:30' }],
-  'gen.1.3': [{ target: '2co.4.6', label: '2 Cor 4:6' }],
-  'gen.1.26': [{ target: 'col.1.16', label: 'Col 1:16' }, { target: 'jhn.1.3', label: 'John 1:3' }],
-  'gen.1.27': [{ target: 'mat.19.4', label: 'Matt 19:4' }]
-};
+/* Personal refs live in IndexedDB.
+   When none exist, we surface the optional TSK phrase-level pack
+   (CrossReferences.org / Treasury of Scripture Knowledge, CC BY 4.0)
+   that the user can import once via Menu → Import TSK Cross-references.
+*/
 
 async function openCrossRefs(key) {
   let refs = await storage.getCrossRefs(key);
-  // merge starter if none user-defined yet (copy so we can persist deletes)
-  if (!refs.length && STARTER_XREFS[key]) {
-    refs = STARTER_XREFS[key].map(r => ({ ...r }));
-  }
+  const tskGroups = await storage.getTskForVerse(key); // [{a, r:[]}, ...]
+  const hasTsk = tskGroups && tskGroups.length > 0;
 
-  function renderListHtml(items) {
-    if (!items.length) return '<p style="color:var(--text-dim)">No cross-references yet.</p>';
+  function renderPersonalHtml(items) {
+    if (!items.length) {
+      if (hasTsk) return '<p style="color:var(--text-dim);font-size:0.9em;margin-bottom:0.6rem">No personal cross-references yet. Phrase-level TSK groups appear below.</p>';
+      return '<p style="color:var(--text-dim)">No cross-references yet. Import the TSK pack (Menu) or add one below.</p>';
+    }
     return items.map((r, i) => `
       <div class="xref-row" style="display:flex;gap:0.4rem;margin-bottom:0.45rem;align-items:stretch">
         <button type="button" class="xref-item" data-target="${escapeHtml(r.target)}" data-idx="${i}"
@@ -1756,11 +1754,30 @@ async function openCrossRefs(key) {
     `).join('');
   }
 
+  function renderTskHtml(groups) {
+    if (!groups || !groups.length) return '';
+    return groups.map((g, gi) => {
+      const anchor = escapeHtml(g.a || g.anchor || '');
+      const list = (g.r || g.refs || []).map((refStr, ri) => {
+        const safe = escapeHtml(refStr);
+        return `<button type="button" class="tsk-ref" data-ref="${safe}" data-gi="${gi}" data-ri="${ri}"
+          style="display:block;width:100%;text-align:left;margin:0.25rem 0;padding:0.55rem 0.7rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.95em">${safe}</button>`;
+      }).join('');
+      return `<div style="margin:0.9rem 0 0.4rem">
+        <div style="font-size:0.85em;color:var(--accent);font-weight:600;margin-bottom:0.25rem">“${anchor}”</div>
+        ${list}
+      </div>`;
+    }).join('');
+  }
+
   const overlay = showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
       <h2>Cross-references</h2>
-      <div id="xref-list">${renderListHtml(refs)}</div>
+      <div id="xref-list">${renderPersonalHtml(refs)}</div>
+      ${hasTsk ? `<hr style="border-color:var(--border);margin:1rem 0">
+        <div style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.4rem">TSK phrase anchors (tap a reference to open; long-press or use “Add” to keep it in your personal list)</div>
+        <div id="tsk-list">${renderTskHtml(tskGroups)}</div>` : ''}
       <hr style="border-color:var(--border);margin:1rem 0">
       <label style="display:block;margin-bottom:0.4rem">Add new (e.g. jhn.3.16 or John 3:16)</label>
       <input type="text" id="new-xref" placeholder="book.chapter.verse or Book ch:vs"
@@ -1778,7 +1795,7 @@ async function openCrossRefs(key) {
     $$('.xref-item', overlay).forEach(btn => {
       btn.onclick = async () => {
         const main = document.getElementById('main');
-        const book = books.find(b => b.id === currentBookId);
+        const book = await storage.getBook(currentBookId);
         const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
         navStack.push({
           bookId: currentBookId,
@@ -1798,7 +1815,66 @@ async function openCrossRefs(key) {
         if (!confirm('Delete this cross-reference?')) return;
         refs.splice(idx, 1);
         await storage.setCrossRefs(key, refs);
-        $('#xref-list', overlay).innerHTML = renderListHtml(refs);
+        $('#xref-list', overlay).innerHTML = renderPersonalHtml(refs);
+        bindList();
+      };
+    });
+    // TSK taps: open the reference (and optionally offer to keep)
+    $$('.tsk-ref', overlay).forEach(btn => {
+      btn.onclick = async () => {
+        const refStr = btn.dataset.ref;
+        const parsed = parseUserRef(refStr);
+        if (!parsed) {
+          // try a looser parse for ranges like "John 1:1-3"
+          const m = refStr.match(/^([1-3]?\s*[A-Za-z]+)\s+(\d+)\s*:\s*(\d+)/);
+          if (m) {
+            const abbrev = simpleAbbrev(m[1].trim());
+            if (abbrev) {
+              const target = `${abbrev}.${m[2]}.${m[3]}`;
+              const main = document.getElementById('main');
+              navStack.push({
+                bookId: currentBookId,
+                chapter: currentChapter,
+                verseKey: key,
+                scrollTop: main ? main.scrollTop : 0,
+                label: `${currentBookId} ${currentChapter}`
+              });
+              updateNavBackButton();
+              closeOverlay(overlay);
+              await jumpToRef(target);
+              return;
+            }
+          }
+          alert('Could not open “' + refStr + '”. Try adding it manually.');
+          return;
+        }
+        const main = document.getElementById('main');
+        navStack.push({
+          bookId: currentBookId,
+          chapter: currentChapter,
+          verseKey: key,
+          scrollTop: main ? main.scrollTop : 0,
+          label: `${currentBookId} ${currentChapter}`
+        });
+        updateNavBackButton();
+        closeOverlay(overlay);
+        await jumpToRef(parsed.key);
+      };
+      // double-tap / long-press alternative: add to personal list
+      btn.ondblclick = async (e) => {
+        e.preventDefault();
+        const refStr = btn.dataset.ref;
+        const parsed = parseUserRef(refStr) || (() => {
+          const m = refStr.match(/^([1-3]?\s*[A-Za-z]+)\s+(\d+)\s*:\s*(\d+)/);
+          if (!m) return null;
+          const abbrev = simpleAbbrev(m[1].trim());
+          return abbrev ? { key: `${abbrev}.${m[2]}.${m[3]}`, label: refStr } : null;
+        })();
+        if (!parsed) return;
+        if (refs.some(r => r.target === parsed.key)) return;
+        refs.push({ target: parsed.key, label: parsed.label || refStr });
+        await storage.setCrossRefs(key, refs);
+        $('#xref-list', overlay).innerHTML = renderPersonalHtml(refs);
         bindList();
       };
     });
@@ -1816,7 +1892,7 @@ async function openCrossRefs(key) {
     refs.push({ target: parsed.key, label: parsed.label });
     await storage.setCrossRefs(key, refs);
     $('#new-xref', overlay).value = '';
-    $('#xref-list', overlay).innerHTML = renderListHtml(refs);
+    $('#xref-list', overlay).innerHTML = renderPersonalHtml(refs);
     bindList();
   };
 
@@ -1846,14 +1922,72 @@ function parseUserRef(raw) {
 
 function simpleAbbrev(name) {
   const map = {
-    'genesis': 'gen', 'gen': 'gen',
-    'exodus': 'exo', 'exo': 'exo',
-    'matthew': 'mat', 'matt': 'mat', 'mat': 'mat',
-    'john': 'jhn', 'jhn': 'jhn', 'jn': 'jhn',
-    'hebrews': 'heb', 'heb': 'heb',
-    'psalm': 'psa', 'psalms': 'psa', 'ps': 'psa', 'psa': 'psa',
-    'colossians': 'col', 'col': 'col',
-    '2 corinthians': '2co', '2cor': '2co', '2 co': '2co'
+    'genesis':'gen','gen':'gen',
+    'exodus':'exo','exo':'exo','exod':'exo',
+    'leviticus':'lev','lev':'lev',
+    'numbers':'num','num':'num',
+    'deuteronomy':'deu','deut':'deu','deu':'deu',
+    'joshua':'jos','josh':'jos','jos':'jos',
+    'judges':'jdg','judg':'jdg','jdg':'jdg',
+    'ruth':'rut','rut':'rut',
+    '1 samuel':'1sa','1 sam':'1sa','1sa':'1sa',
+    '2 samuel':'2sa','2 sam':'2sa','2sa':'2sa',
+    '1 kings':'1ki','1 kgs':'1ki','1ki':'1ki',
+    '2 kings':'2ki','2 kgs':'2ki','2ki':'2ki',
+    '1 chronicles':'1ch','1 chr':'1ch','1ch':'1ch',
+    '2 chronicles':'2ch','2 chr':'2ch','2ch':'2ch',
+    'ezra':'ezr','ezr':'ezr',
+    'nehemiah':'neh','neh':'neh',
+    'esther':'est','esth':'est','est':'est',
+    'job':'job',
+    'psalm':'psa','psalms':'psa','ps':'psa','psa':'psa',
+    'proverbs':'pro','prov':'pro','pro':'pro',
+    'ecclesiastes':'ecc','eccl':'ecc','ecc':'ecc',
+    'song of solomon':'sng','song':'sng','sng':'sng',
+    'isaiah':'isa','isa':'isa',
+    'jeremiah':'jer','jer':'jer',
+    'lamentations':'lam','lam':'lam',
+    'ezekiel':'eze','ezek':'eze','eze':'eze',
+    'daniel':'dan','dan':'dan',
+    'hosea':'hos','hos':'hos',
+    'joel':'jol','jol':'jol',
+    'amos':'amo','amo':'amo',
+    'obadiah':'oba','obad':'oba','oba':'oba',
+    'jonah':'jon','jon':'jon',
+    'micah':'mic','mic':'mic',
+    'nahum':'nam','nah':'nam','nam':'nam',
+    'habakkuk':'hab','hab':'hab',
+    'zephaniah':'zep','zeph':'zep','zep':'zep',
+    'haggai':'hag','hag':'hag',
+    'zechariah':'zec','zech':'zec','zec':'zec',
+    'malachi':'mal','mal':'mal',
+    'matthew':'mat','matt':'mat','mat':'mat',
+    'mark':'mrk','mrk':'mrk',
+    'luke':'luk','luk':'luk',
+    'john':'jhn','jhn':'jhn','jn':'jhn',
+    'acts':'act','act':'act',
+    'romans':'rom','rom':'rom',
+    '1 corinthians':'1co','1 cor':'1co','1co':'1co',
+    '2 corinthians':'2co','2 cor':'2co','2co':'2co',
+    'galatians':'gal','gal':'gal',
+    'ephesians':'eph','eph':'eph',
+    'philippians':'php','phil':'php','php':'php',
+    'colossians':'col','col':'col',
+    '1 thessalonians':'1th','1 thess':'1th','1th':'1th',
+    '2 thessalonians':'2th','2 thess':'2th','2th':'2th',
+    '1 timothy':'1ti','1 tim':'1ti','1ti':'1ti',
+    '2 timothy':'2ti','2 tim':'2ti','2ti':'2ti',
+    'titus':'tit','tit':'tit',
+    'philemon':'phm','phlm':'phm','phm':'phm',
+    'hebrews':'heb','heb':'heb',
+    'james':'jas','jas':'jas',
+    '1 peter':'1pe','1 pet':'1pe','1pe':'1pe',
+    '2 peter':'2pe','2 pet':'2pe','2pe':'2pe',
+    '1 john':'1jn','1 jn':'1jn','1jn':'1jn',
+    '2 john':'2jn','2 jn':'2jn','2jn':'2jn',
+    '3 john':'3jn','3 jn':'3jn','3jn':'3jn',
+    'jude':'jud','jud':'jud',
+    'revelation':'rev','rev':'rev'
   };
   return map[name.toLowerCase()] || name.toLowerCase().replace(/\s+/g, '').slice(0, 3);
 }
@@ -2022,6 +2156,7 @@ function openMenu() {
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
       <button type="button" id="menu-import-data" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import study data</button>
       <button type="button" id="menu-import-lex" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Dictionary (Strong's)</button>
+      <button type="button" id="menu-import-tsk" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import TSK Cross-references</button>
       <button type="button" id="menu-import" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Book (JSON)</button>
       <button type="button" id="menu-settings" style="width:100%;margin-bottom:0.5rem;min-height:52px">Settings</button>
       <button type="button" id="menu-about" style="width:100%;margin-bottom:0.5rem;min-height:52px">About / Privacy</button>
@@ -2034,6 +2169,7 @@ function openMenu() {
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
   $('#menu-import-data', overlay).onclick = () => { closeOverlay(overlay); openImportData(); };
   $('#menu-import-lex', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
+  $('#menu-import-tsk', overlay).onclick = () => { closeOverlay(overlay); openImportTsk(); };
   $('#menu-import', overlay).onclick = () => { closeOverlay(overlay); openImport(); };
   $('#menu-settings', overlay).onclick = () => { closeOverlay(overlay); openSettings(); };
   $('#menu-about', overlay).onclick = () => { closeOverlay(overlay); openAbout(); };
@@ -2320,6 +2456,59 @@ async function openDictionary(prefill) {
   setTimeout(() => $('#dict-q', overlay).focus(), 100);
 }
 
+async function openImportTsk() {
+  const existing = await storage.getTskPack();
+  const status = existing && existing.verses
+    ? `<p style="color:var(--accent);margin-bottom:0.8rem">TSK pack already installed (${Object.keys(existing.verses).length.toLocaleString()} verses). Re-importing will replace it.</p>`
+    : `<p style="line-height:1.55;margin-bottom:0.9rem">Choose the <code>crossrefs-kjv-tsk.json</code> (or <code>.json.gz</code>) file. It contains phrase-level Treasury of Scripture Knowledge cross-references (CC BY 4.0, CrossReferences.org). Import once; data stays on this device.</p>`;
+
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Import TSK Cross-references</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${status}
+      <div class="import-zone">
+        <p>Select crossrefs-kjv-tsk.json or .json.gz</p>
+        <input type="file" id="tsk-file" accept=".json,.gz,application/json,application/gzip">
+      </div>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('#tsk-file', overlay).onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      let rawText;
+      if (file.name.endsWith('.gz') || file.type === 'application/gzip') {
+        // Decompress with browser DecompressionStream if available
+        if (typeof DecompressionStream === 'undefined') {
+          throw new Error('This browser cannot decompress .gz files. Please use the uncompressed .json version.');
+        }
+        const ds = new DecompressionStream('gzip');
+        const decompressed = file.stream().pipeThrough(ds);
+        rawText = await new Response(decompressed).text();
+      } else {
+        rawText = await file.text();
+      }
+      const json = JSON.parse(rawText);
+      if (!json.verses || typeof json.verses !== 'object') {
+        throw new Error('Not a valid TSK cross-reference pack for this app');
+      }
+      await storage.saveTskPack({
+        source: json.source || 'CrossReferences.org / TSK',
+        version: json.version || 1,
+        verses: json.verses
+      });
+      closeOverlay(overlay);
+      alert(`TSK pack installed: ${Object.keys(json.verses).length.toLocaleString()} verses with phrase-level cross-references.`);
+    } catch (err) {
+      alert('Import failed: ' + (err.message || err));
+    }
+  };
+}
+
 function openImportLexicon() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -2361,7 +2550,7 @@ function openImportLexicon() {
 
 
 /**
- * Tap-a-word Strong's (v6.18.0 – user-controlled marks)
+ * Tap-a-word Strong's (v6.19.0 – user-controlled marks)
  * Uses only the installed lexicon pack + loaded book text. Fully offline.
  * Shows Strong's number, gloss, transliteration/pron, other verses with the
  * same English word, and a Mark / Remove mark button for this occurrence.
@@ -2797,7 +2986,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.18.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.19.0</p>
       </div>
     </div>
   `);
@@ -2808,7 +2997,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.18.0</h2>
+      <h2>About – KJV Study v6.19.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2832,7 +3021,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.18.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.19.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
