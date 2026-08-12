@@ -1,41 +1,34 @@
-# KJV Study PWA – v6.19.0
+# KJV Study PWA – v6.20.0
 
-Strictly private, local-only Progressive Web App for personal Bible study (public-domain KJV). All personal data stays on the device (IndexedDB). No accounts, no servers, no analytics.
+Private, local-only Bible study app (public-domain KJV). All your data stays on your device.
 
-## New in v6.19 — Full TSK phrase-level cross-references
+## Cross-references – how to use them (simple)
 
-- **Menu → Import TSK Cross-references** installs the complete phrase-level Treasury of Scripture Knowledge dataset derived from CrossReferences.org (CC BY 4.0).
-- Data file included in this package: `crossrefs-kjv-tsk.json.gz` (≈1.7 MB compressed, ~29 000 verses).
-- After import, opening **Cross-refs** on any verse that has TSK data shows the original phrase anchors and their linked references.
-- Personal cross-references you add yourself continue to work exactly as before and take priority.
-- Double-tap a TSK reference to add it permanently to your personal list for that verse.
-- Fully offline after the one-time import. No network calls.
+**Many verses already have cross-references built in.**  
+No setup needed for those.
 
-## How to activate the cross-references
+### To see them
+1. Open any chapter.
+2. Tap the **Cross-refs** button under a verse.
+3. You will see the related verses grouped by phrase.
 
-1. Unzip this package.
-2. Open the app (serve the folder or open `index.html` via a local server / PWA install).
-3. Menu → **Import TSK Cross-references**.
-4. Choose `crossrefs-kjv-tsk.json.gz` (or the uncompressed `.json` if your browser cannot decompress).
-5. Open any verse → tap **Cross-refs**. Phrase-level TSK groups appear automatically when you have no personal refs yet.
+### Example
+Open **John 3:16** → tap **Cross-refs**.  
+You should immediately see groups for “God”, “gave”, and “that whosoever”.
 
-## Fixed / carried from v5.17–v6.18
+### Optional – load the complete list for the whole Bible
+Only do this if you want cross-references on every verse:
+1. Tap **Menu**.
+2. Tap **Load All Cross-References (one time)**.
+3. Choose the file named **crossrefs-kjv-tsk.json**.
+4. Wait for the “installed” message.
 
-- Native text-selection reliability after single-letter words (“a”, “I”, “O”).
-- Tap-a-word Strong’s (user-controlled marks only).
-- Hierarchical Search and Review-by-Color.
-- All prior highlight, note, and navigation behaviour unchanged.
+After that, every verse that has cross-references in the classic Treasury of Scripture Knowledge will show them.
 
-## Test checklist (v6.19)
+### Tips
+- Single-tap a reference to jump to it.
+- Double-tap a reference to keep it in your personal list for that verse.
+- You can still add or delete your own cross-references any time.
 
-1. Hard-refresh until version bar shows **v6.19.0**.
-2. Menu → Import TSK Cross-references → select `crossrefs-kjv-tsk.json.gz`.
-3. Open John 3:16 → Cross-refs → you should see phrase anchors such as “God”, “gave”, “that whosoever” with their TSK links.
-4. Tap any TSK reference to jump; double-tap to keep it in your personal list.
-5. Personal add / delete still works.
-6. Strong’s, highlights, notes, Search, Review continue to work as before.
-
-## License note for the TSK data
-
-Cross-reference data: CC BY 4.0 — CrossReferences.org / Treasury of Scripture Knowledge lineage.  
-Credit the project when redistributing the data file.
+## Everything else
+Highlights, notes, Strong’s dictionary, search, and review work the same as before.
