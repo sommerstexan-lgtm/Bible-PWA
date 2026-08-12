@@ -1,27 +1,26 @@
-# KJV Study PWA – v6.22.0
+# KJV Study PWA – v6.23.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
-## Cross-references – how they work now
+## Cross-references – clear status
 
-### 1. Green button = more reading available
-Under each verse, the **Cross-refs** button turns **green** when that verse has cross-references (either ones you entered or ones provided by the app).
+### Green button under a verse
+The **Cross-refs** button turns **green** when that verse has additional reading available.
 
-### 2. Load cross-references when you decide to study a book
-When you open a chapter you will see a clear button:
+### Load cross-references for a book (one clear action)
+At the top of every chapter:
 
-**Load Cross-References for [Book Name]**
+1. You see a status line and a button **Load Cross-References for [Book]**.
+2. Tap the button once.
+3. Wait until you see:
 
-- Tap it once for the book you are about to study.
-- The cross-references for that book are loaded and stay loaded.
-- After that, any verse in the book that has cross-references will show a green **Cross-refs** button.
-- Your study depth grows book by book as you choose.
+   **✓ Cross-references loaded for [Book]**
 
-### 3. Built-in starter set (already works)
-Several important passages already have cross-references with no loading step (Genesis 1–3, John 1 & 3 & 14–17, Romans 5 & 8, and others). Their Cross-refs buttons are green immediately.
+   The button itself also changes to green and says **✓ Loaded for [Book]**.
 
-### 4. Optional full Bible
-Menu → **Load More Cross-References (optional)** is only needed if you want every remaining book at once and can supply the data file.
+4. That status stays. You do not need to load the same book again.
 
-## Everything else
-Notes, highlights, Strong’s, search, and review work the same as before.
+If something goes wrong you will see a red **Not completed** message and a **Try again** button. Nothing is left uncertain.
+
+### Built-in starter
+Some passages (Genesis 1–3, John 3, Romans 5 & 8, and others) already show green Cross-refs buttons with no loading step.

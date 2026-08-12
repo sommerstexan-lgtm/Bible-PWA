@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.22.0
+/* app.js – Main application controller. KJV Study PWA v6.23.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.22.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.23.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.22.0</div>
+      <div class="version-bar">v6.23.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -658,11 +658,11 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const main = $('#main');
   main.innerHTML = `
     <div class="chapter-header">${book.name} ${chapterNum}</div>
-    <div id="xref-load-bar" style="padding:0.6rem 0.8rem;margin-bottom:0.4rem;background:var(--panel,#16213e);border-radius:10px;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
-      <button type="button" id="btn-load-book-xrefs" style="min-height:48px;padding:0.55rem 1rem;font-weight:600">
+    <div id="xref-load-bar" style="padding:0.7rem 0.9rem;margin-bottom:0.5rem;background:var(--panel,#16213e);border-radius:10px">
+      <div id="xref-load-status" style="font-size:1.05em;line-height:1.45;margin-bottom:0.55rem;color:var(--text-dim)">Checking…</div>
+      <button type="button" id="btn-load-book-xrefs" style="min-height:52px;padding:0.6rem 1.1rem;font-weight:700;width:100%">
         Load Cross-References for ${book.name}
       </button>
-      <span id="xref-load-status" style="font-size:0.9em;color:var(--text-dim)"></span>
     </div>`;
 
   const keys = ch.verses.map(v => bible.verseKey(bookId, chapterNum, v.number));
@@ -746,41 +746,58 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   }
 
 
-  // Wire "Load Cross-References for this book"
+  // Wire "Load Cross-References for this book" — clear permanent states only
   const loadBtn = document.getElementById('btn-load-book-xrefs');
   const loadStatus = document.getElementById('xref-load-status');
-  if (loadBtn) {
-    // Show current state
+  if (loadBtn && loadStatus) {
+    const setLoadedUI = (count) => {
+      loadStatus.innerHTML = `<span style="color:#2ecc71;font-weight:700">✓ Cross-references loaded for ${book.name}</span>` +
+        (count ? `<br><span style="font-size:0.9em;color:var(--text-dim)">${count} verses in this book have links</span>` : '');
+      loadBtn.textContent = '✓ Loaded for ' + book.name;
+      loadBtn.disabled = true;
+      loadBtn.style.background = '#1b7a3d';
+      loadBtn.style.color = '#fff';
+      loadBtn.style.border = '1px solid #2ecc71';
+    };
+    const setNotLoadedUI = () => {
+      loadStatus.textContent = 'Not loaded yet. Tap the button once to load cross-references for this book. They will stay loaded.';
+      loadBtn.disabled = false;
+      loadBtn.textContent = 'Load Cross-References for ' + book.name;
+      loadBtn.style.background = '';
+      loadBtn.style.color = '';
+      loadBtn.style.border = '';
+    };
+
     (async () => {
       const pack = await storage.getTskPack();
-      const prefix = bookId + '.';
+      const loadedBooks = (pack && Array.isArray(pack.loadedBooks)) ? pack.loadedBooks : [];
+      const isLoaded = loadedBooks.includes(bookId);
       let count = 0;
+      const prefix = bookId + '.';
       if (pack && pack.verses) {
         for (const k of Object.keys(pack.verses)) {
           if (k.startsWith(prefix)) count++;
         }
       }
-      // Also count starter
-      for (const k of Object.keys(STARTER_TSK)) {
-        if (k.startsWith(prefix)) count++;
-      }
-      if (loadStatus) {
-        if (count > 0) loadStatus.textContent = count + ' verses already have cross-references';
-        else loadStatus.textContent = 'Not loaded yet for this book';
-      }
+      // Starter-only does not count as "fully loaded by user"
+      if (isLoaded) setLoadedUI(count);
+      else setNotLoadedUI();
     })();
 
     loadBtn.onclick = async () => {
       loadBtn.disabled = true;
-      if (loadStatus) loadStatus.textContent = 'Loading…';
+      loadStatus.textContent = 'Loading… please wait. Do not leave this page.';
       try {
-        await loadCrossRefsForBook(bookId, book.name);
-        if (loadStatus) loadStatus.textContent = 'Loaded. Cross-refs buttons will turn green where available.';
-        // Re-render so green indicators appear
-        await renderChapter(bookId, chapterNum, { preserveScroll: main.scrollTop });
+        const count = await loadCrossRefsForBook(bookId, book.name);
+        setLoadedUI(count);
+        // Brief pause so the user sees the success state, then refresh greens
+        setTimeout(() => {
+          renderChapter(bookId, chapterNum, { preserveScroll: main.scrollTop });
+        }, 900);
       } catch (err) {
-        if (loadStatus) loadStatus.textContent = 'Could not load: ' + (err.message || err);
+        loadStatus.innerHTML = `<span style="color:#e57373;font-weight:700">Not completed.</span> ${escapeHtml(String(err.message || err))}`;
         loadBtn.disabled = false;
+        loadBtn.textContent = 'Try again – Load Cross-References for ' + book.name;
       }
     };
   }
@@ -2524,51 +2541,59 @@ async function openDictionary(prefill) {
  */
 async function loadCrossRefsForBook(bookId, bookName) {
   const prefix = bookId + '.';
-  let sourceVerses = null;
-
-  // 1. Already have a full pack?
   const existing = await storage.getTskPack();
+  const loadedBooks = (existing && Array.isArray(existing.loadedBooks))
+    ? existing.loadedBooks.slice()
+    : [];
+
+  // Count how many this book already has in the stored pack
+  let already = 0;
   if (existing && existing.verses) {
-    const subset = {};
-    for (const [k, v] of Object.entries(existing.verses)) {
-      if (k.startsWith(prefix)) subset[k] = v;
-    }
-    if (Object.keys(subset).length) {
-      // Already present – nothing more to do
-      return Object.keys(subset).length;
+    for (const k of Object.keys(existing.verses)) {
+      if (k.startsWith(prefix)) already++;
     }
   }
 
-  // 2. Try to fetch the JSON that ships with the app
-  let json = null;
-  try {
-    const resp = await fetch('./crossrefs-kjv-tsk.json', { cache: 'force-cache' });
-    if (!resp.ok) throw new Error('file not reachable');
-    json = await resp.json();
-  } catch (e) {
-    // 3. Fall back: tell user to use the optional menu import once
-    throw new Error('Open Menu → Load More Cross-References (optional) once, then try this button again.');
+  // If this book was already marked loaded and has data, just return the count
+  if (loadedBooks.includes(bookId) && already > 0) {
+    return already;
   }
 
-  if (!json || !json.verses) throw new Error('Invalid cross-reference file');
+  // Try to get source data: existing full pack first, else fetch the shipped file
+  let sourceVerses = (existing && existing.verses) ? existing.verses : null;
 
-  // Merge only this book into the stored pack
+  if (!sourceVerses || already === 0) {
+    try {
+      const resp = await fetch('./crossrefs-kjv-tsk.json', { cache: 'force-cache' });
+      if (!resp.ok) throw new Error('not reachable');
+      const json = await resp.json();
+      if (!json || !json.verses) throw new Error('invalid file');
+      sourceVerses = json.verses;
+    } catch (e) {
+      throw new Error('Could not reach the cross-reference file. If you are on a phone, open the app from the same folder that contains crossrefs-kjv-tsk.json, or use Menu → Load More Cross-References (optional) once.');
+    }
+  }
+
+  // Merge this book's verses into the pack
   const merged = (existing && existing.verses) ? { ...existing.verses } : {};
-  let added = 0;
-  for (const [k, v] of Object.entries(json.verses)) {
+  let count = 0;
+  for (const [k, v] of Object.entries(sourceVerses)) {
     if (k.startsWith(prefix)) {
       merged[k] = v;
-      added++;
+      count++;
     }
   }
-  if (!added) throw new Error('No cross-references found for ' + (bookName || bookId));
+  if (!count) throw new Error('No cross-references found for ' + (bookName || bookId));
+
+  if (!loadedBooks.includes(bookId)) loadedBooks.push(bookId);
 
   await storage.saveTskPack({
-    source: json.source || 'CrossReferences.org / TSK',
-    version: json.version || 1,
-    verses: merged
+    source: (existing && existing.source) || 'CrossReferences.org / TSK',
+    version: (existing && existing.version) || 1,
+    verses: merged,
+    loadedBooks
   });
-  return added;
+  return count;
 }
 
 async function openImportTsk() {
@@ -2669,7 +2694,7 @@ function openImportLexicon() {
 
 
 /**
- * Tap-a-word Strong's (v6.22.0 – user-controlled marks)
+ * Tap-a-word Strong's (v6.23.0 – user-controlled marks)
  * Uses only the installed lexicon pack + loaded book text. Fully offline.
  * Shows Strong's number, gloss, transliteration/pron, other verses with the
  * same English word, and a Mark / Remove mark button for this occurrence.
@@ -3105,7 +3130,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.22.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.23.0</p>
       </div>
     </div>
   `);
@@ -3116,7 +3141,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.22.0</h2>
+      <h2>About – KJV Study v6.23.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3140,7 +3165,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.22.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.23.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
