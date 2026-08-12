@@ -1,36 +1,27 @@
-# KJV Study PWA – v6.21.0
+# KJV Study PWA – v6.22.0
 
-Private, local-only Bible study (public-domain KJV). Everything stays on your device.
+Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
-## Cross-references – no import needed on your phone
+## Cross-references – how they work now
 
-Cross-references for many important passages are already built into the app.
+### 1. Green button = more reading available
+Under each verse, the **Cross-refs** button turns **green** when that verse has cross-references (either ones you entered or ones provided by the app).
 
-### How to see them
-1. Open a chapter (example: John 3).
-2. Tap the verse you want (example: John 3:16).
-3. Tap the **Cross-refs** button under that verse.
+### 2. Load cross-references when you decide to study a book
+When you open a chapter you will see a clear button:
 
-The related verses will appear, grouped by phrase.
+**Load Cross-References for [Book Name]**
 
-That is all. Nothing else to install or load for these verses.
+- Tap it once for the book you are about to study.
+- The cross-references for that book are loaded and stay loaded.
+- After that, any verse in the book that has cross-references will show a green **Cross-refs** button.
+- Your study depth grows book by book as you choose.
 
-### What is already included
-Cross-references are pre-loaded for:
-- Genesis 1–3
-- Psalms 1, 23, 51, 119
-- Isaiah 53
-- Matthew 5–7
-- John 1, 3, 14–17
-- Romans 3, 5, 8
-- 1 Corinthians 13
-- Ephesians 2
-- Hebrews 11
-- 1 John 1, 4, 5
-- Revelation 21–22
+### 3. Built-in starter set (already works)
+Several important passages already have cross-references with no loading step (Genesis 1–3, John 1 & 3 & 14–17, Romans 5 & 8, and others). Their Cross-refs buttons are green immediately.
 
-### Optional – only if you want the rest of the Bible
-If you later want cross-references for every other verse, and you can get the file onto your phone:
-Menu → **Load More Cross-References (optional)** → choose `crossrefs-kjv-tsk.json`.
+### 4. Optional full Bible
+Menu → **Load More Cross-References (optional)** is only needed if you want every remaining book at once and can supply the data file.
 
-Most people never need this step.
+## Everything else
+Notes, highlights, Strong’s, search, and review work the same as before.

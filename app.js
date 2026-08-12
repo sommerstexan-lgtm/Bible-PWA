@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.21.0
+/* app.js – Main application controller. KJV Study PWA v6.22.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.21.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.22.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.21.0</div>
+      <div class="version-bar">v6.22.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -656,7 +656,14 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     : `${book.name} ${chapterNum}${book.translation ? ' (' + book.translation + ')' : ''}`;
 
   const main = $('#main');
-  main.innerHTML = `<div class="chapter-header">${book.name} ${chapterNum}</div>`;
+  main.innerHTML = `
+    <div class="chapter-header">${book.name} ${chapterNum}</div>
+    <div id="xref-load-bar" style="padding:0.6rem 0.8rem;margin-bottom:0.4rem;background:var(--panel,#16213e);border-radius:10px;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+      <button type="button" id="btn-load-book-xrefs" style="min-height:48px;padding:0.55rem 1rem;font-weight:600">
+        Load Cross-References for ${book.name}
+      </button>
+      <span id="xref-load-status" style="font-size:0.9em;color:var(--text-dim)"></span>
+    </div>`;
 
   const keys = ch.verses.map(v => bible.verseKey(bookId, chapterNum, v.number));
   const highlightMap = {};
@@ -678,10 +685,22 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       const hasPrivate = !!(note && String(note).trim());
       const hasShared = !!(shared && shared.body && String(shared.body).trim());
       noteMap[k] = hasPrivate || hasShared;
-      xrefMap[k] = Array.isArray(xrefs) && xrefs.length > 0;
+      const hasPersonalXref = Array.isArray(xrefs) && xrefs.length > 0;
+      // Green indicator if personal refs OR built-in/loaded TSK data exists
+      const hasTsk = !!(STARTER_TSK[k] && STARTER_TSK[k].length) || false;
+      xrefMap[k] = hasPersonalXref || hasTsk;
       wordMarkMap[k] = marks;
     })
   ]);
+  // Also mark verses that exist in the full TSK pack (if user has loaded it)
+  try {
+    const pack = await storage.getTskPack();
+    if (pack && pack.verses) {
+      for (const k of keys) {
+        if (pack.verses[k] && pack.verses[k].length) xrefMap[k] = true;
+      }
+    }
+  } catch (_) {}
   const enableTap = !!(lexPack && lexPack.entries);
 
   for (const v of ch.verses) {
@@ -724,6 +743,46 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       </div>
     `;
     main.appendChild(verseEl);
+  }
+
+
+  // Wire "Load Cross-References for this book"
+  const loadBtn = document.getElementById('btn-load-book-xrefs');
+  const loadStatus = document.getElementById('xref-load-status');
+  if (loadBtn) {
+    // Show current state
+    (async () => {
+      const pack = await storage.getTskPack();
+      const prefix = bookId + '.';
+      let count = 0;
+      if (pack && pack.verses) {
+        for (const k of Object.keys(pack.verses)) {
+          if (k.startsWith(prefix)) count++;
+        }
+      }
+      // Also count starter
+      for (const k of Object.keys(STARTER_TSK)) {
+        if (k.startsWith(prefix)) count++;
+      }
+      if (loadStatus) {
+        if (count > 0) loadStatus.textContent = count + ' verses already have cross-references';
+        else loadStatus.textContent = 'Not loaded yet for this book';
+      }
+    })();
+
+    loadBtn.onclick = async () => {
+      loadBtn.disabled = true;
+      if (loadStatus) loadStatus.textContent = 'Loading…';
+      try {
+        await loadCrossRefsForBook(bookId, book.name);
+        if (loadStatus) loadStatus.textContent = 'Loaded. Cross-refs buttons will turn green where available.';
+        // Re-render so green indicators appear
+        await renderChapter(bookId, chapterNum, { preserveScroll: main.scrollTop });
+      } catch (err) {
+        if (loadStatus) loadStatus.textContent = 'Could not load: ' + (err.message || err);
+        loadBtn.disabled = false;
+      }
+    };
   }
 
   // Event delegation
@@ -2458,6 +2517,60 @@ async function openDictionary(prefill) {
   setTimeout(() => $('#dict-q', overlay).focus(), 100);
 }
 
+
+/** Load TSK cross-references for one book and merge into the stored pack.
+ *  Tries (1) already-imported full pack, (2) fetch of ./crossrefs-kjv-tsk.json.
+ *  Once loaded, data stays on the device.
+ */
+async function loadCrossRefsForBook(bookId, bookName) {
+  const prefix = bookId + '.';
+  let sourceVerses = null;
+
+  // 1. Already have a full pack?
+  const existing = await storage.getTskPack();
+  if (existing && existing.verses) {
+    const subset = {};
+    for (const [k, v] of Object.entries(existing.verses)) {
+      if (k.startsWith(prefix)) subset[k] = v;
+    }
+    if (Object.keys(subset).length) {
+      // Already present – nothing more to do
+      return Object.keys(subset).length;
+    }
+  }
+
+  // 2. Try to fetch the JSON that ships with the app
+  let json = null;
+  try {
+    const resp = await fetch('./crossrefs-kjv-tsk.json', { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('file not reachable');
+    json = await resp.json();
+  } catch (e) {
+    // 3. Fall back: tell user to use the optional menu import once
+    throw new Error('Open Menu → Load More Cross-References (optional) once, then try this button again.');
+  }
+
+  if (!json || !json.verses) throw new Error('Invalid cross-reference file');
+
+  // Merge only this book into the stored pack
+  const merged = (existing && existing.verses) ? { ...existing.verses } : {};
+  let added = 0;
+  for (const [k, v] of Object.entries(json.verses)) {
+    if (k.startsWith(prefix)) {
+      merged[k] = v;
+      added++;
+    }
+  }
+  if (!added) throw new Error('No cross-references found for ' + (bookName || bookId));
+
+  await storage.saveTskPack({
+    source: json.source || 'CrossReferences.org / TSK',
+    version: json.version || 1,
+    verses: merged
+  });
+  return added;
+}
+
 async function openImportTsk() {
   const existing = await storage.getTskPack();
   const status = existing && existing.verses
@@ -2556,7 +2669,7 @@ function openImportLexicon() {
 
 
 /**
- * Tap-a-word Strong's (v6.21.0 – user-controlled marks)
+ * Tap-a-word Strong's (v6.22.0 – user-controlled marks)
  * Uses only the installed lexicon pack + loaded book text. Fully offline.
  * Shows Strong's number, gloss, transliteration/pron, other verses with the
  * same English word, and a Mark / Remove mark button for this occurrence.
@@ -2992,7 +3105,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.21.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.22.0</p>
       </div>
     </div>
   `);
@@ -3003,7 +3116,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.21.0</h2>
+      <h2>About – KJV Study v6.22.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3027,7 +3140,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.21.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.22.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
