@@ -1,34 +1,36 @@
-# KJV Study PWA – v6.20.0
+# KJV Study PWA – v6.21.0
 
-Private, local-only Bible study app (public-domain KJV). All your data stays on your device.
+Private, local-only Bible study (public-domain KJV). Everything stays on your device.
 
-## Cross-references – how to use them (simple)
+## Cross-references – no import needed on your phone
 
-**Many verses already have cross-references built in.**  
-No setup needed for those.
+Cross-references for many important passages are already built into the app.
 
-### To see them
-1. Open any chapter.
-2. Tap the **Cross-refs** button under a verse.
-3. You will see the related verses grouped by phrase.
+### How to see them
+1. Open a chapter (example: John 3).
+2. Tap the verse you want (example: John 3:16).
+3. Tap the **Cross-refs** button under that verse.
 
-### Example
-Open **John 3:16** → tap **Cross-refs**.  
-You should immediately see groups for “God”, “gave”, and “that whosoever”.
+The related verses will appear, grouped by phrase.
 
-### Optional – load the complete list for the whole Bible
-Only do this if you want cross-references on every verse:
-1. Tap **Menu**.
-2. Tap **Load All Cross-References (one time)**.
-3. Choose the file named **crossrefs-kjv-tsk.json**.
-4. Wait for the “installed” message.
+That is all. Nothing else to install or load for these verses.
 
-After that, every verse that has cross-references in the classic Treasury of Scripture Knowledge will show them.
+### What is already included
+Cross-references are pre-loaded for:
+- Genesis 1–3
+- Psalms 1, 23, 51, 119
+- Isaiah 53
+- Matthew 5–7
+- John 1, 3, 14–17
+- Romans 3, 5, 8
+- 1 Corinthians 13
+- Ephesians 2
+- Hebrews 11
+- 1 John 1, 4, 5
+- Revelation 21–22
 
-### Tips
-- Single-tap a reference to jump to it.
-- Double-tap a reference to keep it in your personal list for that verse.
-- You can still add or delete your own cross-references any time.
+### Optional – only if you want the rest of the Bible
+If you later want cross-references for every other verse, and you can get the file onto your phone:
+Menu → **Load More Cross-References (optional)** → choose `crossrefs-kjv-tsk.json`.
 
-## Everything else
-Highlights, notes, Strong’s dictionary, search, and review work the same as before.
+Most people never need this step.

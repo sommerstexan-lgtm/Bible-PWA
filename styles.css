@@ -1,4 +1,4 @@
-/* KJV Study PWA v6.20.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v6.21.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -340,7 +340,7 @@ textarea.note-input {
   resize: vertical;
 }
 
-/* Search – sticky header + hierarchical results (v6.20.0+) */
+/* Search – sticky header + hierarchical results (v6.21.0+) */
 .search-box {
   width: 100%;
   padding: 0.8rem;
