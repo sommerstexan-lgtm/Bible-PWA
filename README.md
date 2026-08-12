@@ -1,6 +1,13 @@
-# KJV Study PWA – v5.17.0
+# KJV Study PWA – v6.18.0
 
 Strictly private, local-only Progressive Web App for personal Bible study (public-domain KJV). All personal data stays on the device (IndexedDB). No accounts, no servers, no analytics.
+
+## New in v6.18 — Study-protocol alignment release
+
+- Version bump to 6.18.0 to mark alignment with the refined external study protocol used to generate notes and cross-reference lists for this app.
+- No change to runtime behavior, storage schema, highlight system, Strong’s marks, search, review, or navigation.
+- All prior fixes from v5.17 remain in force (including native text-selection reliability after single-letter words).
+- Export / Import study data format remains backup version 3 (includes word marks).
 
 ## Fixed in v5.17 — Native selection after single-letter words
 
@@ -45,9 +52,9 @@ Strictly private, local-only Progressive Web App for personal Bible study (publi
 
 Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-references so ← Back can unwind the chain.
 
-## Test checklist (v5.17)
+## Test checklist (v6.18)
 
-1. Hard-refresh until version bar shows **v5.17.0**.
+1. Hard-refresh until version bar shows **v6.18.0**.
 2. With no lexicon installed: verse words have **no** outlines; tapping a word does nothing.
 3. Menu → Import Dictionary (Strong's) → install a valid strongs-lexicon.json.
 4. Open a chapter: page is still **clean** — no outlines on any words.
@@ -56,7 +63,7 @@ Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-ref
 7. Apply a solid highlight that covers a marked word; the outline switches to a brighter frame in that highlight’s color and remains visible on top of the fill.
 8. Tap the marked word again → panel shows **Remove mark** → tap it → outline disappears; page stays clean.
 9. Select a few words (long-press + drag) then open Color: partial-highlight still works; selection logic is unchanged; long-press does not place marks.
-10. **Selection reliability (v5.17):** long-press + drag starting on (or immediately after) a single-letter word such as “a”, “I”, or “O” should select the intended range cleanly; selection handles remain usable so the range can be adjusted.
+10. **Selection reliability (carried from v5.17):** long-press + drag starting on (or immediately after) a single-letter word such as “a”, “I”, or “O” should select the intended range cleanly; selection handles remain usable so the range can be adjusted.
 11. Review, Search, notes, cross-refs, chapter navigation and Analyze continue to work as before.
 12. Export / Import study data includes word marks (backup format version 3).
 

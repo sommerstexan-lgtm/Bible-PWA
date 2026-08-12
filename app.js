@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.17.0
+/* app.js – Main application controller. KJV Study PWA v6.18.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=5.17.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.18.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.17.0</div>
+      <div class="version-bar">v6.18.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -2361,7 +2361,7 @@ function openImportLexicon() {
 
 
 /**
- * Tap-a-word Strong's (v5.17.0 – user-controlled marks)
+ * Tap-a-word Strong's (v6.18.0 – user-controlled marks)
  * Uses only the installed lexicon pack + loaded book text. Fully offline.
  * Shows Strong's number, gloss, transliteration/pron, other verses with the
  * same English word, and a Mark / Remove mark button for this occurrence.
@@ -2797,7 +2797,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.17.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.18.0</p>
       </div>
     </div>
   `);
@@ -2808,7 +2808,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.17.0</h2>
+      <h2>About – KJV Study v6.18.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2832,7 +2832,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.17.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.18.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

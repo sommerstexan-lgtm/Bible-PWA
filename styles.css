@@ -1,4 +1,4 @@
-/* KJV Study PWA v5.17.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v6.18.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -340,7 +340,7 @@ textarea.note-input {
   resize: vertical;
 }
 
-/* Search – sticky header + hierarchical results (v5.17.0+) */
+/* Search – sticky header + hierarchical results (v6.18.0+) */
 .search-box {
   width: 100%;
   padding: 0.8rem;
@@ -1080,7 +1080,7 @@ body.chrome-is-hidden main#main {
 }
 
 /* ===== v5.16+ Tap-a-word Strong's – user-controlled marks only =====
-   v5.17: removed negative margins so adjacent .tap-word boxes no longer
+   v6.18: removed negative margins so adjacent .tap-word boxes no longer
    overlap. Overlapping inline boxes made native selection (esp. after
    single-letter words like “a”, “I”, “O”) unreliable on WebKit/mobile;
    handles became unresponsive. Visual difference is minimal. */
