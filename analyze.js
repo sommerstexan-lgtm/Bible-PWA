@@ -1,4 +1,4 @@
-/* analyze.js – Rule-based color suggestion engine + local learning. v5.16.0
+/* analyze.js – Rule-based color suggestion engine + local learning. v5.17.0
    All learning stays in IndexedDB. User corrections improve future suggestions.
    Highlight text color is ALWAYS computed for max contrast (pure black or pure white).
 */

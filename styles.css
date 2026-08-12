@@ -1,4 +1,4 @@
-/* KJV Study PWA v5.16.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v5.17.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -340,7 +340,7 @@ textarea.note-input {
   resize: vertical;
 }
 
-/* Search – sticky header + hierarchical results (v5.16.0) */
+/* Search – sticky header + hierarchical results (v5.17.0+) */
 .search-box {
   width: 100%;
   padding: 0.8rem;
@@ -618,8 +618,11 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
 .verse-text .hl {
   border-radius: 3px;
+  /* No negative margin: overlapping layout boxes break native selection
+     (esp. after single-letter words) on WebKit / mobile. Padding kept
+     near prior values; inter-word space still separates the boxes. */
   padding: 0.08em 0.15em;
-  margin: 0 -0.02em;
+  margin: 0;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   /* solid color only – never transparent, never underline */
@@ -1076,7 +1079,11 @@ body.chrome-is-hidden main#main {
   white-space: pre-wrap;
 }
 
-/* ===== v5.16.0 Tap-a-word Strong's – user-controlled marks only ===== */
+/* ===== v5.16+ Tap-a-word Strong's – user-controlled marks only =====
+   v5.17: removed negative margins so adjacent .tap-word boxes no longer
+   overlap. Overlapping inline boxes made native selection (esp. after
+   single-letter words like “a”, “I”, “O”) unreliable on WebKit/mobile;
+   handles became unresponsive. Visual difference is minimal. */
 :root {
   --tap-outline-default: rgba(160, 175, 195, 0.55);
 }
@@ -1084,8 +1091,12 @@ body.chrome-is-hidden main#main {
 /* Tappable words: clean by default — no outline until the user marks them */
 .verse-text .tap-word {
   border-radius: 3px;
+  /* Zero horizontal margin avoids layout-box overlap that breaks selection
+     (esp. after single-letter words). Padding kept at prior values so visual
+     fill size stays essentially the same; inter-word space still separates
+     the boxes so they do not overlap. */
   padding: 0.05em 0.14em;
-  margin: 0 -0.04em;
+  margin: 0;
   cursor: pointer;
   -webkit-user-select: text;
   user-select: text;
