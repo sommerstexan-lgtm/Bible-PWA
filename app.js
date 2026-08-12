@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.23.0
+/* app.js – Main application controller. KJV Study PWA v6.24.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -6,6 +6,7 @@
 import * as storage from './storage.js';
 import * as bible from './bible.js';
 import * as analyze from './analyze.js';
+import { getChapterContext } from './context-data.js';
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -111,7 +112,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.23.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.24.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -171,11 +172,12 @@ function renderShell() {
         <button type="button" id="btn-help" title="Help">Help</button>
         <button type="button" id="btn-dict" title="Dictionary">Dict</button>
         <button type="button" id="btn-research" title="Commentary / Research">Research</button>
+        <button type="button" id="btn-context" title="Book / Chapter Context">Context</button>
         <span class="spacer"></span>
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.23.0</div>
+      <div class="version-bar">v6.24.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -202,6 +204,7 @@ function renderShell() {
     openDictionary(q);
   };
   $('#btn-research').onclick = () => openResearch();
+  $('#btn-context').onclick = () => openContext();
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
   $('#chrome-reveal').onclick = () => showChrome();
@@ -2694,7 +2697,7 @@ function openImportLexicon() {
 
 
 /**
- * Tap-a-word Strong's (v6.23.0 – user-controlled marks)
+ * Tap-a-word Strong's (v6.24.0 – user-controlled marks)
  * Uses only the installed lexicon pack + loaded book text. Fully offline.
  * Shows Strong's number, gloss, transliteration/pron, other verses with the
  * same English word, and a Mark / Remove mark button for this occurrence.
@@ -2864,6 +2867,55 @@ async function openStrongsForWord(word, verseKey, startOffset) {
 }
 
 
+
+// ---------- Context panel (offline book/chapter overview) ----------
+function openContext() {
+  if (!currentBookId || !currentChapter) {
+    alert("Open a chapter first, then use Context.");
+    return;
+  }
+  const bookMeta = bible.CANONICAL_BOOKS.find(b => b.id === currentBookId);
+  const bookName = bookMeta ? bookMeta.name : currentBookId;
+  const ctx = getChapterContext(currentBookId, currentChapter);
+
+  const themesHtml = (ctx.themes && ctx.themes.length)
+    ? `<ul class="context-themes">${ctx.themes.map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`
+    : `<p class="context-dim">—</p>`;
+
+  const outlineHtml = (ctx.outline && ctx.outline.length)
+    ? `<ul class="context-outline">${ctx.outline.map(o => `<li>${escapeHtml(o)}</li>`).join("")}</ul>`
+    : `<p class="context-dim">—</p>`;
+
+  const overlay = showOverlay(`
+    <div class="panel context-panel">
+      <div class="context-header">
+        <h2 class="context-title">Context – ${escapeHtml(bookName)} ${currentChapter}</h2>
+        <button type="button" class="close context-close" aria-label="Close">×</button>
+      </div>
+      <div class="context-body">
+        <section class="context-section">
+          <h3>Book purpose</h3>
+          <p>${escapeHtml(ctx.purpose || "")}</p>
+        </section>
+        <section class="context-section">
+          <h3>Key themes</h3>
+          ${themesHtml}
+        </section>
+        <section class="context-section">
+          <h3>This chapter</h3>
+          ${outlineHtml}
+        </section>
+        <section class="context-section">
+          <h3>Where this chapter sits</h3>
+          <p>${escapeHtml(ctx.place || "")}</p>
+        </section>
+        <p class="context-footer">Offline overview · not a commentary. Read the text itself.</p>
+      </div>
+    </div>
+  `);
+  const closeBtn = overlay.querySelector(".context-close") || overlay.querySelector(".close");
+  if (closeBtn) closeBtn.onclick = () => closeOverlay(overlay);
+}
 
 // ---------- Research / Commentary (bible.helloao.org – Adam Clarke + Tyndale) ----------
 const COMMENTARY_SOURCES = [
@@ -3118,6 +3170,9 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Chapters</strong><br>
         ◀ ▶ move chapters. Dim at first/last. Sample has Gen 1–2.</p>
 
+        <p style="margin-bottom:1rem"><strong>Context (offline)</strong><br>
+        Tap <strong>Context</strong> while viewing a chapter for a short overview: book purpose, key themes, simple chapter outline, and where the chapter sits in the larger story. Fully offline.</p>
+
         <p style="margin-bottom:1rem"><strong>Research / Commentary</strong><br>
         Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
@@ -3130,7 +3185,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.23.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.24.0</p>
       </div>
     </div>
   `);
@@ -3141,7 +3196,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.23.0</h2>
+      <h2>About – KJV Study v6.24.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3157,6 +3212,7 @@ function openAbout() {
         Import your own free KJV (or other public-domain) text in the documented JSON format.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
+        <strong>Context:</strong> Offline book purpose, key themes, chapter outline, and place in the story for the current chapter.<br><br>
         <strong>Research:</strong> Adam Clarke’s Commentary and Tyndale Open Study Notes
         (via the free bible.helloao.org API). Chapters are cached locally after first load.
       </p>
@@ -3165,7 +3221,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.23.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.24.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

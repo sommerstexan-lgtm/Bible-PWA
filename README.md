@@ -1,6 +1,15 @@
-# KJV Study PWA – v6.23.0
+# KJV Study PWA – v6.24.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.24.0
+**Context panel** – Tap **Context** on the toolbar while a chapter is open for a short offline overview:
+- Book purpose
+- Key themes
+- Simple outline of the current chapter
+- Where this chapter sits in the larger story / book
+
+Fully offline. Independent of the network-based Research panel.
 
 ## Cross-references – clear status
 
