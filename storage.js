@@ -1,9 +1,9 @@
-/* storage.js – IndexedDB wrapper for all private data. v5.13.0
+/* storage.js – IndexedDB wrapper for all private data. v5.16.0
    Everything stays on-device. No network calls.
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let db = null;
 
@@ -42,6 +42,10 @@ export function openDB() {
       }
       if (!database.objectStoreNames.contains('commentaryCache')) {
         database.createObjectStore('commentaryCache', { keyPath: 'key' });
+      }
+      if (!database.objectStoreNames.contains('wordMarks')) {
+        // Per-occurrence Tap-a-word marks: key = verseKey, marks = [startOffset, ...]
+        database.createObjectStore('wordMarks', { keyPath: 'key' });
       }
     };
     req.onsuccess = (e) => {
@@ -353,6 +357,48 @@ export async function searchLexicon(query) {
 }
 
 
+/* ----- Word marks (Tap-a-word Strong's – per-occurrence user marks) ----- */
+/** @returns {number[]} sorted unique start offsets for marked words in this verse */
+export async function getWordMarks(key) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('wordMarks').get(key);
+    r.onsuccess = () => {
+      const row = r.result;
+      const marks = (row && Array.isArray(row.marks)) ? row.marks.map(n => +n).filter(n => Number.isFinite(n) && n >= 0) : [];
+      res([...new Set(marks)].sort((a, b) => a - b));
+    };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+/** Replace the full mark list for a verse. Pass [] to clear. */
+export async function setWordMarks(key, marks) {
+  await openDB();
+  const clean = [...new Set((marks || []).map(n => +n).filter(n => Number.isFinite(n) && n >= 0))].sort((a, b) => a - b);
+  return new Promise((res, rej) => {
+    if (!clean.length) {
+      const r = tx('wordMarks', 'readwrite').delete(key);
+      r.onsuccess = () => res();
+      r.onerror = () => rej(r.error);
+      return;
+    }
+    const r = tx('wordMarks', 'readwrite').put({ key, marks: clean });
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getAllWordMarks() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('wordMarks').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+
 /* ----- Commentary cache (Adam Clarke / Tyndale from bible.helloao.org) ----- */
 export async function getCachedCommentary(key) {
   await openDB();
@@ -375,7 +421,7 @@ export async function saveCachedCommentary(key, data) {
 /* ----- Export / Import all personal data ----- */
 export async function exportAllData() {
   await openDB();
-  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes] = await Promise.all([
+  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks] = await Promise.all([
     getAllBooks(),
     getAllHighlights(),
     new Promise((res, rej) => {
@@ -391,12 +437,13 @@ export async function exportAllData() {
     getLearningModel(),
     getSettings(),
     getLastPosition(),
-    getAllSharedNotes()
+    getAllSharedNotes(),
+    getAllWordMarks()
   ]);
 
   return {
     format: 'kjv-study-backup',
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     books,
     highlights,
@@ -405,7 +452,8 @@ export async function exportAllData() {
     learning,
     settings,
     history,
-    sharedNotes
+    sharedNotes,
+    wordMarks
   };
 }
 
@@ -468,6 +516,13 @@ export async function importAllData(data, { replace = true } = {}) {
   if (Array.isArray(data.sharedNotes)) {
     for (const note of data.sharedNotes) {
       if (note && note.id) await saveSharedNote(note);
+    }
+  }
+
+  // Word marks (Tap-a-word per-occurrence marks)
+  if (Array.isArray(data.wordMarks)) {
+    for (const row of data.wordMarks) {
+      if (row && row.key) await setWordMarks(row.key, row.marks || []);
     }
   }
 }

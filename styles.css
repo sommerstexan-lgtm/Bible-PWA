@@ -1,4 +1,4 @@
-/* KJV Study PWA v5.15.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v5.16.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -340,7 +340,7 @@ textarea.note-input {
   resize: vertical;
 }
 
-/* Search – sticky header + hierarchical results (v5.15.0) */
+/* Search – sticky header + hierarchical results (v5.16.0) */
 .search-box {
   width: 100%;
   padding: 0.8rem;
@@ -1076,14 +1076,13 @@ body.chrome-is-hidden main#main {
   white-space: pre-wrap;
 }
 
-/* ===== v5.15.0 Tap-a-word Strong's – thin outline on lookup-capable words ===== */
+/* ===== v5.16.0 Tap-a-word Strong's – user-controlled marks only ===== */
 :root {
   --tap-outline-default: rgba(160, 175, 195, 0.55);
 }
 
+/* Tappable words: clean by default — no outline until the user marks them */
 .verse-text .tap-word {
-  /* thin frame that never disappears; color driven by --tap-outline */
-  box-shadow: 0 0 0 1.5px var(--tap-outline, var(--tap-outline-default));
   border-radius: 3px;
   padding: 0.05em 0.14em;
   margin: 0 -0.04em;
@@ -1093,16 +1092,42 @@ body.chrome-is-hidden main#main {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   transition: box-shadow 0.12s ease;
-  /* keep layout stable with existing .hl padding */
 }
 
-.verse-text .tap-word.hl {
-  /* outline sits on top of solid highlight fill */
+/* Only user-marked words receive the thin outline / frame */
+.verse-text .tap-word.marked {
   box-shadow: 0 0 0 1.5px var(--tap-outline, var(--tap-outline-default));
 }
 
-.verse-text .tap-word:active {
+/* Outline sits on top of solid highlight fill and never disappears */
+.verse-text .tap-word.marked.hl {
+  box-shadow: 0 0 0 1.5px var(--tap-outline, var(--tap-outline-default));
+}
+
+.verse-text .tap-word.marked:active {
   box-shadow: 0 0 0 2.5px var(--tap-outline, var(--tap-outline-default));
+}
+
+/* Large Mark / Remove mark button inside Strong's panel */
+.strong-mark-btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+.strong-mark-btn.is-marked {
+  background: var(--btn);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.strong-mark-btn:not(.is-marked) {
+  background: var(--accent);
+  color: #111;
 }
 
 /* Strong's result panel helpers */

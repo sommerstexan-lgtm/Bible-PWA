@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v5.15.0
+/* app.js – Main application controller. KJV Study PWA v5.16.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -111,7 +111,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=5.15.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=5.16.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -175,7 +175,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v5.15.0</div>
+      <div class="version-bar">v5.16.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -363,15 +363,19 @@ function normalizeRanges(raw, textLen) {
 }
 
 /**
- * Build verse HTML with solid highlight fills + optional Tap-a-word Strong's outlines.
+ * Build verse HTML with solid highlight fills + optional Tap-a-word Strong's wrappers.
  * When enableTap is true, every alphabetic word is wrapped in .tap-word so it can be
- * tapped for Strong's. Outline color follows the agreed rule:
- *   - no highlight → soft fixed accent (CSS --tap-outline-default)
- *   - has highlight → brighter version of that highlight color (never disappears)
- * Text content / character offsets are preserved so selection logic stays intact.
+ * tapped for Strong's. Outlines appear ONLY on user-marked words (.marked):
+ *   - marked, no highlight → soft fixed accent (CSS --tap-outline-default)
+ *   - marked + highlight → brighter version of that highlight color (never disappears)
+ * Marks are per occurrence (character start offset). Text offsets stay intact for selection.
+ * @param {Set<number>|number[]} markedStarts – start offsets of user-marked words in this verse
  */
-function buildColoredHtml(text, ranges, enableTap = false) {
+function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null) {
   if (!ranges.length && !enableTap) return escapeHtml(text);
+  const marked = markedStarts instanceof Set
+    ? markedStarts
+    : new Set(Array.isArray(markedStarts) ? markedStarts : []);
   const len = text.length;
   // Last range wins on any overlapping pixels (apply logic punches holes first)
   const cover = Array.from({ length: len }, () => null);
@@ -398,14 +402,20 @@ function buildColoredHtml(text, ranges, enableTap = false) {
         }
         const word = m[0];
         const esc = escapeHtml(word);
+        const absStart = i + m.index;
+        const isMarked = marked.has(absStart);
+        const markCls = isMarked ? ' marked' : '';
         if (col) {
           const meta = analyze.getColorMeta(col);
           const bg = (meta && meta.hex) ? meta.hex : "#666666";
           const fg = (meta && meta.text) ? meta.text : analyze.contrastTextColor(bg);
-          const outline = analyze.outlineColorForHighlight(bg);
-          html += `<span class="hl tap-word" data-color="${col}" data-word="${esc}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg};--tap-outline:${outline}">${esc}</span>`;
+          // Outline color only needed when marked; brighter version of highlight
+          const outlineStyle = isMarked
+            ? `;--tap-outline:${analyze.outlineColorForHighlight(bg)}`
+            : '';
+          html += `<span class="hl tap-word${markCls}" data-color="${col}" data-word="${esc}" data-start="${absStart}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}${outlineStyle}">${esc}</span>`;
         } else {
-          html += `<span class="tap-word" data-word="${esc}">${esc}</span>`;
+          html += `<span class="tap-word${markCls}" data-word="${esc}" data-start="${absStart}">${esc}</span>`;
         }
         last = m.index + word.length;
       }
@@ -652,21 +662,24 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const highlightMap = {};
   const noteMap = {};
   const xrefMap = {};
-  // Lexicon presence enables Tap-a-word Strong's outlines (fully offline)
+  const wordMarkMap = {};
+  // Lexicon presence enables Tap-a-word wrappers (fully offline); outlines only on user marks
   const [lexPack] = await Promise.all([
     storage.getLexiconPack(),
     ...keys.map(async (k) => {
-      const [hl, note, xrefs, shared] = await Promise.all([
+      const [hl, note, xrefs, shared, marks] = await Promise.all([
         storage.getHighlights(k),
         storage.getNote(k),
         storage.getCrossRefs(k),
-        storage.findSharedNoteForVerse(k)
+        storage.findSharedNoteForVerse(k),
+        storage.getWordMarks(k)
       ]);
       highlightMap[k] = hl;
       const hasPrivate = !!(note && String(note).trim());
       const hasShared = !!(shared && shared.body && String(shared.body).trim());
       noteMap[k] = hasPrivate || hasShared;
       xrefMap[k] = Array.isArray(xrefs) && xrefs.length > 0;
+      wordMarkMap[k] = marks;
     })
   ]);
   const enableTap = !!(lexPack && lexPack.entries);
@@ -695,7 +708,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       return `<span class="color-chip" style="background:${meta ? meta.hex : '#666'}" title="${meta ? meta.label : c}"></span>`;
     }).join('');
 
-    const coloredText = buildColoredHtml(v.text, ranges, enableTap);
+    const coloredText = buildColoredHtml(v.text, ranges, enableTap, wordMarkMap[key] || []);
     const noteCls = noteMap[key] ? ' has-content' : '';
     const xrefCls = xrefMap[key] ? ' has-content' : '';
 
@@ -735,7 +748,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       e.preventDefault();
       e.stopPropagation();
       const verseEl = wordEl.closest('.verse');
-      openStrongsForWord(wordEl.dataset.word, verseEl ? verseEl.dataset.key : null);
+      const start = wordEl.dataset.start != null ? +wordEl.dataset.start : null;
+      openStrongsForWord(wordEl.dataset.word, verseEl ? verseEl.dataset.key : null, start);
       return;
     }
 
@@ -1089,7 +1103,7 @@ function openColorIndex() {
   });
 }
 
-// ---------- Review by color (v5.15.0: hierarchical book → verse + Back to books) ----------
+// ---------- Review by color (hierarchical book → verse + Back to books) ----------
 async function openReviewByColor(preselectColor = null) {
   const allHighlights = await storage.getAllHighlights();
   const colorFilter = preselectColor;
@@ -1866,7 +1880,7 @@ async function jumpToRef(targetKey) {
   }, 80);
 }
 
-// ---------- Search (v5.15.0: sticky header + hierarchical book → verse) ----------
+// ---------- Search (sticky header + hierarchical book → verse) ----------
 function openSearch() {
   const overlay = showOverlay(`
     <div class="panel search-panel">
@@ -2335,7 +2349,7 @@ function openImportLexicon() {
       await storage.saveLexiconPack(json);
       closeOverlay(overlay);
       alert(`Dictionary installed: ${json.entryCount || Object.keys(json.entries).length} entries.`);
-      // Re-render current chapter so Tap-a-word outlines appear immediately
+      // Re-render current chapter so Tap-a-word wrappers become active
       if (currentBookId && currentChapter) {
         await renderChapter(currentBookId, currentChapter, { preserveScroll: document.getElementById('main')?.scrollTop || 0 });
       }
@@ -2347,13 +2361,13 @@ function openImportLexicon() {
 
 
 /**
- * Tap-a-word Strong's (v5.15.0 mid-level)
+ * Tap-a-word Strong's (v5.16.0 – user-controlled marks)
  * Uses only the installed lexicon pack + loaded book text. Fully offline.
- * Shows Strong's number, gloss, transliteration/pron, and a few other verses
- * that contain the same English word (approximation of same-Strong occurrences
- * because verse text is not Strong's-tagged).
+ * Shows Strong's number, gloss, transliteration/pron, other verses with the
+ * same English word, and a Mark / Remove mark button for this occurrence.
+ * Marks are per occurrence (verseKey + character start offset), not global.
  */
-async function openStrongsForWord(word, verseKey) {
+async function openStrongsForWord(word, verseKey, startOffset) {
   const clean = (word || '').trim();
   if (!clean) return;
 
@@ -2411,6 +2425,14 @@ async function openStrongsForWord(word, verseKey) {
     occHtml = '';
   }
 
+  // Mark state for this specific occurrence (verse + start offset)
+  const hasStart = Number.isFinite(startOffset) && startOffset >= 0 && verseKey;
+  let isMarked = false;
+  if (hasStart) {
+    const existing = await storage.getWordMarks(verseKey);
+    isMarked = existing.includes(startOffset);
+  }
+
   let body;
   if (!best) {
     body = `
@@ -2439,6 +2461,14 @@ async function openStrongsForWord(word, verseKey) {
     `;
   }
 
+  // Mark / Remove mark button (only when we know the occurrence)
+  let markHtml = '';
+  if (hasStart) {
+    markHtml = isMarked
+      ? `<button type="button" id="strong-mark-btn" class="strong-mark-btn is-marked">Remove mark</button>`
+      : `<button type="button" id="strong-mark-btn" class="strong-mark-btn">Mark this word</button>`;
+  }
+
   const overlay = showOverlay(`
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
@@ -2446,6 +2476,7 @@ async function openStrongsForWord(word, verseKey) {
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
       ${body}
+      ${markHtml}
     </div>
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
@@ -2453,6 +2484,27 @@ async function openStrongsForWord(word, verseKey) {
   const dictBtn = $('#strong-open-dict', overlay);
   if (dictBtn) {
     dictBtn.onclick = () => { closeOverlay(overlay); openDictionary(clean); };
+  }
+
+  const markBtn = $('#strong-mark-btn', overlay);
+  if (markBtn && hasStart) {
+    markBtn.onclick = async () => {
+      const current = await storage.getWordMarks(verseKey);
+      let next;
+      if (isMarked) {
+        next = current.filter(s => s !== startOffset);
+      } else {
+        next = current.includes(startOffset) ? current : [...current, startOffset];
+      }
+      await storage.setWordMarks(verseKey, next);
+      closeOverlay(overlay);
+      // Re-render so the outline appears / disappears; preserve scroll
+      const main = document.getElementById('main');
+      const scrollTop = main ? main.scrollTop : 0;
+      if (currentBookId && currentChapter) {
+        await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+      }
+    };
   }
 
   $$('.strong-occ', overlay).forEach(btn => {
@@ -2477,6 +2529,7 @@ async function openStrongsForWord(word, verseKey) {
     };
   });
 }
+
 
 
 // ---------- Research / Commentary (bible.helloao.org – Adam Clarke + Tyndale) ----------
@@ -2736,10 +2789,15 @@ function openHelp() {
         Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
 
+        <p style="margin-bottom:1rem"><strong>Tap-a-word Strong's</strong><br>
+        With the dictionary installed, tap any word to open Strong's (number, gloss, transliteration, other verses).<br>
+        Use <strong>Mark this word</strong> inside the panel to put a thin outline on that occurrence only.<br>
+        <strong>Remove mark</strong> clears it. Long-press + drag still selects text for Color as before.</p>
+
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.15.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 5.16.0</p>
       </div>
     </div>
   `);
@@ -2750,7 +2808,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v5.15.0</h2>
+      <h2>About – KJV Study v5.16.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -2774,7 +2832,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.15.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 5.16.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

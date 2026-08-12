@@ -1,19 +1,26 @@
-# KJV Study PWA – v5.15.0
+# KJV Study PWA – v5.16.0
 
-**Password:** `KJV-Study-Private`
+Strictly private, local-only Progressive Web App for personal Bible study (public-domain KJV). All personal data stays on the device (IndexedDB). No accounts, no servers, no analytics.
 
-## New in v5.15 — Tap-a-word Strong's (mid-level)
+## New in v5.16 — Tap-a-word Strong's (user-controlled marks)
 
-- When a Strong's lexicon pack is installed, every alphabetic word in the verse text receives a thin outline / frame so it feels tappable.
-- **No highlight:** soft fixed muted blue-gray outline.
-- **Has highlight:** outline becomes a brighter / slightly more saturated version of that word's dominant highlight color (soft glow that never disappears on top of the solid fill).
-- Tap a word (selection must be collapsed) → compact bottom-sheet shows:
-  - Strong's number + lemma
-  - Transliteration and pronunciation (when present)
-  - Short gloss
-  - 3–6 other loaded verses that contain the same English word (practical offline approximation of same-Strong occurrences)
-- If no lexicon is installed the feature is inactive; a gentle prompt points to Menu → Import Dictionary (Strong's).
-- Existing partial-highlight selection, solid-fill + contrast text, notes, cross-refs, Review, Search, and chapter navigation are unchanged.
+- The page starts **completely clean**. No automatic outlines on any words.
+- **Single quick tap** on any word (when the Strong's lexicon is installed) opens a compact Strong's panel:
+  - Strong's number, short gloss, transliteration / pronunciation
+  - 3–6 other loaded verses that contain the same English word
+  - Large **Mark this word** / **Remove mark** button
+- Only words the user has explicitly marked receive a thin outline:
+  - Marked, no highlight → soft fixed muted accent outline
+  - Marked + solid highlight → brighter / slightly more saturated version of that highlight color (outline never disappears on top of the fill)
+- Marks are stored **per occurrence** (this instance of the word in this verse), not globally for every occurrence of the English word.
+- **Long-press + drag** continues to work exclusively for text selection and the Color / partial-highlight system. Marks are never placed by long-press.
+- If no lexicon pack is installed, words are not wrapped for tap (tapping does nothing); Menu → Import Dictionary (Strong's) installs the pack offline.
+- Existing highlights, notes, cross-refs, Review, Search, Research, and chapter navigation are unchanged.
+
+## Previous — v5.15 Tap-a-word Strong's (mid-level)
+
+- First introduction of offline Strong's lookup via installed lexicon pack and word wrappers.
+- v5.16 changes the visual rule from “outline every lookup-capable word” to “outline only user-marked words.”
 
 ## Fixed in v5.14 — Review by Color hierarchical + Back
 
@@ -32,16 +39,18 @@
 
 Previous (v5.12): Search result jumps push onto the same `navStack` as Cross-references so ← Back can unwind the chain.
 
-## Test checklist (v5.15 Tap-a-word Strong's)
+## Test checklist (v5.16 Tap-a-word Strong's – user marks)
 
-1. Hard-refresh until version bar shows **v5.15.0**.
-2. With no lexicon installed: verse words have no outlines; tapping a word does nothing (or gently offers Import Dictionary).
+1. Hard-refresh until version bar shows **v5.16.0**.
+2. With no lexicon installed: verse words have **no** outlines; tapping a word does nothing.
 3. Menu → Import Dictionary (Strong's) → install a valid strongs-lexicon.json.
-4. Open a chapter: every word now has a thin soft outline.
-5. Apply a solid highlight to part of a verse; the outlined words inside the highlight show a brighter frame in that highlight’s color; the outline never disappears.
-6. Tap an outlined word (do not select text) → Strong's panel opens with number, gloss, transliteration/pron, and a short list of other verses.
-7. Tap an occurrence row → jumps to that verse; main chrome ← Back returns to the previous place.
-8. Select a few words (long-press + drag) then open Color: partial-highlight still works; selection logic is unchanged.
-9. Review, Search, notes, cross-refs, chapter navigation and Analyze continue to work as before.
+4. Open a chapter: page is still **clean** — no outlines on any words.
+5. Tap a word (do not select text) → Strong's panel opens with number, gloss, transliteration/pron, other verses, and a large **Mark this word** button.
+6. Tap **Mark this word** → panel closes; that occurrence now has a thin soft outline; other occurrences of the same English word stay unmarked.
+7. Apply a solid highlight that covers a marked word; the outline switches to a brighter frame in that highlight’s color and remains visible on top of the fill.
+8. Tap the marked word again → panel shows **Remove mark** → tap it → outline disappears; page stays clean.
+9. Select a few words (long-press + drag) then open Color: partial-highlight still works; selection logic is unchanged; long-press does not place marks.
+10. Review, Search, notes, cross-refs, chapter navigation and Analyze continue to work as before.
+11. Export / Import study data includes word marks (backup format version 3).
 
 Highlight, note, Research, Search, and ordinary chapter navigation behavior is unchanged.
