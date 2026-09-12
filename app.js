@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.25.1
+/* app.js – Main application controller. KJV Study PWA v6.26.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -7,7 +7,7 @@ import * as storage from './storage.js';
 import * as bible from './bible.js';
 import * as analyze from './analyze.js';
 import { getChapterContext } from './context-data.js';
-import { kjvEnglishSense } from './kjv-english.js';
+import { kjvEnglishSense, phraseUnitAt } from './kjv-english.js';
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -115,7 +115,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.25.1', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.26.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -180,7 +180,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.25.1</div>
+      <div class="version-bar">v6.26.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -2751,7 +2751,7 @@ function bindOccClicks(overlay) {
 }
 
 /**
- * Tap-a-word (v6.25.1)
+ * Tap-a-word (v6.26.0)
  * 1) KJV 1611 English sense first when the English is the trap
  * 2) this word in this book, then this word in the whole loaded KJV
  * 3) Strong's second (if lexicon imported)
@@ -2766,40 +2766,58 @@ async function openWordStudy(word, verseKey, startOffset) {
     verseText = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
   }
   const eng = kjvEnglishSense(clean, verseText, startOffset);
+  const unit = phraseUnitAt(verseText, startOffset, clean);
 
   const bookMeta = currentBookId ? books.find(b => b.id === currentBookId) : null;
   const bookName = bookMeta ? bookMeta.name : (currentBookId || 'this book');
-  const occ = bible.searchWordOccurrences(clean, books, currentBookId, 24);
 
-  const bookListHtml = occ.bookHits.length
-    ? occButtons(occ.bookHits)
-    : `<p style="font-size:0.9em;color:var(--text-dim)">No hits in ${escapeHtml(bookName)} (loaded text).</p>`;
-  const otherListHtml = occ.otherHits.length
-    ? occButtons(occ.otherHits)
-    : `<p style="font-size:0.9em;color:var(--text-dim)">No other loaded-KJV hits.</p>`;
-
-  const englishBlock = eng
-    ? `<div class="kjv-english-note">
-         <div class="kjv-english-label">KJV English</div>
-         <div class="kjv-english-word">“${escapeHtml(clean)}”</div>
-         <div class="kjv-english-sense">${escapeHtml(eng.sense)}</div>
-       </div>`
-    : '';
-
-  const listsBlock = `
+  function listsHtml(label, occ) {
+    const bookListHtml = occ.bookHits.length
+      ? occButtons(occ.bookHits)
+      : `<p style="font-size:0.9em;color:var(--text-dim)">No hits in ${escapeHtml(bookName)} (loaded text).</p>`;
+    const otherListHtml = occ.otherHits.length
+      ? occButtons(occ.otherHits)
+      : `<p style="font-size:0.9em;color:var(--text-dim)">No other loaded-KJV hits.</p>`;
+    return `
     <div class="word-occ-block">
-      <p class="word-occ-head">${escapeHtml(clean)} in ${escapeHtml(bookName)}
+      <p class="word-occ-head">${escapeHtml(label)} in ${escapeHtml(bookName)}
         <span class="word-occ-count">${occ.bookCount}</span></p>
       ${bookListHtml}
       ${occ.bookCount > occ.bookHits.length ? `<p class="word-occ-more">Showing ${occ.bookHits.length} of ${occ.bookCount}</p>` : ''}
     </div>
     <div class="word-occ-block">
-      <p class="word-occ-head">${escapeHtml(clean)} in the whole KJV (loaded)
+      <p class="word-occ-head">${escapeHtml(label)} in the whole KJV (loaded)
         <span class="word-occ-count">${occ.otherCount}</span></p>
       ${otherListHtml}
       ${occ.otherCount > occ.otherHits.length ? `<p class="word-occ-more">Showing ${occ.otherHits.length} of ${occ.otherCount}</p>` : ''}
-    </div>
-  `;
+    </div>`;
+  }
+
+  let englishBlock = '';
+  let listsBlock = '';
+  let title = clean;
+
+  if (unit) {
+    title = unit.phrase;
+    englishBlock = `<div class="kjv-english-note">
+         <div class="kjv-english-label">Phrase as one unit</div>
+         <div class="kjv-english-word">“${escapeHtml(unit.phrase)}”</div>
+         <div class="kjv-english-sense">${escapeHtml(unit.sense)}</div>
+       </div>`;
+    const phraseOcc = bible.searchWordOccurrences(unit.query, books, currentBookId, 24);
+    listsBlock = listsHtml(unit.phrase, phraseOcc);
+    const wordOcc = bible.searchWordOccurrences(clean, books, currentBookId, 12);
+    listsBlock += `<p class="word-occ-head" style="margin-top:1rem">This word only: ${escapeHtml(clean)}</p>` + listsHtml(clean, wordOcc);
+  } else {
+    if (eng) {
+      englishBlock = `<div class="kjv-english-note">
+         <div class="kjv-english-label">KJV English</div>
+         <div class="kjv-english-word">“${escapeHtml(clean)}”</div>
+         <div class="kjv-english-sense">${escapeHtml(eng.sense)}</div>
+       </div>`;
+    }
+    listsBlock = listsHtml(clean, bible.searchWordOccurrences(clean, books, currentBookId, 24));
+  }
 
   const pack = await storage.getLexiconPack();
   let strongsBlock = '';
@@ -2863,7 +2881,7 @@ async function openWordStudy(word, verseKey, startOffset) {
   const overlay = showOverlay(`
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
-        <h2 style="margin:0;border:none;padding:0">${escapeHtml(clean)}</h2>
+        <h2 style="margin:0;border:none;padding:0">${escapeHtml(title)}</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
       ${englishBlock}
@@ -3304,11 +3322,13 @@ function openHelp() {
         <strong>Remove mark</strong> clears it. Long-press + drag still selects text for Color as before.</p>
         <p style="margin-bottom:1rem"><strong>Verse number</strong><br>
         Tap a verse number for faint word-level color suggestions with a one-line reason. Nothing is saved until Keep or Clear. Speech frames may be blue; the rest of the verse is not washed.</p>
+        <p style="margin-bottom:1rem"><strong>Phrase as a unit</strong><br>
+        If you tap a word that belongs to a known phrase (meal offering, burnt offering, holy convocation), the phrase is treated first: one sense, then that phrase in this book, then in the loaded KJV.</p>
 
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.25.1</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.26.0</p>
       </div>
     </div>
   `);
@@ -3319,7 +3339,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.25.1</h2>
+      <h2>About – KJV Study v6.26.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3344,7 +3364,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.25.1 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.26.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -1,7 +1,7 @@
 /* kjv-english.js – KJV 1611 English senses for known “false friends” only.
    Public-domain, established Early Modern English readings.
    If a word is not in this list, return no gloss (never guess).
-   v6.25.1
+   v6.26.0
 */
 
 const SENSES = {
@@ -97,4 +97,71 @@ export function kjvEnglishSense(word, verseText, startOffset) {
 
 export function isEnglishTrap(word, verseText, startOffset) {
   return !!kjvEnglishSense(word, verseText, startOffset);
+}
+
+/** Known KJV (and same-sense) phrases treated as one unit. No guessed glosses. */
+const PHRASES = [
+  { phrase: 'meat offering', sense: 'food offering / grain (not grocery meat)' },
+  { phrase: 'meal offering', sense: 'food offering / grain (not grocery meat)' },
+  { phrase: 'burnt offering', sense: 'offering burned on the altar' },
+  { phrase: 'burnt sacrifice', sense: 'offering burned on the altar' },
+  { phrase: 'peace offering', sense: 'fellowship / well-being offering' },
+  { phrase: 'sin offering', sense: 'offering for sin' },
+  { phrase: 'trespass offering', sense: 'offering for guilt' },
+  { phrase: 'guilt offering', sense: 'offering for guilt' },
+  { phrase: 'wave offering', sense: 'portion waved before the LORD' },
+  { phrase: 'heave offering', sense: 'portion lifted up / set aside' },
+  { phrase: 'drink offering', sense: 'poured-out offering' },
+  { phrase: 'freewill offering', sense: 'voluntary offering' },
+  { phrase: 'holy convocation', sense: 'sacred assembly' },
+  { phrase: 'holy ghost', sense: 'Holy Spirit' },
+  { phrase: 'holy spirit', sense: 'Spirit of God' },
+  { phrase: 'children of israel', sense: 'the people of Israel' },
+  { phrase: 'tabernacle of the congregation', sense: 'tent of meeting' },
+  { phrase: 'tent of meeting', sense: 'tabernacle of the congregation' },
+  { phrase: 'most holy', sense: 'especially set apart' },
+  { phrase: 'thus saith the lord', sense: 'speech frame: the LORD says' },
+  { phrase: 'saith the lord', sense: 'speech frame: the LORD says' },
+  { phrase: 'the lord spake', sense: 'speech frame: the LORD spoke' },
+  { phrase: 'the lord said', sense: 'speech frame: the LORD said' }
+].sort((a, b) => b.phrase.length - a.phrase.length);
+
+function wordChar(ch) {
+  return /[A-Za-z']/.test(ch || '');
+}
+
+/**
+ * If the tap sits inside a known phrase in this verse, return that unit.
+ * Otherwise null — never invent a phrase.
+ */
+export function phraseUnitAt(verseText, startOffset, tappedWord) {
+  const text = String(verseText || '');
+  if (!text || !Number.isFinite(startOffset) || startOffset < 0) return null;
+  const lower = text.toLowerCase();
+  const tapWord = norm(tappedWord);
+
+  for (const p of PHRASES) {
+    let from = 0;
+    while (from <= lower.length) {
+      const idx = lower.indexOf(p.phrase, from);
+      if (idx < 0) break;
+      const end = idx + p.phrase.length;
+      const beforeOk = idx === 0 || !wordChar(text[idx - 1]);
+      const afterOk = end >= text.length || !wordChar(text[end]);
+      if (beforeOk && afterOk && startOffset >= idx && startOffset < end) {
+        const surface = text.slice(idx, end);
+        if (tapWord && !norm(surface).includes(tapWord) && !p.phrase.split(' ').includes(tapWord)) {
+          from = idx + 1;
+          continue;
+        }
+        return {
+          phrase: surface,
+          query: p.phrase,
+          sense: p.sense
+        };
+      }
+      from = idx + 1;
+    }
+  }
+  return null;
 }
