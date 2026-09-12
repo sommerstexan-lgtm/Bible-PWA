@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v6.24.0 */
+/* bible.js – Book loading, navigation helpers, search. v6.25.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -164,6 +164,52 @@ export async function searchBooks(query, books) {
     }
   }
   return results;
+}
+
+function wordHit(text, word) {
+  const q = String(word || '').trim();
+  if (!q) return false;
+  const re = new RegExp(`(^|[^A-Za-z])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z]|$)`, 'i');
+  return re.test(text);
+}
+
+/**
+ * Occurrences of one English word: this book first, then the rest of loaded KJV.
+ * Returns { bookHits, otherHits, bookCount, otherCount } with readable labels.
+ */
+export function searchWordOccurrences(word, bookList, currentBookId, limitEach = 24) {
+  const q = String(word || '').trim();
+  const bookHits = [];
+  const otherHits = [];
+  if (!q) return { bookHits, otherHits, bookCount: 0, otherCount: 0 };
+
+  let bookCount = 0;
+  let otherCount = 0;
+  for (const book of bookList || []) {
+    const inBook = book.id === currentBookId;
+    for (const ch of book.chapters || []) {
+      for (const v of ch.verses || []) {
+        if (!wordHit(v.text, q)) continue;
+        const row = {
+          key: verseKey(book.id, ch.number, v.number),
+          bookId: book.id,
+          bookName: book.name,
+          chapter: ch.number,
+          verse: v.number,
+          text: v.text,
+          snippet: highlightSnippet(v.text, q.toLowerCase())
+        };
+        if (inBook) {
+          bookCount++;
+          if (bookHits.length < limitEach) bookHits.push(row);
+        } else {
+          otherCount++;
+          if (otherHits.length < limitEach) otherHits.push(row);
+        }
+      }
+    }
+  }
+  return { bookHits, otherHits, bookCount, otherCount };
 }
 
 function highlightSnippet(text, q) {

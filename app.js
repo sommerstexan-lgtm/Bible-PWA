@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.24.0
+/* app.js – Main application controller. KJV Study PWA v6.25.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -7,6 +7,7 @@ import * as storage from './storage.js';
 import * as bible from './bible.js';
 import * as analyze from './analyze.js';
 import { getChapterContext } from './context-data.js';
+import { kjvEnglishSense } from './kjv-english.js';
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -67,6 +68,8 @@ let currentBookId = null;
 let currentChapter = 1;
 let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
+/** In-memory verse-number suggestions. Not saved until Keep. */
+let verseSuggestPreview = null; // { key, items: [{start,end,colorId,reason,keep}] }
 
 // ---------- DOM helpers ----------
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -112,7 +115,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.24.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.25.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -177,7 +180,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.24.0</div>
+      <div class="version-bar">v6.25.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -374,7 +377,7 @@ function normalizeRanges(raw, textLen) {
  * Marks are per occurrence (character start offset). Text offsets stay intact for selection.
  * @param {Set<number>|number[]} markedStarts – start offsets of user-marked words in this verse
  */
-function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null) {
+function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null, previewItems = null) {
   if (!ranges.length && !enableTap) return escapeHtml(text);
   const marked = markedStarts instanceof Set
     ? markedStarts
@@ -408,6 +411,12 @@ function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null) 
         const absStart = i + m.index;
         const isMarked = marked.has(absStart);
         const markCls = isMarked ? ' marked' : '';
+        let preview = null;
+        if (previewItems && previewItems.length) {
+          preview = previewItems.find(it => it.keep && absStart >= it.start && absStart < it.end) || null;
+        }
+        const previewCls = preview ? ` tap-suggest tap-suggest-${preview.colorId}` : '';
+        const previewTitle = preview ? ` title="${escapeHtml(preview.reason)}"` : '';
         if (col) {
           const meta = analyze.getColorMeta(col);
           const bg = (meta && meta.hex) ? meta.hex : "#666666";
@@ -416,9 +425,9 @@ function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null) 
           const outlineStyle = isMarked
             ? `;--tap-outline:${analyze.outlineColorForHighlight(bg)}`
             : '';
-          html += `<span class="hl tap-word${markCls}" data-color="${col}" data-word="${esc}" data-start="${absStart}" style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}${outlineStyle}">${esc}</span>`;
+          html += `<span class="hl tap-word${markCls}${previewCls}" data-color="${col}" data-word="${esc}" data-start="${absStart}"${previewTitle} style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}${outlineStyle}">${esc}</span>`;
         } else {
-          html += `<span class="tap-word${markCls}" data-word="${esc}" data-start="${absStart}">${esc}</span>`;
+          html += `<span class="tap-word${markCls}${previewCls}" data-word="${esc}" data-start="${absStart}"${previewTitle}>${esc}</span>`;
         }
         last = m.index + word.length;
       }
@@ -704,7 +713,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       }
     }
   } catch (_) {}
-  const enableTap = !!(lexPack && lexPack.entries);
+  const enableTap = true; // English sense + occurrence lists work without lexicon
 
   for (const v of ch.verses) {
     const key = bible.verseKey(bookId, chapterNum, v.number);
@@ -730,12 +739,15 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       return `<span class="color-chip" style="background:${meta ? meta.hex : '#666'}" title="${meta ? meta.label : c}"></span>`;
     }).join('');
 
-    const coloredText = buildColoredHtml(v.text, ranges, enableTap, wordMarkMap[key] || []);
+    const previewItems = (verseSuggestPreview && verseSuggestPreview.key === key)
+      ? verseSuggestPreview.items
+      : null;
+    const coloredText = buildColoredHtml(v.text, ranges, enableTap, wordMarkMap[key] || [], previewItems);
     const noteCls = noteMap[key] ? ' has-content' : '';
     const xrefCls = xrefMap[key] ? ' has-content' : '';
 
     verseEl.innerHTML = `
-      <span class="verse-num">${v.number}</span>
+      <span class="verse-num" data-act-verse="${key}" title="Word-level color suggestions">${v.number}</span>
       <span class="verse-text">${coloredText}</span>
       <div class="color-chips">${chips}</div>
       <div class="verse-actions">
@@ -748,6 +760,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     main.appendChild(verseEl);
   }
 
+  mountSuggestBar(main);
 
   // Wire "Load Cross-References for this book" — clear permanent states only
   const loadBtn = document.getElementById('btn-load-book-xrefs');
@@ -819,7 +832,15 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   main.addEventListener('mousedown', earlyCapture, { capture: true });
 
   main.onclick = async (e) => {
-    // Tap-a-word Strong's: only when selection is collapsed (user tapped, not selected)
+    const numEl = e.target.closest && e.target.closest('.verse-num[data-act-verse]');
+    if (numEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      await openVerseSuggestions(numEl.getAttribute('data-act-verse'));
+      return;
+    }
+
+    // Tap-a-word: English sense first when the English is the trap; Strong's second
     const wordEl = e.target.closest && e.target.closest('.tap-word');
     if (wordEl && wordEl.dataset.word) {
       const sel = window.getSelection();
@@ -828,7 +849,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       e.stopPropagation();
       const verseEl = wordEl.closest('.verse');
       const start = wordEl.dataset.start != null ? +wordEl.dataset.start : null;
-      openStrongsForWord(wordEl.dataset.word, verseEl ? verseEl.dataset.key : null, start);
+      openWordStudy(wordEl.dataset.word, verseEl ? verseEl.dataset.key : null, start);
       return;
     }
 
@@ -2696,153 +2717,16 @@ function openImportLexicon() {
 }
 
 
-/**
- * Tap-a-word Strong's (v6.24.0 – user-controlled marks)
- * Uses only the installed lexicon pack + loaded book text. Fully offline.
- * Shows Strong's number, gloss, transliteration/pron, other verses with the
- * same English word, and a Mark / Remove mark button for this occurrence.
- * Marks are per occurrence (verseKey + character start offset), not global.
- */
-async function openStrongsForWord(word, verseKey, startOffset) {
-  const clean = (word || '').trim();
-  if (!clean) return;
+function occButtons(list) {
+  return list.map(r => `
+    <button type="button" class="strong-occ" data-key="${escapeHtml(r.key)}">
+      <div class="ref">${escapeHtml(r.bookName)} ${r.chapter}:${r.verse}</div>
+      <div class="snip">${escapeHtml(r.snippet || r.text.slice(0, 90))}</div>
+    </button>
+  `).join('');
+}
 
-  const pack = await storage.getLexiconPack();
-  if (!pack || !pack.entries) {
-    const overlay = showOverlay(`
-      <div class="panel">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
-          <h2 style="margin:0;border:none;padding:0">Strong's</h2>
-          <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
-        </div>
-        <p style="line-height:1.55;margin-bottom:1rem">No dictionary installed yet.</p>
-        <p style="line-height:1.55;margin-bottom:1rem">Install the free Strong's pack via Menu → Import Dictionary (Strong's).</p>
-        <button type="button" id="strong-import-now" style="width:100%;min-height:52px">Import Dictionary now</button>
-      </div>
-    `);
-    $('.close', overlay).onclick = () => closeOverlay(overlay);
-    $('#strong-import-now', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
-    return;
-  }
-
-  const hits = await storage.searchLexicon(clean);
-  // Prefer an entry whose KJV forms include the exact word (case-insensitive)
-  let best = hits[0] || null;
-  if (hits.length > 1) {
-    const lower = clean.toLowerCase();
-    const exact = hits.find(h => {
-      const kjv = (h.kjv || '').toLowerCase();
-      return kjv.split(/[,;/\s]+/).some(w => w === lower);
-    });
-    if (exact) best = exact;
-  }
-
-  // Other occurrences: text search across loaded books for the same English word
-  let occHtml = '';
-  try {
-    const allHits = await bible.searchBooks(clean, books);
-    const others = allHits
-      .filter(r => r.key !== verseKey)
-      .slice(0, 6);
-    if (others.length) {
-      occHtml = `
-        <p style="margin:1rem 0 0.5rem;font-size:0.9em;color:var(--text-dim);font-weight:600">Other verses with this word</p>
-        ${others.map(r => `
-          <button type="button" class="strong-occ" data-key="${escapeHtml(r.key)}">
-            <div class="ref">${escapeHtml(r.bookName)} ${r.chapter}:${r.verse}</div>
-            <div class="snip">${escapeHtml(r.snippet || r.text.slice(0, 90))}</div>
-          </button>
-        `).join('')}
-      `;
-    } else {
-      occHtml = `<p style="margin-top:1rem;font-size:0.9em;color:var(--text-dim)">No other loaded verses contain “${escapeHtml(clean)}”.</p>`;
-    }
-  } catch (_) {
-    occHtml = '';
-  }
-
-  // Mark state for this specific occurrence (verse + start offset)
-  const hasStart = Number.isFinite(startOffset) && startOffset >= 0 && verseKey;
-  let isMarked = false;
-  if (hasStart) {
-    const existing = await storage.getWordMarks(verseKey);
-    isMarked = existing.includes(startOffset);
-  }
-
-  let body;
-  if (!best) {
-    body = `
-      <p style="line-height:1.55;margin-bottom:0.8rem">No Strong's entry found for <strong>“${escapeHtml(clean)}”</strong>.</p>
-      <p style="font-size:0.9em;color:var(--text-dim);margin-bottom:1rem">Try the full Dictionary for related forms or a Strong's number.</p>
-      <button type="button" id="strong-open-dict" style="width:100%;min-height:52px;margin-bottom:0.5rem">Open Dictionary</button>
-      ${occHtml}
-    `;
-  } else {
-    const lemma = best.lemma ? escapeHtml(best.lemma) : '';
-    const xlit = best.xlit ? escapeHtml(best.xlit) : '';
-    const pron = best.pron ? escapeHtml(best.pron) : '';
-    const gloss = best.gloss ? escapeHtml(best.gloss) : '';
-    const kjv = best.kjv ? escapeHtml(best.kjv) : '';
-    body = `
-      <div style="margin-bottom:0.9rem">
-        <div style="font-weight:700;font-size:1.15em;color:var(--accent);margin-bottom:0.25rem">${escapeHtml(best.id)}
-          ${lemma ? `<span style="color:var(--text);font-weight:500"> ${lemma}</span>` : ''}
-        </div>
-        ${xlit || pron ? `<div style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.35rem">${xlit}${pron && xlit ? ' · ' : ''}${pron}</div>` : ''}
-        ${gloss ? `<div style="line-height:1.5;margin-bottom:0.35rem">${gloss}</div>` : ''}
-        ${kjv ? `<div style="font-size:0.9em;color:var(--text-dim)">KJV: ${kjv}</div>` : ''}
-      </div>
-      ${hits.length > 1 ? `<p style="font-size:0.85em;color:var(--text-dim);margin-bottom:0.6rem">${hits.length} related entries — showing best match. Use Dictionary for full list.</p>` : ''}
-      ${occHtml}
-    `;
-  }
-
-  // Mark / Remove mark button (only when we know the occurrence)
-  let markHtml = '';
-  if (hasStart) {
-    markHtml = isMarked
-      ? `<button type="button" id="strong-mark-btn" class="strong-mark-btn is-marked">Remove mark</button>`
-      : `<button type="button" id="strong-mark-btn" class="strong-mark-btn">Mark this word</button>`;
-  }
-
-  const overlay = showOverlay(`
-    <div class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
-        <h2 style="margin:0;border:none;padding:0">Strong's · ${escapeHtml(clean)}</h2>
-        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
-      </div>
-      ${body}
-      ${markHtml}
-    </div>
-  `);
-  $('.close', overlay).onclick = () => closeOverlay(overlay);
-
-  const dictBtn = $('#strong-open-dict', overlay);
-  if (dictBtn) {
-    dictBtn.onclick = () => { closeOverlay(overlay); openDictionary(clean); };
-  }
-
-  const markBtn = $('#strong-mark-btn', overlay);
-  if (markBtn && hasStart) {
-    markBtn.onclick = async () => {
-      const current = await storage.getWordMarks(verseKey);
-      let next;
-      if (isMarked) {
-        next = current.filter(s => s !== startOffset);
-      } else {
-        next = current.includes(startOffset) ? current : [...current, startOffset];
-      }
-      await storage.setWordMarks(verseKey, next);
-      closeOverlay(overlay);
-      // Re-render so the outline appears / disappears; preserve scroll
-      const main = document.getElementById('main');
-      const scrollTop = main ? main.scrollTop : 0;
-      if (currentBookId && currentChapter) {
-        await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
-      }
-    };
-  }
-
+function bindOccClicks(overlay) {
   $$('.strong-occ', overlay).forEach(btn => {
     btn.onclick = async () => {
       const key = btn.dataset.key;
@@ -2866,7 +2750,229 @@ async function openStrongsForWord(word, verseKey, startOffset) {
   });
 }
 
+/**
+ * Tap-a-word (v6.25.0)
+ * 1) KJV 1611 English sense first when the English is the trap
+ * 2) this word in this book, then this word in the whole loaded KJV
+ * 3) Strong's second (if lexicon imported)
+ */
+async function openWordStudy(word, verseKey, startOffset) {
+  const clean = (word || '').trim();
+  if (!clean) return;
 
+  let verseText = '';
+  if (verseKey) {
+    const parsed = bible.parseKey(verseKey);
+    verseText = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+  }
+  const eng = kjvEnglishSense(clean, verseText, startOffset);
+
+  const bookMeta = currentBookId ? books.find(b => b.id === currentBookId) : null;
+  const bookName = bookMeta ? bookMeta.name : (currentBookId || 'this book');
+  const occ = bible.searchWordOccurrences(clean, books, currentBookId, 24);
+
+  const bookListHtml = occ.bookHits.length
+    ? occButtons(occ.bookHits)
+    : `<p style="font-size:0.9em;color:var(--text-dim)">No hits in ${escapeHtml(bookName)} (loaded text).</p>`;
+  const otherListHtml = occ.otherHits.length
+    ? occButtons(occ.otherHits)
+    : `<p style="font-size:0.9em;color:var(--text-dim)">No other loaded-KJV hits.</p>`;
+
+  const englishBlock = eng
+    ? `<div class="kjv-english-note">
+         <div class="kjv-english-label">KJV English</div>
+         <div class="kjv-english-word">“${escapeHtml(clean)}”</div>
+         <div class="kjv-english-sense">${escapeHtml(eng.sense)}</div>
+       </div>`
+    : '';
+
+  const listsBlock = `
+    <div class="word-occ-block">
+      <p class="word-occ-head">${escapeHtml(clean)} in ${escapeHtml(bookName)}
+        <span class="word-occ-count">${occ.bookCount}</span></p>
+      ${bookListHtml}
+      ${occ.bookCount > occ.bookHits.length ? `<p class="word-occ-more">Showing ${occ.bookHits.length} of ${occ.bookCount}</p>` : ''}
+    </div>
+    <div class="word-occ-block">
+      <p class="word-occ-head">${escapeHtml(clean)} in the whole KJV (loaded)
+        <span class="word-occ-count">${occ.otherCount}</span></p>
+      ${otherListHtml}
+      ${occ.otherCount > occ.otherHits.length ? `<p class="word-occ-more">Showing ${occ.otherHits.length} of ${occ.otherCount}</p>` : ''}
+    </div>
+  `;
+
+  const pack = await storage.getLexiconPack();
+  let strongsBlock = '';
+  if (!pack || !pack.entries) {
+    strongsBlock = `
+      <div class="strongs-second">
+        <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
+        <p style="font-size:0.9em;color:var(--text-dim);margin:0 0 0.6rem">Not installed. English note and word lists still work offline.</p>
+        <button type="button" id="strong-import-now" style="width:100%;min-height:52px">Import Dictionary</button>
+      </div>`;
+  } else {
+    const hits = await storage.searchLexicon(clean);
+    let best = hits[0] || null;
+    if (hits.length > 1) {
+      const lower = clean.toLowerCase();
+      const exact = hits.find(h => {
+        const kjv = (h.kjv || '').toLowerCase();
+        return kjv.split(/[,;/\s]+/).some(w => w === lower);
+      });
+      if (exact) best = exact;
+    }
+    if (!best) {
+      strongsBlock = `
+        <div class="strongs-second">
+          <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
+          <p style="line-height:1.55;margin:0 0 0.6rem">No Strong's entry found for “${escapeHtml(clean)}”.</p>
+          <button type="button" id="strong-open-dict" style="width:100%;min-height:52px">Open Dictionary</button>
+        </div>`;
+    } else {
+      const lemma = best.lemma ? escapeHtml(best.lemma) : '';
+      const xlit = best.xlit ? escapeHtml(best.xlit) : '';
+      const pron = best.pron ? escapeHtml(best.pron) : '';
+      const gloss = best.gloss ? escapeHtml(best.gloss) : '';
+      const kjv = best.kjv ? escapeHtml(best.kjv) : '';
+      strongsBlock = `
+        <div class="strongs-second">
+          <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
+          <div style="font-weight:700;font-size:1.15em;color:var(--accent);margin-bottom:0.25rem">${escapeHtml(best.id)}
+            ${lemma ? `<span style="color:var(--text);font-weight:500"> ${lemma}</span>` : ''}
+          </div>
+          ${xlit || pron ? `<div style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.35rem">${xlit}${pron && xlit ? ' · ' : ''}${pron}</div>` : ''}
+          ${gloss ? `<div style="line-height:1.5;margin-bottom:0.35rem">${gloss}</div>` : ''}
+          ${kjv ? `<div style="font-size:0.9em;color:var(--text-dim)">KJV: ${kjv}</div>` : ''}
+          ${hits.length > 1 ? `<p style="font-size:0.85em;color:var(--text-dim);margin-top:0.4rem">${hits.length} related entries — showing best match.</p>` : ''}
+        </div>`;
+    }
+  }
+
+  const hasStart = Number.isFinite(startOffset) && startOffset >= 0 && verseKey;
+  let isMarked = false;
+  if (hasStart) {
+    const existing = await storage.getWordMarks(verseKey);
+    isMarked = existing.includes(startOffset);
+  }
+  const markHtml = hasStart
+    ? (isMarked
+      ? `<button type="button" id="strong-mark-btn" class="strong-mark-btn is-marked">Remove mark</button>`
+      : `<button type="button" id="strong-mark-btn" class="strong-mark-btn">Mark this word</button>`)
+    : '';
+
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">${escapeHtml(clean)}</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${englishBlock}
+      ${listsBlock}
+      ${strongsBlock}
+      ${markHtml}
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+
+  const importBtn = $('#strong-import-now', overlay);
+  if (importBtn) importBtn.onclick = () => { closeOverlay(overlay); openImportLexicon(); };
+  const dictBtn = $('#strong-open-dict', overlay);
+  if (dictBtn) dictBtn.onclick = () => { closeOverlay(overlay); openDictionary(clean); };
+
+  const markBtn = $('#strong-mark-btn', overlay);
+  if (markBtn && hasStart) {
+    markBtn.onclick = async () => {
+      const current = await storage.getWordMarks(verseKey);
+      let next;
+      if (isMarked) next = current.filter(s => s !== startOffset);
+      else next = current.includes(startOffset) ? current : [...current, startOffset];
+      await storage.setWordMarks(verseKey, next);
+      closeOverlay(overlay);
+      const main = document.getElementById('main');
+      const scrollTop = main ? main.scrollTop : 0;
+      if (currentBookId && currentChapter) {
+        await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+      }
+    };
+  }
+  bindOccClicks(overlay);
+}
+
+async function openVerseSuggestions(key) {
+  const parsed = bible.parseKey(key);
+  const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse);
+  if (!text) return;
+  const spans = analyze.suggestWordSpans(text);
+  verseSuggestPreview = {
+    key,
+    items: spans.map(s => ({ ...s, keep: true }))
+  };
+  const main = document.getElementById('main');
+  const scrollTop = main ? main.scrollTop : 0;
+  await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  const target = document.getElementById('v-' + key.replace(/\./g, '-'));
+  if (target) target.scrollIntoView({ block: 'center' });
+}
+
+function mountSuggestBar(main) {
+  const old = document.getElementById('suggest-bar');
+  if (old) old.remove();
+  if (!verseSuggestPreview || !verseSuggestPreview.key) return;
+  const parsed = bible.parseKey(verseSuggestPreview.key);
+  if (parsed.bookId !== currentBookId || parsed.chapter !== currentChapter) return;
+
+  const kept = verseSuggestPreview.items.filter(i => i.keep);
+  const reasons = [...new Set(kept.map(i => i.reason))];
+  const bar = document.createElement('div');
+  bar.id = 'suggest-bar';
+  bar.className = 'suggest-bar';
+  bar.innerHTML = `
+    <div class="suggest-bar-copy">
+      <strong>Not saved.</strong>
+      ${kept.length ? reasons.map(r => escapeHtml(r)).join(' · ') : 'All suggestions cleared from this preview.'}
+    </div>
+    <div class="suggest-bar-actions">
+      <button type="button" id="sug-keep" ${kept.length ? '' : 'disabled'}>Keep</button>
+      <button type="button" id="sug-clear">Clear</button>
+    </div>
+    <p class="suggest-bar-hint">Tap a faint word to drop it before Keep. Speech frames only — not the whole verse.</p>
+  `;
+  main.appendChild(bar);
+
+  // Tap a suggested word to drop/restore that span (does not open word study)
+  main.querySelectorAll('.tap-suggest').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const start = +el.dataset.start;
+      const item = verseSuggestPreview.items.find(it => start >= it.start && start < it.end);
+      if (!item) return;
+      item.keep = !item.keep;
+      const scrollTop = main.scrollTop;
+      renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+    }, true);
+  });
+
+  $('#sug-keep', bar).onclick = async () => {
+    const key = verseSuggestPreview.key;
+    const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+    const existing = normalizeRanges(await storage.getHighlights(key), text.length);
+    const next = existing.slice();
+    for (const it of verseSuggestPreview.items) {
+      if (!it.keep) continue;
+      next.push({ color: it.colorId, start: it.start, end: it.end });
+    }
+    await storage.setHighlights(key, next);
+    verseSuggestPreview = null;
+    const scrollTop = main.scrollTop;
+    await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  };
+  $('#sug-clear', bar).onclick = async () => {
+    verseSuggestPreview = null;
+    const scrollTop = main.scrollTop;
+    await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  };
+}
 
 // ---------- Context panel (offline book/chapter overview) ----------
 function openContext() {
@@ -3177,15 +3283,17 @@ function openHelp() {
         Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
 
-        <p style="margin-bottom:1rem"><strong>Tap-a-word Strong's</strong><br>
-        With the dictionary installed, tap any word to open Strong's (number, gloss, transliteration, other verses).<br>
+        <p style="margin-bottom:1rem"><strong>Tap-a-word</strong><br>
+        Tap a word: KJV 1611 English sense first when modern English is the trap, then this word in this book, then this word in the loaded KJV. Strong’s stays second if the dictionary is installed.<br>
         Use <strong>Mark this word</strong> inside the panel to put a thin outline on that occurrence only.<br>
         <strong>Remove mark</strong> clears it. Long-press + drag still selects text for Color as before.</p>
+        <p style="margin-bottom:1rem"><strong>Verse number</strong><br>
+        Tap a verse number for faint word-level color suggestions with a one-line reason. Nothing is saved until Keep or Clear. Speech frames may be blue; the rest of the verse is not washed.</p>
 
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.24.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.25.0</p>
       </div>
     </div>
   `);
@@ -3196,7 +3304,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.24.0</h2>
+      <h2>About – KJV Study v6.25.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3221,7 +3329,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.24.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.25.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

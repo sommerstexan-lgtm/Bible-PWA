@@ -1,4 +1,4 @@
-/* KJV Study PWA v6.24.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v6.25.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -153,8 +153,15 @@ main#main {
   font-weight: 700;
   color: var(--accent);
   margin-right: 0.4rem;
-  min-width: 1.6em;
+  min-width: 1.8em;
+  min-height: 1.8em;
+  padding: 0.15em 0.25em;
   font-size: 0.95em;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.verse-num:active {
+  background: rgba(30, 144, 255, 0.18);
 }
 
 .verse-text {
@@ -1166,6 +1173,82 @@ body.chrome-is-hidden main#main {
 }
 .strong-occ .snip {
   font-size: 0.9em;
+  color: var(--text-dim);
+}
+
+.kjv-english-note {
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.9rem;
+}
+.kjv-english-label {
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+.kjv-english-word {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.kjv-english-sense {
+  line-height: 1.45;
+  font-size: 1.05em;
+}
+.word-occ-block { margin: 0.85rem 0 0.4rem; }
+.word-occ-head {
+  font-weight: 700;
+  margin: 0 0 0.45rem;
+  font-size: 0.98em;
+}
+.word-occ-count {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-size: 0.9em;
+}
+.word-occ-more {
+  font-size: 0.85em;
+  color: var(--text-dim);
+  margin: 0.2rem 0 0.6rem;
+}
+.strongs-second {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.tap-suggest {
+  box-shadow: 0 0 0 1.5px rgba(30, 144, 255, 0.55);
+  background-color: rgba(30, 144, 255, 0.22) !important;
+}
+.suggest-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 1rem;
+  padding: 0.75rem 0.85rem calc(0.75rem + env(safe-area-inset-bottom));
+  background: #16213e;
+  border: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+}
+.suggest-bar-copy { margin-bottom: 0.55rem; line-height: 1.4; }
+.suggest-bar-actions { display: flex; gap: 0.5rem; }
+.suggest-bar-actions button {
+  flex: 1;
+  min-height: 52px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+#sug-keep { background: var(--accent); color: #111; border: none; border-radius: 8px; }
+#sug-clear { background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
+.suggest-bar-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.85em;
   color: var(--text-dim);
 }
 

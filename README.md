@@ -1,15 +1,17 @@
-# KJV Study PWA – v6.24.0
+# KJV Study PWA – v6.25.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
-## New in 6.24.0
-**Context panel** – Tap **Context** on the toolbar while a chapter is open for a short offline overview:
-- Book purpose
-- Key themes
-- Simple outline of the current chapter
-- Where this chapter sits in the larger story / book
+## New in 6.25.0
+**Tap-a-word Step 1**
+- KJV 1611 English sense first when modern English is the trap (e.g. *meat* = food offering / grain). No guessed glosses.
+- Same tap then lists this word in this book, then this word in the loaded KJV.
+- Strong’s stays second if the dictionary pack is imported.
 
-Fully offline. Independent of the network-based Research panel.
+**Verse number suggestions**
+- Tap a verse number for faint word-level color suggestions plus a one-line reason.
+- Speech frames may be blue; payload words are not washed.
+- Nothing is saved until Keep or Clear.
 
 ## Cross-references – clear status
 

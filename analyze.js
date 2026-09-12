@@ -1,4 +1,4 @@
-/* analyze.js – Rule-based color suggestion engine + local learning. v6.24.0
+/* analyze.js – Rule-based color suggestion engine + local learning. v6.25.0
    All learning stays in IndexedDB. User corrections improve future suggestions.
    Highlight text color is ALWAYS computed for max contrast (pure black or pure white).
 */
@@ -233,4 +233,65 @@ export function allColors() {
     ...c,
     text: contrastTextColor(c.hex)
   }));
+}
+
+/**
+ * Word-level color suggestions for one verse.
+ * Speech-frame phrases may be blue; payload words are left alone.
+ * Every span has a one-line reason. No reason → no span.
+ * Does not write highlights.
+ */
+export function suggestWordSpans(text) {
+  if (!text || typeof text !== 'string') return [];
+  const spans = [];
+  const used = new Array(text.length).fill(false);
+
+  function addSpan(start, end, colorId, reason) {
+    if (start < 0 || end <= start || end > text.length || !reason) return;
+    for (let i = start; i < end; i++) {
+      if (used[i]) return;
+    }
+    for (let i = start; i < end; i++) used[i] = true;
+    spans.push({ start, end, colorId, reason });
+  }
+
+  function findAll(re) {
+    const out = [];
+    const flags = re.flags.includes('g') ? re.flags : re.flags + 'g';
+    const r = new RegExp(re.source, flags);
+    let m;
+    while ((m = r.exec(text)) !== null) {
+      out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+      if (m[0].length === 0) r.lastIndex++;
+    }
+    return out;
+  }
+
+  // Speech frames only — not the content that follows (offering, herd, etc.)
+  const speech = [
+    { re: /\bthus saith the LORD\b/gi, reason: 'speech frame' },
+    { re: /\bsaith the LORD\b/gi, reason: 'speech frame' },
+    { re: /\bthe LORD(?:\s+\w+){0,2}?\s+(?:called|spake|spoke|said|saith)\b/gi, reason: 'speech frame' },
+    { re: /\band\s+spake\s+unto\s+him\b/gi, reason: 'speech frame' },
+    { re: /\bthe word of the LORD\b/gi, reason: 'speech frame' },
+    { re: /\bGod\s+said\b/gi, reason: 'speech frame' },
+    { re: /\bthe LORD\s+said\b/gi, reason: 'speech frame' }
+  ];
+  for (const rule of speech) {
+    for (const hit of findAll(rule.re)) {
+      addSpan(hit.start, hit.end, 'blue', rule.reason);
+    }
+  }
+
+  // “saying,” as the opener after a speech verb already framed
+  for (const hit of findAll(/\bsaying\b/gi)) {
+    const before = text.slice(Math.max(0, hit.start - 80), hit.start);
+    if (/\b(said|saith|spake|spoke|called|saying)\b/i.test(before) ||
+        /\b(LORD|God|LORD God)\b/.test(before)) {
+      addSpan(hit.start, hit.end, 'blue', 'speech frame');
+    }
+  }
+
+  spans.sort((a, b) => a.start - b.start);
+  return spans;
 }
