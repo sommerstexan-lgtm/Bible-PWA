@@ -1,4 +1,4 @@
-/* context-data.js – Offline book/chapter context for KJV Study PWA v6.25.0
+/* context-data.js – Offline book/chapter context for KJV Study PWA v6.25.1
    Public-domain-style short overviews only. No network. No commentary.
    Used by the lightweight Context panel.
 */

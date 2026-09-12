@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.25.0
+/* app.js – Main application controller. KJV Study PWA v6.25.1
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -115,7 +115,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.25.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.25.1', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -180,7 +180,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.25.0</div>
+      <div class="version-bar">v6.25.1</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -2751,7 +2751,7 @@ function bindOccClicks(overlay) {
 }
 
 /**
- * Tap-a-word (v6.25.0)
+ * Tap-a-word (v6.25.1)
  * 1) KJV 1611 English sense first when the English is the trap
  * 2) this word in this book, then this word in the whole loaded KJV
  * 3) Strong's second (if lexicon imported)
@@ -2903,6 +2903,23 @@ async function openVerseSuggestions(key) {
   const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse);
   if (!text) return;
   const spans = analyze.suggestWordSpans(text);
+
+  document.querySelectorAll('.suggest-empty-note').forEach(n => n.remove());
+
+  // No reasoned spans: do not remount the chapter (that flash) and do not
+  // open the Keep/Clear bar. Existing highlights stay put.
+  if (!spans.length) {
+    verseSuggestPreview = null;
+    const verseEl = document.getElementById('v-' + key.replace(/\./g, '-'));
+    if (verseEl) {
+      const note = document.createElement('div');
+      note.className = 'suggest-empty-note';
+      note.textContent = 'No word-level suggestions here. Nothing to keep. Your highlights are unchanged.';
+      verseEl.appendChild(note);
+    }
+    return;
+  }
+
   verseSuggestPreview = {
     key,
     items: spans.map(s => ({ ...s, keep: true }))
@@ -2910,8 +2927,6 @@ async function openVerseSuggestions(key) {
   const main = document.getElementById('main');
   const scrollTop = main ? main.scrollTop : 0;
   await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
-  const target = document.getElementById('v-' + key.replace(/\./g, '-'));
-  if (target) target.scrollIntoView({ block: 'center' });
 }
 
 function mountSuggestBar(main) {
@@ -3293,7 +3308,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.25.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.25.1</p>
       </div>
     </div>
   `);
@@ -3304,7 +3319,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.25.0</h2>
+      <h2>About – KJV Study v6.25.1</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3329,7 +3344,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.25.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.25.1 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
