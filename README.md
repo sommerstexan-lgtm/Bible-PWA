@@ -1,8 +1,8 @@
-# KJV Study PWA – v6.26.0
+# KJV Study PWA – v6.27.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
-## New in 6.26.0
+## New in 6.27.0
 **Tap-a-word Step 1**
 - KJV 1611 English sense first when modern English is the trap (e.g. *meat* = food offering / grain). No guessed glosses.
 - Same tap then lists this word in this book, then this word in the loaded KJV.

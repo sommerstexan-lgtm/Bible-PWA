@@ -1,4 +1,4 @@
-/* KJV Study PWA v6.26.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v6.27.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -1362,3 +1362,20 @@ body.chrome-is-hidden main#main {
   font-size: 0.85em;
   color: var(--text-dim);
 }
+
+
+.tkn-disclaimer {
+  font-size: 0.9em;
+  color: var(--text-dim);
+  margin: 0 0 1rem;
+  line-height: 1.4;
+}
+.tkn-h {
+  margin: 0.9rem 0 0.35rem;
+  font-size: 1.05rem;
+  border: none;
+  color: var(--accent);
+}
+.tkn-kind { margin: 0 0 0.45rem; line-height: 1.45; }
+.tkn-q { margin: 0 0 0.4rem 1.15rem; padding: 0; line-height: 1.5; }
+.tkn-q li { margin-bottom: 0.45rem; }
