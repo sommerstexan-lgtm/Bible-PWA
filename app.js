@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.30.0
+/* app.js – Main application controller. KJV Study PWA v6.31.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -10,6 +10,7 @@ import { getChapterContext } from './context-data.js';
 import { buildThenKindNow } from './then-kind-now.js';
 import { kjvEnglishSense, phraseUnitAt } from './kjv-english.js';
 import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './subject-aliases.js';
+import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -117,7 +118,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.30.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.31.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -182,7 +183,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.30.0</div>
+      <div class="version-bar">v6.31.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -2237,7 +2238,9 @@ function openSearch() {
   const resultsEl = $('#search-results', overlay);
   let timer = null;
   let lastResults = [];   // flat matches from last word search
-  let lastSubjects = [];  // Step A alias headings
+  let lastSubjects = [];  // pack topics first, then Step A aliases
+  let topicsPack = null;
+  storage.getTopicsPack().then((p) => { topicsPack = p; }).catch(() => {});
   let viewMode = 'books'; // 'books' | 'verses' | 'subject'
   let selectedBookId = null;
   let selectedSubjectId = null;
@@ -2403,7 +2406,17 @@ function openSearch() {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       const q = input.value.trim();
-      lastSubjects = q.length >= 2 ? suggestSubjectHeadings(q) : [];
+      if (q.length >= 2) {
+        if (!topicsPack) {
+          try { topicsPack = await storage.getTopicsPack(); } catch (_) { topicsPack = null; }
+        }
+        const packHits = lookupPackTopics(q, topicsPack, 8);
+        const aliasHits = suggestSubjectHeadings(q);
+        const seen = new Set(packHits.map((h) => (h.name || '').toLowerCase()));
+        lastSubjects = packHits.concat(aliasHits.filter((h) => !seen.has((h.name || '').toLowerCase())));
+      } else {
+        lastSubjects = [];
+      }
       lastResults = await bible.searchBooks(q, books);
       // Any new search returns to book-list view
       renderBookList();
@@ -2427,6 +2440,7 @@ function openMenu() {
       <button type="button" id="menu-import-data" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import study data</button>
       <button type="button" id="menu-import-lex" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Dictionary (Strong's)</button>
       <button type="button" id="menu-import-tsk" style="width:100%;margin-bottom:0.5rem;min-height:52px">Load More Cross-References (optional)</button>
+      <button type="button" id="menu-import-topics" style="width:100%;margin-bottom:0.5rem;min-height:52px">Load Topical Pack (optional)</button>
       <button type="button" id="menu-import-ot" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Old Testament (JSON)</button>
       <button type="button" id="menu-import-nt" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import New Testament (JSON)</button>
       <button type="button" id="menu-import" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Book (JSON)</button>
@@ -2442,6 +2456,7 @@ function openMenu() {
   $('#menu-import-data', overlay).onclick = () => { closeOverlay(overlay); openImportData(); };
   $('#menu-import-lex', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
   $('#menu-import-tsk', overlay).onclick = () => { closeOverlay(overlay); openImportTsk(); };
+  $('#menu-import-topics', overlay).onclick = () => { closeOverlay(overlay); openImportTopics(); };
   $('#menu-import-ot', overlay).onclick = () => { closeOverlay(overlay); openBookNav(); };
   $('#menu-import-nt', overlay).onclick = () => { closeOverlay(overlay); openBookNav(); };
   $('#menu-import', overlay).onclick = () => { closeOverlay(overlay); openImport(); };
@@ -2790,6 +2805,102 @@ async function loadCrossRefsForBook(bookId, bookName) {
     loadedBooks
   });
   return count;
+}
+
+async function openImportTopics() {
+  const existing = await storage.getTopicsPack().catch(() => null);
+  const n = packTopicCount(existing);
+  const status0 = n
+    ? `<p id="topics-status" class="testament-import-status ok">✓ Topical pack loaded (${n.toLocaleString()} topics). It stays loaded. You can load it again if needed.</p>`
+    : `<p id="topics-status" class="testament-import-status">Not loaded. Tap once to load <code>topics-torrey.json</code> from this site (verse references only). The app still works without it.</p>`;
+
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Load Topical Pack</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${status0}
+      <button type="button" id="topics-load-btn" class="btn-import-testament">${n ? '✓ Loaded — load again' : 'Load Topical Pack'}</button>
+      <button type="button" id="topics-retry-btn" class="btn-import-testament-retry" hidden>Try again</button>
+      <p style="margin-top:0.9rem;font-size:0.92em;color:var(--text-dim);line-height:1.45">
+        File name: <code>topics-torrey.json</code> in the repo root. Or choose the file here.
+      </p>
+      <div class="import-zone" style="margin-top:0.6rem">
+        <p style="font-size:1.05em;margin-bottom:0.5rem">Optional: choose the file</p>
+        <input type="file" id="topics-file" accept=".json,application/json" style="font-size:1.05em">
+      </div>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  const statusEl = $('#topics-status', overlay);
+  const loadBtn = $('#topics-load-btn', overlay);
+  const retryBtn = $('#topics-retry-btn', overlay);
+
+  function setStatus(kind, text) {
+    statusEl.classList.remove('ok', 'fail');
+    if (kind === 'ok') statusEl.classList.add('ok');
+    if (kind === 'fail') statusEl.classList.add('fail');
+    statusEl.innerHTML = text;
+  }
+
+  function validatePack(json) {
+    if (!json || !Array.isArray(json.topics)) {
+      throw new Error('Not a valid topical pack for this app (need topics[]).');
+    }
+    const clean = [];
+    for (const t of json.topics) {
+      if (!t || !t.name || !Array.isArray(t.refs) || !t.refs.length) continue;
+      clean.push({ name: String(t.name), refs: t.refs.map(String).slice(0, 24) });
+    }
+    if (!clean.length) throw new Error('This pack has no usable topics.');
+    return {
+      source: json.source || "Torrey's New Topical Textbook",
+      version: json.version || 1,
+      topics: clean
+    };
+  }
+
+  async function installPack(json) {
+    const pack = validatePack(json);
+    await storage.saveTopicsPack(pack);
+    setStatus('ok', '✓ Topical pack loaded (' + pack.topics.length.toLocaleString() + ' topics). It stays loaded.');
+    loadBtn.textContent = '✓ Loaded';
+    loadBtn.style.background = '#2ecc71';
+    retryBtn.hidden = true;
+  }
+
+  async function loadBundled() {
+    loadBtn.disabled = true;
+    setStatus('', 'Loading topics-torrey.json…');
+    retryBtn.hidden = true;
+    try {
+      const resp = await fetch('./topics-torrey.json');
+      if (!resp.ok) throw new Error('topics-torrey.json was not found next to index.html.');
+      const json = await resp.json();
+      await installPack(json);
+    } catch (err) {
+      setStatus('fail', 'Not completed. ' + (err.message || err));
+      retryBtn.hidden = false;
+    } finally {
+      loadBtn.disabled = false;
+    }
+  }
+
+  loadBtn.onclick = loadBundled;
+  retryBtn.onclick = loadBundled;
+  $('#topics-file', overlay).onchange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      setStatus('', 'Loading “' + file.name + '”…');
+      const json = JSON.parse(await file.text());
+      await installPack(json);
+    } catch (err) {
+      setStatus('fail', 'Not completed. ' + (err.message || err));
+      retryBtn.hidden = false;
+    }
+  };
 }
 
 async function openImportTsk() {
@@ -3534,10 +3645,12 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
 
-        <p style="margin-bottom:1rem"><strong>Subject search (Step A)</strong><br>
-        In Search, type an everyday word such as funeral, wedding, sickness, or how to pray.
-        Suggested headings appear first. Tap a heading for KJV verse references, then tap a reference to open the reader.
-        Existing word search in loaded books is unchanged.</p>
+        <p style="margin-bottom:1rem"><strong>Subject search</strong><br>
+        In Search, type a topic or everyday word. Order: exact topic name from the loaded pack, then Step A aliases, then word hits in loaded KJV.
+        Tap a heading for KJV verse references, then tap a reference to open the reader.</p>
+        <p style="margin-bottom:1rem"><strong>Topical pack (Step B, optional)</strong><br>
+        Menu → <strong>Load Topical Pack</strong>. One action. Green when loaded. Red <strong>Not completed</strong> and <strong>Try again</strong> if it fails.
+        Place <code>topics-torrey.json</code> in the repo root (same folder as index.html), same pattern as the TSK pack. The app still works if that file is missing.</p>
 
         <p style="margin-bottom:1rem"><strong>Tap-a-word</strong><br>
         Tap a word: KJV 1611 English sense first when modern English is the trap, then this word in this book, then this word in the loaded KJV. Strong’s stays second if the dictionary is installed.<br>
@@ -3553,7 +3666,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.30.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.31.0</p>
       </div>
     </div>
   `);
@@ -3564,7 +3677,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.30.0</h2>
+      <h2>About – KJV Study v6.31.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3589,7 +3702,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.30.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.31.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

@@ -1,6 +1,14 @@
-# KJV Study PWA – v6.30.0
+# KJV Study PWA – v6.31.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.31.0
+**Subject search — Step B (optional topical pack)**
+- Menu → **Load Topical Pack**. One action. Green when loaded; stays loaded. Red **Not completed** + **Try again** on failure.
+- Place `topics-torrey.json` in the repo root next to `index.html` (same pattern as the TSK pack). The app still runs if that file is missing.
+- Source: public-domain Torrey’s New Topical Textbook, verse references only (trimmed).
+- Search order: exact topic name from the pack, then Step A aliases, then raw KJV word hits.
+- Still local-only. No commentary.
 
 ## New in 6.30.0
 **One tap for missing books**

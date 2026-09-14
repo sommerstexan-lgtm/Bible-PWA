@@ -1,9 +1,9 @@
-/* storage.js – IndexedDB wrapper for all private data. v6.30.0
+/* storage.js – IndexedDB wrapper for all private data. v6.31.0
    Everything stays on-device. No network calls.
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let db = null;
 
@@ -50,6 +50,10 @@ export function openDB() {
       if (!database.objectStoreNames.contains('tsk')) {
         // Full TSK phrase-level pack from CrossReferences.org (CC BY 4.0)
         database.createObjectStore('tsk', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('topics')) {
+        // Optional Torrey topical pack (verse refs only)
+        database.createObjectStore('topics', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -554,4 +558,24 @@ export async function importAllData(data, { replace = true } = {}) {
       if (row && row.key) await setWordMarks(row.key, row.marks || []);
     }
   }
+}
+
+/* ----- Topical pack (Torrey refs only) ----- */
+export async function saveTopicsPack(pack) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('topics', 'readwrite').put({ id: 'topics', ...pack });
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getTopicsPack() {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('topics')) return res(null);
+    const r = tx('topics').get('topics');
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
 }

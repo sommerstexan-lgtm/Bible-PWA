@@ -1,4 +1,4 @@
-/* subject-aliases.js – Step A local alias map only. KJV Study PWA v6.30.0
+/* subject-aliases.js – Step A local alias map only. KJV Study PWA v6.31.0
    Everyday phrasing → short subject headings → hand-listed KJV refs.
    No commentary. No topical pack. Local only.
 */
