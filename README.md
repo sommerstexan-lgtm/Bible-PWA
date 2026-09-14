@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.33.0
+# KJV Study PWA – v6.34.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.34.0
+**Start a chain from the verse**
+- On Genesis 16:11 (or any verse) tap **Chains**, then **Start a chain with this verse**.
+- Name it, write your explanation, Save. That verse is hop 1. Add more later.
+- The Chains button turns green with a count after it is saved.
 
 ## New in 6.33.0
 **Saved chains + verse Chains button + copy for message**

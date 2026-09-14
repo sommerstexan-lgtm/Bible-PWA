@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.33.0
+/* app.js – Main application controller. KJV Study PWA v6.34.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -137,7 +137,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.33.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.34.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -203,7 +203,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.33.0</div>
+      <div class="version-bar">v6.34.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -710,6 +710,47 @@ async function openSavedChainReader(id) {
   };
 }
 
+function openStartChainFromVerse(key) {
+  const label = formatKeyLabel(key);
+  const overlay = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">New chain</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.7rem">
+        This chain begins at <strong>${escapeHtml(label)}</strong>. Name it and add what it shows you. You can add more verses later.
+      </p>
+      <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
+      <input id="chain-title" class="search-box" value="${escapeHtml(label)}" placeholder="Name this chain">
+      <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
+      <textarea id="chain-note" class="note-input" placeholder="What this chain shows you"></textarea>
+      <div style="margin-top:0.9rem"><button type="button" id="chain-start-go">Save chain</button></div>
+    </div>
+  `);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  $('#chain-start-go', overlay).onclick = async () => {
+    const title = ($('#chain-title', overlay).value || '').trim() || label || 'Untitled chain';
+    const note = ($('#chain-note', overlay).value || '').trim();
+    const node = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      key,
+      label,
+      source: 'start',
+      note: ''
+    };
+    try {
+      const saved = await storage.saveChain({ title, note, nodes: [node] });
+      trailPush(key, 'start');
+      closeOverlay(overlay);
+      if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
+      openSavedChainReader(saved.id);
+    } catch (err) {
+      alert('Could not save the chain.');
+    }
+  };
+}
+
 async function openVerseChains(key) {
   let mine = [];
   let all = [];
@@ -726,10 +767,11 @@ async function openVerseChains(key) {
       </div>
       <p style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.6rem">
         ${onTrail ? 'Also on today&rsquo;s trail (unsaved workbench).' : 'Not on today&rsquo;s trail.'}
-        Tap a title to read that package.
+        To begin a new package with this verse, tap <strong>Start a chain with this verse</strong>.
       </p>
       <div id="verse-chain-list"></div>
       <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-top:0.8rem">
+        <button type="button" id="vc-start">Start a chain with this verse</button>
         <button type="button" id="vc-add-trail">Add to current trail</button>
         <button type="button" id="vc-add-saved">Add to a saved chain…</button>
       </div>
@@ -738,7 +780,7 @@ async function openVerseChains(key) {
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
   const el = $('#verse-chain-list', overlay);
   if (!mine.length) {
-    el.innerHTML = '<p style="color:var(--text-dim)">This verse is not in a saved chain yet.</p>';
+    el.innerHTML = '<p style="color:var(--text-dim)">This verse is not in a saved chain yet. Use the button below to begin one here.</p>';
   } else {
     el.innerHTML = mine.map((c) => `
       <button type="button" class="xref-item vc-open" data-id="${escapeHtml(c.id)}">
@@ -753,6 +795,10 @@ async function openVerseChains(key) {
       };
     });
   }
+  $('#vc-start', overlay).onclick = () => {
+    closeOverlay(overlay);
+    openStartChainFromVerse(key);
+  };
   $('#vc-add-trail', overlay).onclick = () => {
     trailPush(key, 'pin');
     closeOverlay(overlay);
@@ -4261,7 +4307,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.33.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.34.0</p>
       </div>
     </div>
   `);
@@ -4272,7 +4318,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.33.0</h2>
+      <h2>About – KJV Study v6.34.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4297,7 +4343,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.33.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.34.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
