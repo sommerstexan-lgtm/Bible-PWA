@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.31.0
+# KJV Study PWA – v6.32.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.32.0
+**Restore Search + editable study trail**
+- Closing Search no longer throws away the last query. Open Search again and the same wording, headings, and book/verse list come back.
+- Header **Trail** shows the ordered chain of verses you opened from Search or Cross-refs, plus any verse you pin from the reader.
+- Each trail node can be opened, replaced, or removed. **Undo last edit** restores the previous chain. **Clear trail** does not change the original Search results.
+- The trail lives in this browser session only (not IndexedDB, not export). Chrome ← Back is unchanged.
 
 ## New in 6.31.0
 **Subject search — Step B (optional topical pack)**

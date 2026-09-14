@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.31.0
+/* app.js – Main application controller. KJV Study PWA v6.32.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -71,6 +71,25 @@ let currentBookId = null;
 let currentChapter = 1;
 let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
+/** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
+let searchSession = {
+  query: '',
+  viewMode: 'books',
+  selectedBookId: null,
+  selectedSubjectId: null
+};
+/** Ordered study trail. Not written to IndexedDB. Edit / undo live here. */
+let studyTrail = { nodes: [], undo: [] };
+try {
+  const rawS = sessionStorage.getItem('kjv-search-session');
+  if (rawS) Object.assign(searchSession, JSON.parse(rawS));
+  const rawT = sessionStorage.getItem('kjv-study-trail');
+  if (rawT) {
+    const parsed = JSON.parse(rawT);
+    if (parsed && Array.isArray(parsed.nodes)) studyTrail.nodes = parsed.nodes;
+    if (parsed && Array.isArray(parsed.undo)) studyTrail.undo = parsed.undo;
+  }
+} catch (_) {}
 /** In-memory verse-number suggestions. Not saved until Keep. */
 let verseSuggestPreview = null; // { key, items: [{start,end,colorId,reason,keep}] }
 
@@ -118,7 +137,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.31.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.32.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -168,6 +187,7 @@ function renderShell() {
         <button type="button" id="btn-nav" title="Books" aria-label="Books">☰</button>
         <div class="title" id="header-title">KJV Study</div>
         <button type="button" id="btn-search" title="Search" aria-label="Search">Search</button>
+        <button type="button" id="btn-trail" title="Study trail" aria-label="Study trail">Trail</button>
         <button type="button" id="btn-menu" title="Menu" aria-label="Menu">Menu</button>
       </header>
       <div class="toolbar" id="toolbar">
@@ -183,7 +203,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.31.0</div>
+      <div class="version-bar">v6.32.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -192,6 +212,7 @@ function renderShell() {
 
   $('#btn-nav').onclick = openBookNav;
   $('#btn-search').onclick = openSearch;
+  $('#btn-trail').onclick = openStudyTrail;
   $('#btn-menu').onclick = openMenu;
   $('#btn-font-down').onclick = () => changeFont(-0.1);
   $('#btn-font-up').onclick = () => changeFont(0.1);
@@ -218,6 +239,7 @@ function renderShell() {
 
   installChromeAutoHide();
   updateNavBackButton();
+  updateTrailChip();
 }
 
 let chromeHidden = false;
@@ -267,6 +289,184 @@ function updateNavBackButton() {
   } else {
     btn.hidden = true;
   }
+}
+
+function persistSearchSession() {
+  try { sessionStorage.setItem('kjv-search-session', JSON.stringify(searchSession)); } catch (_) {}
+}
+
+function persistTrail() {
+  try {
+    sessionStorage.setItem('kjv-study-trail', JSON.stringify({
+      nodes: studyTrail.nodes,
+      undo: studyTrail.undo.slice(-24)
+    }));
+  } catch (_) {}
+}
+
+function formatKeyLabel(key) {
+  if (!key) return '';
+  try {
+    const p = bible.parseKey(key);
+    const book = books.find((b) => b.id === p.bookId);
+    return (book ? book.name : p.bookId) + ' ' + p.chapter + ':' + p.verse;
+  } catch (_) {
+    return key;
+  }
+}
+
+function updateTrailChip() {
+  const btn = document.getElementById('btn-trail');
+  if (!btn) return;
+  const n = studyTrail.nodes.length;
+  btn.textContent = n ? ('Trail · ' + n) : 'Trail';
+}
+
+function trailPush(key, source) {
+  if (!key) return;
+  const last = studyTrail.nodes[studyTrail.nodes.length - 1];
+  if (last && last.key === key) return;
+  studyTrail.undo.push({ type: 'push' });
+  studyTrail.nodes.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    key,
+    label: formatKeyLabel(key),
+    source: source || 'open'
+  });
+  persistTrail();
+  updateTrailChip();
+}
+
+function trailRemove(id) {
+  const idx = studyTrail.nodes.findIndex((n) => n.id === id);
+  if (idx < 0) return;
+  const node = studyTrail.nodes[idx];
+  studyTrail.undo.push({ type: 'remove', index: idx, node });
+  studyTrail.nodes.splice(idx, 1);
+  persistTrail();
+  updateTrailChip();
+}
+
+function trailReplace(id, newKey) {
+  const idx = studyTrail.nodes.findIndex((n) => n.id === id);
+  if (idx < 0 || !newKey) return;
+  const prev = studyTrail.nodes[idx];
+  studyTrail.undo.push({ type: 'replace', index: idx, node: prev });
+  studyTrail.nodes[idx] = {
+    id: prev.id,
+    key: newKey,
+    label: formatKeyLabel(newKey),
+    source: 'edit'
+  };
+  persistTrail();
+  updateTrailChip();
+}
+
+function trailUndo() {
+  const act = studyTrail.undo.pop();
+  if (!act) return false;
+  if (act.type === 'push') {
+    studyTrail.nodes.pop();
+  } else if (act.type === 'remove' && act.node) {
+    const i = Math.min(act.index, studyTrail.nodes.length);
+    studyTrail.nodes.splice(i, 0, act.node);
+  } else if (act.type === 'replace' && act.node != null && act.index != null) {
+    studyTrail.nodes[act.index] = act.node;
+  } else if (act.type === 'clear' && Array.isArray(act.nodes)) {
+    studyTrail.nodes = act.nodes.slice();
+  }
+  persistTrail();
+  updateTrailChip();
+  return true;
+}
+
+function openStudyTrail() {
+  const overlay = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">Study trail</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.8rem">
+        Ordered chain of verses you opened or added. Edit a node if you took a wrong turn. This list is not written to your study export.
+      </p>
+      <div id="trail-list"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-top:0.9rem">
+        <button type="button" id="trail-add-here">Add current verse</button>
+        <button type="button" id="trail-undo">Undo last edit</button>
+        <button type="button" id="trail-clear">Clear trail</button>
+      </div>
+    </div>
+  `);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+
+  function renderList() {
+    const el = $('#trail-list', overlay);
+    if (!studyTrail.nodes.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">Empty. Open a search hit or add the verse you are reading.</p>';
+      return;
+    }
+    el.innerHTML = studyTrail.nodes.map((n, i) => `
+      <div class="trail-row" data-id="${escapeHtml(n.id)}">
+        <button type="button" class="trail-open" data-key="${escapeHtml(n.key)}">
+          <span class="trail-idx">${i + 1}</span>
+          <span class="trail-label">${escapeHtml(n.label || n.key)}</span>
+          <span class="trail-src">${escapeHtml(n.source || '')}</span>
+        </button>
+        <button type="button" class="trail-edit" data-id="${escapeHtml(n.id)}" title="Replace">Replace</button>
+        <button type="button" class="trail-del" data-id="${escapeHtml(n.id)}" title="Remove">✕</button>
+      </div>
+    `).join('');
+    $$('.trail-open', overlay).forEach((btn) => {
+      btn.onclick = async () => {
+        closeOverlay(overlay);
+        await jumpToRef(btn.dataset.key);
+      };
+    });
+    $$('.trail-del', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        trailRemove(btn.dataset.id);
+        renderList();
+      };
+    });
+    $$('.trail-edit', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        const raw = prompt('Replace with verse (John 3:16 or jhn.3.16)');
+        if (!raw) return;
+        const parsed = parseUserRef(raw.trim());
+        if (!parsed) {
+          alert('Could not parse that reference.');
+          return;
+        }
+        trailReplace(btn.dataset.id, parsed.key);
+        renderList();
+      };
+    });
+  }
+  renderList();
+
+  $('#trail-add-here', overlay).onclick = () => {
+    const key = getNearestVerseKey();
+    if (!key) {
+      alert('No verse in view.');
+      return;
+    }
+    trailPush(key, 'pin');
+    renderList();
+  };
+  $('#trail-undo', overlay).onclick = () => {
+    if (!trailUndo()) alert('Nothing to undo.');
+    renderList();
+  };
+  $('#trail-clear', overlay).onclick = () => {
+    if (!studyTrail.nodes.length) return;
+    if (!confirm('Clear the whole trail? Original search results stay as they were.')) return;
+    studyTrail.undo.push({ type: 'clear', nodes: studyTrail.nodes.slice() });
+    studyTrail.nodes = [];
+    persistTrail();
+    updateTrailChip();
+    renderList();
+  };
 }
 
 /** Nearest verse currently near the top of the main scroll viewport (for Search origin). */
@@ -2009,6 +2209,7 @@ async function openCrossRefs(key) {
           label
         });
         updateNavBackButton();
+        trailPush(btn.dataset.target, 'xref');
         closeOverlay(overlay);
         await jumpToRef(btn.dataset.target);
       };
@@ -2044,6 +2245,7 @@ async function openCrossRefs(key) {
                 label: `${currentBookId} ${currentChapter}`
               });
               updateNavBackButton();
+              trailPush(target, 'tsk');
               closeOverlay(overlay);
               await jumpToRef(target);
               return;
@@ -2061,6 +2263,7 @@ async function openCrossRefs(key) {
           label: `${currentBookId} ${currentChapter}`
         });
         updateNavBackButton();
+        trailPush(parsed.key, 'tsk');
         closeOverlay(overlay);
         await jumpToRef(parsed.key);
       };
@@ -2095,6 +2298,8 @@ async function openCrossRefs(key) {
     }
     refs.push({ target: parsed.key, label: parsed.label });
     await storage.setCrossRefs(key, refs);
+    trailPush(key, 'from');
+    trailPush(parsed.key, 'xref');
     $('#new-xref', overlay).value = '';
     $('#xref-list', overlay).innerHTML = renderPersonalHtml(refs);
     bindList();
@@ -2232,7 +2437,11 @@ function openSearch() {
       <div id="search-results" class="search-body"></div>
     </div>
   `);
-  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  $('.search-close', overlay).onclick = () => {
+    searchSession.query = ($('#search-input', overlay).value || '').trim();
+    persistSearchSession();
+    closeOverlay(overlay);
+  };
 
   const input = $('#search-input', overlay);
   const resultsEl = $('#search-results', overlay);
@@ -2282,6 +2491,12 @@ function openSearch() {
           });
           updateNavBackButton();
         }
+        searchSession.query = input.value.trim();
+        searchSession.viewMode = viewMode;
+        searchSession.selectedBookId = selectedBookId;
+        searchSession.selectedSubjectId = selectedSubjectId;
+        persistSearchSession();
+        trailPush(row.dataset.key, 'search');
         closeOverlay(overlay);
         await jumpToRef(row.dataset.key);
       };
@@ -2303,6 +2518,9 @@ function openSearch() {
     $$('.subject-heading-row', container).forEach(row => {
       const go = () => {
         selectedSubjectId = row.dataset.subjectId;
+        searchSession.viewMode = 'subject';
+        searchSession.selectedSubjectId = selectedSubjectId;
+        persistSearchSession();
         renderSubjectRefs();
       };
       row.onclick = go;
@@ -2337,6 +2555,9 @@ function openSearch() {
     $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
         selectedBookId = row.dataset.bookId;
+        searchSession.viewMode = 'verses';
+        searchSession.selectedBookId = selectedBookId;
+        persistSearchSession();
         renderVerseList();
       };
       row.onclick = go;
@@ -2418,12 +2639,43 @@ function openSearch() {
         lastSubjects = [];
       }
       lastResults = await bible.searchBooks(q, books);
+      searchSession.query = q;
+      searchSession.viewMode = 'books';
+      searchSession.selectedBookId = null;
+      searchSession.selectedSubjectId = null;
+      persistSearchSession();
       // Any new search returns to book-list view
       renderBookList();
     }, 220);
   };
 
-  setTimeout(() => { try { input.focus(); } catch (_) {} }, 100);
+  async function restoreLastSearch() {
+    const q = (searchSession.query || '').trim();
+    if (q.length < 2) return;
+    input.value = q;
+    if (!topicsPack) {
+      try { topicsPack = await storage.getTopicsPack(); } catch (_) { topicsPack = null; }
+    }
+    const packHits = lookupPackTopics(q, topicsPack, 8);
+    const aliasHits = suggestSubjectHeadings(q);
+    const seen = new Set(packHits.map((h) => (h.name || '').toLowerCase()));
+    lastSubjects = packHits.concat(aliasHits.filter((h) => !seen.has((h.name || '').toLowerCase())));
+    lastResults = await bible.searchBooks(q, books);
+    if (searchSession.viewMode === 'subject' && searchSession.selectedSubjectId) {
+      selectedSubjectId = searchSession.selectedSubjectId;
+      renderSubjectRefs();
+    } else if (searchSession.viewMode === 'verses' && searchSession.selectedBookId) {
+      selectedBookId = searchSession.selectedBookId;
+      renderVerseList();
+    } else {
+      renderBookList();
+    }
+  }
+
+  setTimeout(() => {
+    try { input.focus(); } catch (_) {}
+    restoreLastSearch().catch(() => {});
+  }, 80);
 }
 
 
@@ -3666,7 +3918,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.31.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.32.0</p>
       </div>
     </div>
   `);
@@ -3677,7 +3929,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.31.0</h2>
+      <h2>About – KJV Study v6.32.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3702,7 +3954,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.31.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.32.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

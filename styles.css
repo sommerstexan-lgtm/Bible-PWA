@@ -1441,3 +1441,38 @@ body.chrome-is-hidden main#main {
 .btn-import-testament:disabled {
   opacity: 0.6;
 }
+
+.trail-panel .trail-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+  margin-bottom: 0.4rem;
+}
+.trail-open {
+  flex: 1;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  text-align: left;
+  min-height: 48px;
+}
+.trail-idx {
+  flex: 0 0 1.4rem;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.trail-label { flex: 1; }
+.trail-src {
+  font-size: 0.75em;
+  color: var(--text-dim);
+}
+.trail-edit, .trail-del {
+  flex: 0 0 auto;
+  min-width: 52px;
+  min-height: 48px;
+}
+.trail-del {
+  background: #8b2e2e;
+  color: #fff;
+  font-weight: 700;
+}
