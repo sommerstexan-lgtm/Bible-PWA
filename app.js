@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.35.0
+/* app.js – Main application controller. KJV Study PWA v6.37.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -137,7 +137,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.35.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.37.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -187,7 +187,6 @@ function renderShell() {
         <button type="button" id="btn-nav" title="Books" aria-label="Books">☰</button>
         <div class="title" id="header-title">KJV Study</div>
         <button type="button" id="btn-search" title="Search" aria-label="Search">Search</button>
-        <button type="button" id="btn-trail" title="Study trail" aria-label="Study trail">Trail</button>
         <button type="button" id="btn-menu" title="Menu" aria-label="Menu">Menu</button>
       </header>
       <div class="toolbar" id="toolbar">
@@ -203,17 +202,21 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.35.0</div>
+      <div class="version-bar">v6.37.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
-    <button type="button" id="chain-read-bar" class="chain-read-bar" hidden>← Chain</button>
+    <div id="chain-read-bar" class="chain-read-bar" hidden>
+      <button type="button" id="chain-bar-list">List</button>
+      <span id="chain-bar-label">Chain</span>
+      <button type="button" id="chain-bar-next">Next</button>
+      <button type="button" id="chain-bar-x" aria-label="Close chain">×</button>
+    </div>
     <main id="main"></main>
   `;
 
   $('#btn-nav').onclick = openBookNav;
   $('#btn-search').onclick = openSearch;
-  $('#btn-trail').onclick = openStudyTrail;
   $('#btn-menu').onclick = openMenu;
   $('#btn-font-down').onclick = () => changeFont(-0.1);
   $('#btn-font-up').onclick = () => changeFont(0.1);
@@ -237,8 +240,12 @@ function renderShell() {
   $('#btn-next-ch').onclick = () => changeChapter(1);
   $('#chrome-reveal').onclick = () => showChrome();
   $('#nav-back').onclick = () => goNavBack();
-  const crb = document.getElementById('chain-read-bar');
-  if (crb) crb.onclick = () => { if (chainRead.id) openSavedChainReader(chainRead.id); };
+  const listBtn = document.getElementById('chain-bar-list');
+  const nextBtn = document.getElementById('chain-bar-next');
+  const xBtn = document.getElementById('chain-bar-x');
+  if (listBtn) listBtn.onclick = () => { if (chainRead.id) openSavedChainReader(chainRead.id); };
+  if (nextBtn) nextBtn.onclick = () => goChainNext();
+  if (xBtn) xBtn.onclick = () => dismissChainRead();
 
   installChromeAutoHide();
   updateNavBackButton();
@@ -313,7 +320,7 @@ try {
   const rawC = sessionStorage.getItem('kjv-chain-read');
   if (rawC) {
     const p = JSON.parse(rawC);
-    if (p && p.id) chainRead = { id: p.id, index: p.index || 0, title: p.title || '' };
+    if (p && p.id) chainRead = { id: p.id, index: p.index || 0, title: p.title || '', count: p.count || 0, active: !!p.active };
   }
 } catch (_) {}
 
@@ -324,15 +331,37 @@ function persistChainRead() {
 function updateChainReadBar() {
   const bar = document.getElementById('chain-read-bar');
   if (!bar) return;
-  if (!chainRead.id) {
+  if (!chainRead.id || !chainRead.active) {
     bar.hidden = true;
     return;
   }
   bar.hidden = false;
-  const n = (chainRead.count != null) ? chainRead.count : '';
+  const n = chainRead.count || 0;
   const hop = (chainRead.index || 0) + 1;
-  const title = chainRead.title || 'Chain';
-  bar.textContent = n ? ('← ' + title + ' · ' + hop + '/' + n) : ('← ' + title);
+  const label = document.getElementById('chain-bar-label');
+  if (label) label.textContent = (chainRead.title || 'Chain') + ' · ' + hop + '/' + n;
+  const nextBtn = document.getElementById('chain-bar-next');
+  if (nextBtn) nextBtn.disabled = n > 0 && hop >= n;
+}
+
+function dismissChainRead() {
+  chainRead.active = false;
+  persistChainRead();
+  updateChainReadBar();
+}
+
+async function goChainNext() {
+  if (!chainRead.id) return;
+  const chain = await storage.getChain(chainRead.id);
+  if (!chain || !Array.isArray(chain.nodes) || !chain.nodes.length) return;
+  const next = Math.min(chain.nodes.length - 1, (chainRead.index || 0) + 1);
+  chainRead.index = next;
+  chainRead.active = true;
+  chainRead.count = chain.nodes.length;
+  chainRead.title = chain.title || chainRead.title;
+  persistChainRead();
+  updateChainReadBar();
+  await jumpToRef(chain.nodes[next].key);
 }
 
 function formatKeyLabel(key) {
@@ -664,7 +693,7 @@ async function openSavedChainReader(id) {
   chainRead.title = chain.title || 'Untitled chain';
   chainRead.count = nodes.length;
   persistChainRead();
-  updateChainReadBar();
+  // Bar stays hidden until a hop is actually opened.
 
   const overlay = showOverlay(`
     <div class="panel search-panel chain-reader">
@@ -673,7 +702,6 @@ async function openSavedChainReader(id) {
           <h2 class="search-title">${escapeHtml(chain.title || 'Untitled chain')}</h2>
           <button type="button" class="close search-close" aria-label="Close">×</button>
         </div>
-        <p class="chain-expl">${chain.note ? escapeHtml(chain.note) : '<span style="color:var(--text-dim)">No explanation yet.</span>'}</p>
         <div class="chain-nav-row">
           <button type="button" id="chain-prev">Previous</button>
           <span class="chain-pos">${nodes.length ? ((chainRead.index || 0) + 1) + ' of ' + nodes.length : '0'}</span>
@@ -690,6 +718,9 @@ async function openSavedChainReader(id) {
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
   const list = $('#chain-read-list', overlay);
+  const expl = chain.note
+    ? `<details class="chain-expl-box"><summary>Explanation</summary><p class="chain-expl">${escapeHtml(chain.note)}</p></details>`
+    : '';
 
   async function openHop(i) {
     if (i < 0 || i >= nodes.length) return;
@@ -697,6 +728,7 @@ async function openSavedChainReader(id) {
     chainRead.index = i;
     chainRead.title = chain.title || 'Untitled chain';
     chainRead.count = nodes.length;
+    chainRead.active = true;
     persistChainRead();
     updateChainReadBar();
     closeOverlay(overlay);
@@ -704,9 +736,9 @@ async function openSavedChainReader(id) {
   }
 
   if (!nodes.length) {
-    list.innerHTML = '<p style="color:var(--text-dim)">This chain has no verses.</p>';
+    list.innerHTML = expl + '<p style="color:var(--text-dim)">This chain has no verses.</p>';
   } else {
-    list.innerHTML = nodes.map((n, i) => `
+    list.innerHTML = expl + nodes.map((n, i) => `
       <button type="button" class="xref-item chain-hop${i === chainRead.index ? ' is-current' : ''}" data-i="${i}">
         <span class="trail-idx">${i + 1}</span>
         ${escapeHtml(n.label || n.key)}
@@ -4351,7 +4383,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.35.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.37.0</p>
       </div>
     </div>
   `);
@@ -4362,7 +4394,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.35.0</h2>
+      <h2>About – KJV Study v6.37.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4387,7 +4419,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.35.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.37.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

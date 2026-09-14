@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.35.0
+# KJV Study PWA – v6.37.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.37.0
+**Chain reader shows the verses first**
+- Tap a chain and you get Previous / Next plus the numbered hops. Explanation is behind **Explanation** so it cannot hide the list.
+- Header **Trail** removed. Menu → Chains is the list. The teal bar returns you to the same chain after a verse.
 
 ## New in 6.35.0
 **Chains list and in-order reading rewritten**

@@ -1,4 +1,4 @@
-/* KJV Study PWA v6.35.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v6.37.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -1380,7 +1380,7 @@ body.chrome-is-hidden main#main {
 .tkn-q { margin: 0 0 0.4rem 1.15rem; padding: 0; line-height: 1.5; }
 .tkn-q li { margin-bottom: 0.45rem; }
 
-/* Subject headings (Step A v6.35.0) */
+/* Subject headings (Step A v6.37.0) */
 .subject-section-label {
   font-size: 0.88rem;
   color: var(--text-dim);
@@ -1491,13 +1491,16 @@ body.chrome-is-hidden main#main {
 
 .chain-read-bar {
   position: fixed;
-  top: max(40px, calc(env(safe-area-inset-top, 0px) + 36px));
-  left: 0.5rem;
-  z-index: 41;
-  margin: 0;
-  min-height: 32px;
-  max-width: calc(70vw - 0.5rem);
-  padding: 0.28rem 0.75rem;
+  top: max(4px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: min(92vw, 520px);
+  min-height: 40px;
+  padding: 0.2rem 0.3rem 0.2rem 0.45rem;
   font-size: 0.8rem;
   font-weight: 600;
   border-radius: 999px;
@@ -1505,11 +1508,31 @@ body.chrome-is-hidden main#main {
   background: var(--accent);
   color: #111;
   box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.chain-read-bar[hidden] { display: none !important; }
+.chain-read-bar button {
+  min-height: 34px;
+  min-width: 44px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.2);
+  background: #fff;
+  color: #111;
+}
+.chain-read-bar #chain-bar-label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 0 0.2rem;
 }
-.chain-read-bar[hidden] { display: none !important; }
+.chain-read-bar #chain-bar-x {
+  min-width: 36px;
+  font-size: 1.1rem;
+}
 .chain-nav-row {
   display: flex;
   align-items: center;
@@ -1531,3 +1554,26 @@ body.chrome-is-hidden main#main {
   border-top: 1px solid var(--border);
 }
 .chain-reader .chain-expl { margin: 0.35rem 0 0.2rem; }
+
+.chain-expl-box {
+  margin: 0 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.65rem;
+  background: var(--bg);
+}
+.chain-expl-box summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+.chain-expl-box .chain-expl {
+  max-height: 8rem;
+  overflow-y: auto;
+  margin: 0.35rem 0 0.45rem;
+}
+.chain-reader .search-header {
+  flex-shrink: 0;
+}
