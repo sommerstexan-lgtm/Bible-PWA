@@ -1,9 +1,9 @@
-/* storage.js – IndexedDB wrapper for all private data. v6.32.0
+/* storage.js – IndexedDB wrapper for all private data. v6.33.0
    Everything stays on-device. No network calls.
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 let db = null;
 
@@ -54,6 +54,10 @@ export function openDB() {
       if (!database.objectStoreNames.contains('topics')) {
         // Optional Torrey topical pack (verse refs only)
         database.createObjectStore('topics', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('chains')) {
+        // Named saved study chains (title + explanation + ordered refs)
+        database.createObjectStore('chains', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -454,7 +458,7 @@ export async function saveCachedCommentary(key, data) {
 /* ----- Export / Import all personal data ----- */
 export async function exportAllData() {
   await openDB();
-  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks] = await Promise.all([
+  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains] = await Promise.all([
     getAllBooks(),
     getAllHighlights(),
     new Promise((res, rej) => {
@@ -471,12 +475,13 @@ export async function exportAllData() {
     getSettings(),
     getLastPosition(),
     getAllSharedNotes(),
-    getAllWordMarks()
+    getAllWordMarks(),
+    getAllChains()
   ]);
 
   return {
     format: 'kjv-study-backup',
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     books,
     highlights,
@@ -486,7 +491,8 @@ export async function exportAllData() {
     settings,
     history,
     sharedNotes,
-    wordMarks
+    wordMarks,
+    chains
   };
 }
 
@@ -558,6 +564,13 @@ export async function importAllData(data, { replace = true } = {}) {
       if (row && row.key) await setWordMarks(row.key, row.marks || []);
     }
   }
+
+  // Saved study chains
+  if (Array.isArray(data.chains)) {
+    for (const chain of data.chains) {
+      if (chain && chain.id) await saveChain(chain);
+    }
+  }
 }
 
 /* ----- Topical pack (Torrey refs only) ----- */
@@ -579,3 +592,60 @@ export async function getTopicsPack() {
     r.onerror = () => rej(r.error);
   });
 }
+
+/* ----- Saved study chains ----- */
+function newChainId() {
+  return 'ch_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+export async function saveChain(chain) {
+  await openDB();
+  if (!chain.id) chain.id = newChainId();
+  if (!Array.isArray(chain.nodes)) chain.nodes = [];
+  chain.title = (chain.title || '').trim() || 'Untitled chain';
+  chain.note = chain.note || '';
+  chain.updatedAt = new Date().toISOString();
+  if (!chain.createdAt) chain.createdAt = chain.updatedAt;
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('chains')) return rej(new Error('Chains store missing'));
+    const r = tx('chains', 'readwrite').put(chain);
+    r.onsuccess = () => res(chain);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getChain(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('chains')) return res(null);
+    const r = tx('chains').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getAllChains() {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('chains')) return res([]);
+    const r = tx('chains').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function deleteChain(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('chains')) return res();
+    const r = tx('chains', 'readwrite').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getChainsForVerse(verseKey) {
+  const all = await getAllChains();
+  return all.filter((c) => Array.isArray(c.nodes) && c.nodes.some((n) => n && n.key === verseKey));
+}
+

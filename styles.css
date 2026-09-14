@@ -1,4 +1,4 @@
-/* KJV Study PWA v6.31.0 – Senior-friendly, high-contrast, calm
+/* KJV Study PWA v6.33.0 – Senior-friendly, high-contrast, calm
    Highlight spans use solid background fills + pure black/white text (set inline).
 */
 
@@ -1380,7 +1380,7 @@ body.chrome-is-hidden main#main {
 .tkn-q { margin: 0 0 0.4rem 1.15rem; padding: 0; line-height: 1.5; }
 .tkn-q li { margin-bottom: 0.45rem; }
 
-/* Subject headings (Step A v6.31.0) */
+/* Subject headings (Step A v6.33.0) */
 .subject-section-label {
   font-size: 0.88rem;
   color: var(--text-dim);
@@ -1475,4 +1475,16 @@ body.chrome-is-hidden main#main {
   background: #8b2e2e;
   color: #fff;
   font-weight: 700;
+}
+
+.chain-expl {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  margin: 0.35rem 0 0.8rem;
+}
+.chain-node-note {
+  margin: -0.15rem 0 0.65rem 1.6rem;
+  font-size: 0.92em;
+  color: var(--text-dim);
+  white-space: pre-wrap;
 }

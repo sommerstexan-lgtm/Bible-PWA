@@ -1,6 +1,15 @@
-# KJV Study PWA – v6.32.0
+# KJV Study PWA – v6.33.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.33.0
+**Saved chains + verse Chains button + copy for message**
+- Header **Trail** is still today’s workbench (session only).
+- **Save as chain** stores a named snapshot: title, your explanation, ordered verse refs. Later trail edits do not change that copy until you save again.
+- **Saved chains** lists every named package on this device. Tap a title to read the explanation and follow the refs. **Use as current trail** is a separate action.
+- Each verse row has **Chains**. Green + count when that verse is in one or more saved chains. Tap lists only those titles. A verse may belong to many chains.
+- **Copy for message** puts title + your explanation + numbered refs on the clipboard so you can paste into Gmail on a Chromebook (or Messages on a phone). The app does not send mail.
+- Saved chains are included in the existing backup / restore file. Nothing is uploaded.
 
 ## New in 6.32.0
 **Restore Search + editable study trail**
