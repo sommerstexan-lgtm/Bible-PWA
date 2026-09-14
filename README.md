@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.28.0
+# KJV Study PWA – v6.29.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.29.0
+**Import Old Testament / Import New Testament**
+- In Books (and Menu), tap one action and choose a single JSON that contains many books (`{ "books": [ … ] }`).
+- Only that testament is stored. Status is green when the load finishes, or red **Not completed** plus the reason if the file is wrong.
+- Per-book Import buttons remain for one file at a time.
+- Still local only. The app does not download Bible text from the network.
 
 ## New in 6.28.0
 **Subject search — Step A only**

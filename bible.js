@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v6.28.0 */
+/* bible.js – Book loading, navigation helpers, search. v6.29.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -126,18 +126,61 @@ export async function loadSampleIfEmpty() {
   }
 }
 
+const OT_IDS = new Set(
+  ['gen','exo','lev','num','deu','jos','jdg','rut','1sa','2sa','1ki','2ki','1ch','2ch','ezr','neh','est','job','psa','pro','ecc','sng','isa','jer','lam','eze','dan','hos','joe','amo','oba','jon','mic','nah','hab','zep','hag','zec','mal']
+);
+
+export function bookTestament(bookId) {
+  const id = String(bookId || '').toLowerCase();
+  const meta = CANONICAL_BOOKS.find((b) => b.id === id);
+  if (meta) return meta.testament;
+  return OT_IDS.has(id) ? 'OT' : 'NT';
+}
+
+export function expectedTestamentCount(testament) {
+  return CANONICAL_BOOKS.filter((b) => b.testament === testament).length;
+}
+
+export function booksFromImportJson(json) {
+  if (!json || typeof json !== 'object') return [];
+  if (Array.isArray(json.books)) return json.books;
+  if (Array.isArray(json)) return json;
+  if (json.id && json.chapters) return [json];
+  return [];
+}
+
 export async function importBookJSON(json) {
   // Accept either { books: [...] } or a single book object
-  const books = json.books ? json.books : [json];
+  const books = booksFromImportJson(json);
+  if (!books.length) {
+    throw new Error('Invalid book format: need id, name, chapters[]');
+  }
   for (const book of books) {
     if (!book.id || !book.name || !Array.isArray(book.chapters)) {
       throw new Error('Invalid book format: need id, name, chapters[]');
     }
-    // normalize
-    book.testament = book.testament || (['gen','exo','lev','num','deu','jos','jdg','rut','1sa','2sa','1ki','2ki','1ch','2ch','ezr','neh','est','job','psa','pro','ecc','sng','isa','jer','lam','eze','dan','hos','joe','amo','oba','jon','mic','nah','hab','zep','hag','zec','mal'].includes(book.id) ? 'OT' : 'NT');
+    book.testament = book.testament || bookTestament(book.id);
     await putBook(book);
   }
   return books;
+}
+
+/** Import only OT or only NT books from a single JSON (one book or many). */
+export async function importTestamentJSON(json, testament) {
+  const want = testament === 'NT' ? 'NT' : 'OT';
+  const all = booksFromImportJson(json);
+  if (!all.length) {
+    throw new Error('This file is not a book JSON for this app.');
+  }
+  const matched = all.filter((b) => b && b.id && bookTestament(b.id) === want);
+  if (!matched.length) {
+    throw new Error(
+      want === 'OT'
+        ? 'This file has no Old Testament books.'
+        : 'This file has no New Testament books.'
+    );
+  }
+  return importBookJSON({ books: matched });
 }
 
 export async function searchBooks(query, books) {

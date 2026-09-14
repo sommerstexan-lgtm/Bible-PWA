@@ -1,7 +1,7 @@
 /* kjv-english.js – KJV 1611 English senses for known “false friends” only.
    Public-domain, established Early Modern English readings.
    If a word is not in this list, return no gloss (never guess).
-   v6.28.0
+   v6.29.0
 */
 
 const SENSES = {
