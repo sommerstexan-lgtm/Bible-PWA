@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v6.29.0 */
+/* bible.js – Book loading, navigation helpers, search. v6.30.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -181,6 +181,46 @@ export async function importTestamentJSON(json, testament) {
     );
   }
   return importBookJSON({ books: matched });
+}
+
+export function bundledTestamentUrl(testament) {
+  return testament === 'NT' ? './kjv-nt.json' : './kjv-ot.json';
+}
+
+export function isIncompleteBook(book) {
+  if (!book || !Array.isArray(book.chapters)) return true;
+  if (book.id === 'gen' && book.chapters.length <= 2 && book.translation !== 'KJV' && book.translation !== 'WEB') return true;
+  return book.chapters.length === 0;
+}
+
+export function missingTestamentBooks(loadedBooks, testament) {
+  const want = testament === 'NT' ? 'NT' : 'OT';
+  const have = new Map((loadedBooks || []).map((b) => [b.id, b]));
+  return CANONICAL_BOOKS.filter((meta) => {
+    if (meta.testament !== want) return false;
+    const existing = have.get(meta.id);
+    return !existing || isIncompleteBook(existing);
+  });
+}
+
+export async function loadBundledTestament(testament, loadedBooks) {
+  const url = bundledTestamentUrl(testament);
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error('Could not read ' + url + ' from this site. Put that file next to index.html and try again.');
+  }
+  const json = await resp.json();
+  const packBooks = booksFromImportJson(json).filter((b) => bookTestament(b.id) === (testament === 'NT' ? 'NT' : 'OT'));
+  if (!packBooks.length) {
+    throw new Error('The bundled file has no ' + (testament === 'NT' ? 'New' : 'Old') + ' Testament books.');
+  }
+  const missing = new Set(missingTestamentBooks(loadedBooks, testament).map((m) => m.id));
+  const toStore = packBooks.filter((b) => missing.has(b.id));
+  if (!toStore.length) {
+    return { imported: [], skipped: packBooks.length, url };
+  }
+  await importBookJSON({ books: toStore });
+  return { imported: toStore, skipped: packBooks.length - toStore.length, url };
 }
 
 export async function searchBooks(query, books) {

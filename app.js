@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.29.0
+/* app.js – Main application controller. KJV Study PWA v6.30.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -117,7 +117,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.29.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.30.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -182,7 +182,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.29.0</div>
+      <div class="version-bar">v6.30.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -905,8 +905,8 @@ function showEmptyState() {
   $('#main').innerHTML = `
     <div class="empty-state">
       <p><strong>No books loaded yet.</strong></p>
-      <p>Open the book list and use <strong>Import Old Testament</strong> or <strong>Import New Testament</strong> for one JSON with many books,<br>
-      or Menu → Import Book for a single file. The included public-domain Genesis sample appears after first load.</p>
+      <p>Open the book list and tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>.<br>
+      That loads the bundled public-domain KJV for books not already on this device.</p>
       <p style="margin-top:1.5rem">This app never sends data anywhere.<br>All study data stays on this device only.</p>
     </div>
   `;
@@ -948,13 +948,14 @@ async function openBookNav() {
                background:var(--bg);color:var(--text);margin-bottom:0.75rem;min-height:48px;box-sizing:border-box"
         autocomplete="off" enterkeyhint="search">
       <p id="book-search-hint" style="font-size:0.88em;color:var(--text-dim);margin-bottom:0.75rem;line-height:1.45">
-        Canonical order. Tap a loaded book to open chapters. Use <strong>Import Old Testament</strong> or <strong>Import New Testament</strong> for one file with many books, or <strong>Import</strong> for a single book.
+        Canonical order. Tap a loaded book to open chapters. Use <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong> to load the rest from the bundled KJV. Single-book Import still accepts a file.
       </p>
       <div id="book-list">
         <div class="testament-import-bar">
-          <p id="testament-import-status" class="testament-import-status">Choose one JSON file for a whole testament. Status will say loaded or not completed.</p>
-          <button type="button" class="btn-import-testament" id="btn-import-ot">Import Old Testament</button>
-          <button type="button" class="btn-import-testament" id="btn-import-nt">Import New Testament</button>
+          <p id="testament-import-status" class="testament-import-status">Tap once to load every missing book in that testament from the bundled KJV on this site. Already loaded books stay as they are.</p>
+          <button type="button" class="btn-import-testament" id="btn-import-ot">Import missing Old Testament</button>
+          <button type="button" class="btn-import-testament" id="btn-import-nt">Import missing New Testament</button>
+          <button type="button" class="btn-import-testament-retry" id="btn-import-retry" hidden>Try again</button>
         </div>
         <h3 class="testament-heading" data-test="OT">Old Testament</h3>
         <ul class="nav-list" data-test="OT">${ot}</ul>
@@ -1103,7 +1104,7 @@ async function openBookNav() {
           ? 'No books match “' + q + '”.'
           : total + ' book' + (total === 1 ? '' : 's') + ' match.';
       } else {
-        hintEl.innerHTML = 'Canonical order. Tap a loaded book to open chapters. Use <strong>Import Old Testament</strong> or <strong>Import New Testament</strong> for one file with many books, or <strong>Import</strong> for a single book.';
+        hintEl.innerHTML = 'Canonical order. Tap a loaded book to open chapters. Use <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong> to load the rest from the bundled KJV. Single-book Import still accepts a file.';
       }
     }
   }
@@ -1162,15 +1163,20 @@ async function openBookNav() {
     return books.filter((b) => bible.bookTestament(b.id) === testament).length;
   }
 
+  const retryBtn = $('#btn-import-retry', overlay);
+  let lastFailedTestament = null;
+
   function refreshLoadedCounts() {
-    const otN = countLoaded('OT');
-    const ntN = countLoaded('NT');
     const otNeed = bible.expectedTestamentCount('OT');
     const ntNeed = bible.expectedTestamentCount('NT');
-    if (otN === otNeed && ntN === ntNeed) {
+    const otMissing = bible.missingTestamentBooks(books, 'OT').length;
+    const ntMissing = bible.missingTestamentBooks(books, 'NT').length;
+    const otN = otNeed - otMissing;
+    const ntN = ntNeed - ntMissing;
+    if (otMissing === 0 && ntMissing === 0) {
       setImportStatus('ok', '✓ Old and New Testament books are loaded on this device.');
-    } else if (otN || ntN) {
-      setImportStatus('', 'Loaded on this device: OT ' + otN + ' of ' + otNeed + ', NT ' + ntN + ' of ' + ntNeed + '. Choose a JSON to add more.');
+    } else {
+      setImportStatus('', 'On this device: OT ' + otN + ' of ' + otNeed + ', NT ' + ntN + ' of ' + ntNeed + '. Tap a button to load the missing books.');
     }
   }
   refreshLoadedCounts();
@@ -1216,18 +1222,47 @@ async function openBookNav() {
     }
   };
 
-  function startTestamentImport(testament) {
-    pendingTestament = testament;
+  async function startTestamentImport(testament) {
+    pendingTestament = null;
     pendingSingle = null;
+    lastFailedTestament = testament;
     const label = testament === 'OT' ? 'Old Testament' : 'New Testament';
-    setImportStatus('', 'Choose a JSON file with ' + label + ' books.');
-    fileInput.click();
+    const missing = bible.missingTestamentBooks(books, testament);
+    if (!missing.length) {
+      setImportStatus('ok', '✓ ' + label + ' already loaded. Nothing more to import.');
+      if (retryBtn) retryBtn.hidden = true;
+      return;
+    }
+    if (otBtn) otBtn.disabled = true;
+    if (ntBtn) ntBtn.disabled = true;
+    setImportStatus('', 'Loading ' + missing.length + ' missing ' + label + ' book(s) from bundled KJV…');
+    if (retryBtn) retryBtn.hidden = true;
+    try {
+      const result = await bible.loadBundledTestament(testament, books);
+      books = await storage.getAllBooks();
+      const still = bible.missingTestamentBooks(books, testament).length;
+      const need = bible.expectedTestamentCount(testament);
+      setImportStatus('ok', '✓ ' + label + ': added ' + result.imported.length + ' book(s). Now ' + (need - still) + ' of ' + need + ' on this device.');
+      lastFailedTestament = null;
+      closeOverlay(overlay);
+      openBookNav();
+    } catch (err) {
+      console.error(err);
+      setImportStatus('fail', 'Not completed. ' + (err.message || err));
+      if (retryBtn) retryBtn.hidden = false;
+    } finally {
+      if (otBtn) otBtn.disabled = false;
+      if (ntBtn) ntBtn.disabled = false;
+    }
   }
 
   const otBtn = $('#btn-import-ot', overlay);
   const ntBtn = $('#btn-import-nt', overlay);
   if (otBtn) otBtn.onclick = () => startTestamentImport('OT');
   if (ntBtn) ntBtn.onclick = () => startTestamentImport('NT');
+  if (retryBtn) retryBtn.onclick = () => {
+    if (lastFailedTestament) startTestamentImport(lastFailedTestament);
+  };
 
   $$('#book-list .btn-import-book', overlay).forEach(btn => {
     btn.onclick = (e) => {
@@ -3497,7 +3532,7 @@ function openHelp() {
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
-        Open Books. Tap <strong>Import Old Testament</strong> or <strong>Import New Testament</strong> and choose one JSON that contains those books (<code>{ "books": [ … ] }</code>). Status turns green when that load finishes, or red <strong>Not completed</strong> with Try again if the file is wrong. Single-book Import still works on each row.</p>
+        Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
 
         <p style="margin-bottom:1rem"><strong>Subject search (Step A)</strong><br>
         In Search, type an everyday word such as funeral, wedding, sickness, or how to pray.
@@ -3518,7 +3553,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.29.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.30.0</p>
       </div>
     </div>
   `);
@@ -3529,7 +3564,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.29.0</h2>
+      <h2>About – KJV Study v6.30.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3554,7 +3589,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.29.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.30.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

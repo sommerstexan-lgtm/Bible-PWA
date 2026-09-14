@@ -1,6 +1,14 @@
-# KJV Study PWA – v6.29.0
+# KJV Study PWA – v6.30.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.30.0
+**One tap for missing books**
+- Books → **Import missing Old Testament** or **Import missing New Testament** reads bundled `kjv-ot.json` / `kjv-nt.json` from the same folder as `index.html`.
+- Only books not already stored are written. A short sample Genesis is replaced by full KJV Genesis.
+- Green status when finished. Red **Not completed** and **Try again** if a pack file is missing.
+- Place both pack files in the repo root with the rest of the app. No third-party download at tap time.
+- Per-book **Import** still accepts your own JSON file.
 
 ## New in 6.29.0
 **Import Old Testament / Import New Testament**
