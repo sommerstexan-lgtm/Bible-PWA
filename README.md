@@ -1,12 +1,16 @@
-# KJV Study PWA – v6.34.0
+# KJV Study PWA – v6.35.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
+## New in 6.35.0
+**Chains list and in-order reading rewritten**
+- **Menu → Chains** is the list of every saved chain. Tap a title to read it.
+- The reader keeps the ordered hops in one panel with Previous / Next. Tap a hop to open that verse. A teal bar (**← title · 2/6**) opens the same list again. The list is not discarded.
+- Start a new chain from the verse: **Chains → Start a chain with this verse**. Add a later verse with **Add this verse to an existing chain**.
+
 ## New in 6.34.0
 **Start a chain from the verse**
-- On Genesis 16:11 (or any verse) tap **Chains**, then **Start a chain with this verse**.
-- Name it, write your explanation, Save. That verse is hop 1. Add more later.
-- The Chains button turns green with a count after it is saved.
+- Verse row **Chains → Start a chain with this verse**. That verse is hop 1.
 
 ## New in 6.33.0
 **Saved chains + verse Chains button + copy for message**
