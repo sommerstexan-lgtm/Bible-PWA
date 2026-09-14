@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.27.0
+/* app.js – Main application controller. KJV Study PWA v6.28.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -9,6 +9,7 @@ import * as analyze from './analyze.js';
 import { getChapterContext } from './context-data.js';
 import { buildThenKindNow } from './then-kind-now.js';
 import { kjvEnglishSense, phraseUnitAt } from './kjv-english.js';
+import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './subject-aliases.js';
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -116,7 +117,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.27.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.28.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -181,7 +182,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.27.0</div>
+      <div class="version-bar">v6.28.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -2125,10 +2126,10 @@ function openSearch() {
     <div class="panel search-panel">
       <div class="search-header">
         <div class="search-header-top">
-          <h2 class="search-title">Search (loaded books only)</h2>
+          <h2 class="search-title">Search (loaded books + subjects)</h2>
           <button type="button" class="close search-close" aria-label="Close">×</button>
         </div>
-        <input type="search" class="search-box" id="search-input" placeholder="Type at least 2 characters…" autocomplete="off" enterkeyhint="search">
+        <input type="search" class="search-box" id="search-input" placeholder="Word or subject (funeral, pray…)" autocomplete="off" enterkeyhint="search">
       </div>
       <div id="search-results" class="search-body"></div>
     </div>
@@ -2138,9 +2139,11 @@ function openSearch() {
   const input = $('#search-input', overlay);
   const resultsEl = $('#search-results', overlay);
   let timer = null;
-  let lastResults = [];   // flat matches from last search
-  let viewMode = 'books'; // 'books' | 'verses'
+  let lastResults = [];   // flat matches from last word search
+  let lastSubjects = [];  // Step A alias headings
+  let viewMode = 'books'; // 'books' | 'verses' | 'subject'
   let selectedBookId = null;
+  let selectedSubjectId = null;
 
   // Canonical order index for stable sorting
   const canonIndex = new Map(bible.CANONICAL_BOOKS.map((b, i) => [b.id, i]));
@@ -2185,22 +2188,53 @@ function openSearch() {
     });
   }
 
+  function subjectBlockHtml() {
+    if (!lastSubjects.length) return '';
+    const rows = lastSubjects.map(h => `
+      <div class="search-book-row subject-heading-row" data-subject-id="${escapeHtml(h.id)}" role="button" tabindex="0">
+        <span class="book-name">${escapeHtml(h.name)}</span>
+        <span class="match-count">${h.refs.length}</span>
+      </div>
+    `).join('');
+    return `<p class="subject-section-label">Subject headings</p>${rows}`;
+  }
+
+  function bindSubjectRows(container) {
+    $$('.subject-heading-row', container).forEach(row => {
+      const go = () => {
+        selectedSubjectId = row.dataset.subjectId;
+        renderSubjectRefs();
+      };
+      row.onclick = go;
+      row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+  }
+
   function renderBookList() {
     viewMode = 'books';
     selectedBookId = null;
+    selectedSubjectId = null;
     const groups = groupByBook(lastResults);
-    if (!groups.length) {
-      const q = input.value.trim();
+    const q = input.value.trim();
+    const subHtml = subjectBlockHtml();
+    if (!groups.length && !lastSubjects.length) {
       resultsEl.innerHTML = q.length >= 2 ? '<p style="color:var(--text-dim);padding:0.5rem 0">No matches.</p>' : '';
       return;
     }
-    resultsEl.innerHTML = groups.map(g => `
+    let wordHtml = '';
+    if (groups.length) {
+      wordHtml = `<p class="subject-section-label">Word in loaded KJV</p>` + groups.map(g => `
       <div class="search-book-row" data-book-id="${escapeHtml(g.bookId)}" role="button" tabindex="0">
         <span class="book-name">${escapeHtml(g.bookName)}</span>
         <span class="match-count">${g.matches.length}</span>
       </div>
     `).join('');
-    $$('.search-book-row', resultsEl).forEach(row => {
+    } else if (q.length >= 2 && lastSubjects.length) {
+      wordHtml = '<p style="color:var(--text-dim);padding:0.4rem 0 0.8rem;font-size:0.92em">No word matches in loaded books.</p>';
+    }
+    resultsEl.innerHTML = subHtml + wordHtml;
+    bindSubjectRows(resultsEl);
+    $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
         selectedBookId = row.dataset.bookId;
         renderVerseList();
@@ -2208,6 +2242,39 @@ function openSearch() {
       row.onclick = go;
       row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
     });
+  }
+
+  function renderSubjectRefs() {
+    viewMode = 'subject';
+    const heading = lastSubjects.find(h => h.id === selectedSubjectId) || getSubjectHeading(selectedSubjectId);
+    if (!heading) {
+      renderBookList();
+      return;
+    }
+    const note = heading.note
+      ? `<p class="subject-scope-note">${escapeHtml(heading.note)}</p>`
+      : '';
+    const verseHtml = heading.refs.map(key => {
+      const info = formatSubjectRef(key);
+      const loaded = books.find(b => b.id === info.bookId);
+      const snippet = loaded ? (bible.getVerseText(books, info.bookId, info.chapter, info.verse) || '') : '';
+      const short = snippet.length > 90 ? snippet.slice(0, 87) + '…' : snippet;
+      return `
+      <div class="search-result" data-key="${escapeHtml(key)}">
+        <span class="ref">${escapeHtml(info.label)}</span>
+        ${escapeHtml(short)}
+      </div>`;
+    }).join('');
+    resultsEl.innerHTML = `
+      <div class="search-back-row">
+        <button type="button" class="search-back-btn" id="search-back">← Back to headings</button>
+      </div>
+      <p style="font-size:0.9em;color:var(--text-dim);margin:0 0 0.5rem">${escapeHtml(heading.name)} · ${heading.refs.length} verse${heading.refs.length === 1 ? '' : 's'}</p>
+      ${note}
+      ${verseHtml}
+    `;
+    $('#search-back', resultsEl).onclick = () => renderBookList();
+    bindVerseClicks(resultsEl);
   }
 
   function renderVerseList() {
@@ -2239,6 +2306,7 @@ function openSearch() {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       const q = input.value.trim();
+      lastSubjects = q.length >= 2 ? suggestSubjectHeadings(q) : [];
       lastResults = await bible.searchBooks(q, books);
       // Any new search returns to book-list view
       renderBookList();
@@ -3362,6 +3430,11 @@ function openHelp() {
         Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
 
+        <p style="margin-bottom:1rem"><strong>Subject search (Step A)</strong><br>
+        In Search, type an everyday word such as funeral, wedding, sickness, or how to pray.
+        Suggested headings appear first. Tap a heading for KJV verse references, then tap a reference to open the reader.
+        Existing word search in loaded books is unchanged.</p>
+
         <p style="margin-bottom:1rem"><strong>Tap-a-word</strong><br>
         Tap a word: KJV 1611 English sense first when modern English is the trap, then this word in this book, then this word in the loaded KJV. Strong’s stays second if the dictionary is installed.<br>
         Use <strong>Mark this word</strong> inside the panel to put a thin outline on that occurrence only.<br>
@@ -3376,7 +3449,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.27.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.28.0</p>
       </div>
     </div>
   `);
@@ -3387,7 +3460,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.27.0</h2>
+      <h2>About – KJV Study v6.28.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -3412,7 +3485,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.27.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.28.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

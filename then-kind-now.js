@@ -1,4 +1,4 @@
-/* then-kind-now.js – Offline application prompts only. v6.27.0
+/* then-kind-now.js – Offline application prompts only. v6.28.0
    Questions, not answers. No network. No sermon text.
    Kind is taken from words on the verse, or we show no kind.
 */
