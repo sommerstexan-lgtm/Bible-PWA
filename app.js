@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.37.0
+/* app.js – Main application controller. KJV Study PWA v6.38.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -137,7 +137,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.37.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.38.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -202,7 +202,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.37.0</div>
+      <div class="version-bar">v6.38.0</div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -324,9 +324,63 @@ try {
   }
 } catch (_) {}
 
+
 function persistChainRead() {
   try { sessionStorage.setItem('kjv-chain-read', JSON.stringify(chainRead)); } catch (_) {}
 }
+
+function setOpenChain(chain, index) {
+  if (!chain || !chain.id) return;
+  const nodes = Array.isArray(chain.nodes) ? chain.nodes : [];
+  let idx = (typeof index === 'number') ? index : (chainRead.id === chain.id ? (chainRead.index || 0) : 0);
+  if (idx < 0 || (nodes.length && idx >= nodes.length)) idx = 0;
+  chainRead = {
+    id: chain.id,
+    index: idx,
+    title: chain.title || 'Untitled chain',
+    count: nodes.length,
+    active: true
+  };
+  persistChainRead();
+  updateChainReadBar();
+}
+
+function makeHop(key, source) {
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    key,
+    label: formatKeyLabel(key),
+    source: source || 'add',
+    note: ''
+  };
+}
+
+async function touchChainUsed(chain) {
+  if (!chain || !chain.id) return chain;
+  return storage.saveChain(chain);
+}
+
+async function addKeyToSavedChain(chain, key, source) {
+  if (!chain) return { chain: null, added: false, duplicate: false };
+  if (!Array.isArray(chain.nodes)) chain.nodes = [];
+  if (chain.nodes.some((n) => n && n.key === key)) {
+    return { chain, added: false, duplicate: true };
+  }
+  chain.nodes.push(makeHop(key, source || 'add'));
+  const saved = await storage.saveChain(chain);
+  return { chain: saved, added: true, duplicate: false };
+}
+
+function chainMatchesFilter(chain, q) {
+  if (!q) return true;
+  const hay = [
+    chain.title || '',
+    chain.note || '',
+    ...((chain.nodes || []).map((n) => (n.label || '') + ' ' + (n.key || '')))
+  ].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
 
 function updateChainReadBar() {
   const bar = document.getElementById('chain-read-bar');
@@ -339,7 +393,7 @@ function updateChainReadBar() {
   const n = chainRead.count || 0;
   const hop = (chainRead.index || 0) + 1;
   const label = document.getElementById('chain-bar-label');
-  if (label) label.textContent = (chainRead.title || 'Chain') + ' · ' + hop + '/' + n;
+  if (label) label.textContent = (chainRead.title || 'Chain') + ' · hop ' + hop + ' of ' + n;
   const nextBtn = document.getElementById('chain-bar-next');
   if (nextBtn) nextBtn.disabled = n > 0 && hop >= n;
 }
@@ -649,30 +703,72 @@ async function openSavedChainsList() {
         <h2 class="search-title" style="margin:0">Saved chains</h2>
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
-      <p style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.7rem">
-        Tap a title. Read in order. A bar at the top brings you back after each verse.
+      <input id="chain-filter" class="search-box" type="search" placeholder="Filter chains" autocomplete="off" style="margin:0.5rem 0 0.4rem">
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.7rem">
+        Tap a title to read. Edit or Work on this from the row.
       </p>
       <div id="saved-chain-list"></div>
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
   const el = $('#saved-chain-list', overlay);
-  if (!list.length) {
-    el.innerHTML = '<p style="color:var(--text-dim)">None yet. Open a verse and tap Chains → Start a chain with this verse.</p>';
+  const filterBox = $('#chain-filter', overlay);
+
+  function renderList() {
+    const q = ((filterBox && filterBox.value) || '').trim().toLowerCase();
+    const shown = list.filter((c) => chainMatchesFilter(c, q));
+    if (!list.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">None yet. Open a verse and tap Chains → Start a chain with this verse.</p>';
+      return;
+    }
+    if (!shown.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">No chain matches</p><button type="button" id="chain-filter-clear">Clear</button>';
+      const clr = $('#chain-filter-clear', overlay);
+      if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      return;
+    }
+    el.innerHTML = shown.map((c) => `
+      <div class="saved-chain-row">
+        <button type="button" class="xref-item saved-chain-open" data-id="${escapeHtml(c.id)}">
+          <strong>${escapeHtml(c.title || 'Untitled chain')}</strong>
+          <div class="trail-src">${(c.nodes || []).length} verse${(c.nodes || []).length === 1 ? '' : 's'}</div>
+        </button>
+        <div class="saved-chain-actions">
+          <button type="button" class="saved-chain-edit" data-id="${escapeHtml(c.id)}">Edit</button>
+          <button type="button" class="saved-chain-work" data-id="${escapeHtml(c.id)}">Work on this</button>
+        </div>
+      </div>
+    `).join('');
+    $$('.saved-chain-open', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        closeOverlay(overlay);
+        openSavedChainReader(btn.dataset.id);
+      };
+    });
+    $$('.saved-chain-edit', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        closeOverlay(overlay);
+        openChainWorkshop(btn.dataset.id);
+      };
+    });
+    $$('.saved-chain-work', overlay).forEach((btn) => {
+      btn.onclick = () => workOnSavedChain(btn.dataset.id, overlay);
+    });
+  }
+  if (filterBox) filterBox.oninput = () => renderList();
+  renderList();
+}
+
+async function workOnSavedChain(id, overlay) {
+  const chain = await storage.getChain(id);
+  if (!chain) {
+    alert('That chain is no longer saved.');
     return;
   }
-  el.innerHTML = list.map((c) => `
-    <button type="button" class="xref-item saved-chain-open" data-id="${escapeHtml(c.id)}">
-      <strong>${escapeHtml(c.title || 'Untitled chain')}</strong>
-      <div class="trail-src">${(c.nodes || []).length} verse${(c.nodes || []).length === 1 ? '' : 's'}</div>
-    </button>
-  `).join('');
-  $$('.saved-chain-open', overlay).forEach((btn) => {
-    btn.onclick = () => {
-      closeOverlay(overlay);
-      openSavedChainReader(btn.dataset.id);
-    };
-  });
+  try { await touchChainUsed(chain); } catch (_) {}
+  setOpenChain(chain);
+  if (overlay) closeOverlay(overlay);
+  openSavedChainReader(chain.id);
 }
 
 async function openSavedChainReader(id) {
@@ -687,13 +783,14 @@ async function openSavedChainReader(id) {
   const nodes = Array.isArray(chain.nodes) ? chain.nodes : [];
   if (chainRead.id === id) {
     if (chainRead.index < 0 || chainRead.index >= nodes.length) chainRead.index = 0;
+    chainRead.title = chain.title || 'Untitled chain';
+    chainRead.count = nodes.length;
+    persistChainRead();
+    updateChainReadBar();
   } else {
     chainRead = { id: chain.id, index: 0, title: chain.title || 'Untitled chain', count: nodes.length };
+    persistChainRead();
   }
-  chainRead.title = chain.title || 'Untitled chain';
-  chainRead.count = nodes.length;
-  persistChainRead();
-  // Bar stays hidden until a hop is actually opened.
 
   const overlay = showOverlay(`
     <div class="panel search-panel chain-reader">
@@ -757,36 +854,106 @@ async function openSavedChainReader(id) {
   };
   $('#chain-edit', overlay).onclick = () => {
     closeOverlay(overlay);
-    const ov = showOverlay(`
-      <div class="panel trail-panel">
-        <div class="search-header-top">
-          <h2 class="search-title" style="margin:0">Edit chain</h2>
-          <button type="button" class="close search-close" aria-label="Close">×</button>
-        </div>
-        <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
-        <input id="chain-title" class="search-box" value="${escapeHtml(chain.title || '')}">
-        <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
-        <textarea id="chain-note" class="note-input">${escapeHtml(chain.note || '')}</textarea>
-        <div style="margin-top:0.9rem"><button type="button" id="chain-save-meta">Save</button></div>
-      </div>
-    `);
-    $('.search-close', ov).onclick = () => closeOverlay(ov);
-    $('#chain-save-meta', ov).onclick = async () => {
-      chain.title = ($('#chain-title', ov).value || '').trim() || 'Untitled chain';
-      chain.note = ($('#chain-note', ov).value || '').trim();
-      await storage.saveChain(chain);
-      closeOverlay(ov);
-      openSavedChainReader(chain.id);
-    };
+    openChainWorkshop(chain.id);
   };
   $('#chain-del', overlay).onclick = async () => {
     if (!confirm('Delete this saved chain? The verses themselves stay in the Bible.')) return;
     await storage.deleteChain(chain.id);
-    chainRead = { id: null, index: 0, title: '' };
-    persistChainRead();
-    updateChainReadBar();
+    if (chainRead.id === chain.id) {
+      chainRead = { id: null, index: 0, title: '' };
+      persistChainRead();
+      updateChainReadBar();
+    }
     closeOverlay(overlay);
     if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
+  };
+}
+
+async function openChainWorkshop(id) {
+  const chain = await storage.getChain(id);
+  if (!chain) {
+    alert('That chain is no longer saved.');
+    return;
+  }
+  if (!Array.isArray(chain.nodes)) chain.nodes = [];
+  const overlay = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">Edit chain</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
+      <input id="chain-title" class="search-box" value="${escapeHtml(chain.title || '')}" placeholder="Name this chain">
+      <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
+      <textarea id="chain-note" class="note-input">${escapeHtml(chain.note || '')}</textarea>
+      <p style="margin:0.8rem 0 0.35rem;font-weight:700">Hops</p>
+      <div id="ws-hops"></div>
+      <div class="ws-add-row">
+        <button type="button" id="ws-add-current">Add current verse</button>
+      </div>
+      <label style="display:block;margin:0.7rem 0 0.25rem">Add a reference</label>
+      <div class="ws-add-row">
+        <input id="ws-ref" class="search-box" placeholder="John 3:16 or jhn.3.16" autocomplete="off">
+        <button type="button" id="ws-add-ref">Add</button>
+      </div>
+      <p id="ws-msg" style="color:var(--text-dim);font-size:0.9em;min-height:1.2em"></p>
+      <div style="margin-top:0.6rem"><button type="button" id="chain-save-meta">Save</button></div>
+    </div>
+  `);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const hopsEl = $('#ws-hops', overlay);
+  const msg = $('#ws-msg', overlay);
+  function setMsg(s) { if (msg) msg.textContent = s || ''; }
+
+  function drawHops() {
+    if (!chain.nodes.length) {
+      hopsEl.innerHTML = '<p style="color:var(--text-dim)">No verses in this chain.</p>';
+      return;
+    }
+    hopsEl.innerHTML = chain.nodes.map((n, i) => `
+      <div class="ws-hop-row">
+        <span class="trail-idx">${i + 1}</span>
+        <span class="ws-hop-label">${escapeHtml(n.label || n.key)}</span>
+        <button type="button" class="ws-hop-remove" data-i="${i}">Remove</button>
+      </div>
+    `).join('');
+    $$('.ws-hop-remove', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        const i = +btn.dataset.i;
+        chain.nodes.splice(i, 1);
+        setMsg('');
+        drawHops();
+      };
+    });
+  }
+  drawHops();
+
+  $('#ws-add-current', overlay).onclick = () => {
+    const key = getNearestVerseKey();
+    if (!key) { setMsg('No verse is in view.'); return; }
+    if (chain.nodes.some((n) => n.key === key)) { setMsg('Already in the chain.'); return; }
+    chain.nodes.push(makeHop(key, 'workshop'));
+    setMsg('');
+    drawHops();
+  };
+  $('#ws-add-ref', overlay).onclick = () => {
+    const raw = ($('#ws-ref', overlay).value || '').trim();
+    if (!raw) return;
+    const parsed = parseUserRef(raw);
+    if (!parsed || !parsed.key) { setMsg('Could not read that reference.'); return; }
+    if (chain.nodes.some((n) => n.key === parsed.key)) { setMsg('Already in the chain.'); return; }
+    chain.nodes.push(makeHop(parsed.key, 'workshop'));
+    $('#ws-ref', overlay).value = '';
+    setMsg('');
+    drawHops();
+  };
+  $('#chain-save-meta', overlay).onclick = async () => {
+    chain.title = ($('#chain-title', overlay).value || '').trim() || 'Untitled chain';
+    chain.note = ($('#chain-note', overlay).value || '').trim();
+    await storage.saveChain(chain);
+    setOpenChain(chain);
+    closeOverlay(overlay);
+    openSavedChainReader(chain.id);
   };
 }
 
@@ -802,7 +969,7 @@ function openStartChainFromVerse(key) {
         This chain begins at <strong>${escapeHtml(label)}</strong>. Name it and add what it shows you. You can add more verses later.
       </p>
       <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
-      <input id="chain-title" class="search-box" value="${escapeHtml(label)}" placeholder="Name this chain">
+      <input id="chain-title" class="search-box" value="" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
       <textarea id="chain-note" class="note-input" placeholder="What this chain shows you"></textarea>
       <div style="margin-top:0.9rem"><button type="button" id="chain-start-go">Save chain</button></div>
@@ -810,18 +977,12 @@ function openStartChainFromVerse(key) {
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
   $('#chain-start-go', overlay).onclick = async () => {
-    const title = ($('#chain-title', overlay).value || '').trim() || label || 'Untitled chain';
+    const title = ($('#chain-title', overlay).value || '').trim() || 'Untitled chain';
     const note = ($('#chain-note', overlay).value || '').trim();
-    const node = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      key,
-      label,
-      source: 'start',
-      note: ''
-    };
+    const node = makeHop(key, 'start');
     try {
       const saved = await storage.saveChain({ title, note, nodes: [node] });
-      trailPush(key, 'start');
+      setOpenChain(saved, 0);
       closeOverlay(overlay);
       if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
       openSavedChainReader(saved.id);
@@ -831,6 +992,67 @@ function openStartChainFromVerse(key) {
   };
 }
 
+async function pickChainThenAdd(key, parentOverlay) {
+  let all = [];
+  try { all = await storage.getAllChains(); } catch (_) { all = []; }
+  all.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  const pick = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">Add to which chain?</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      <div id="pick-list"></div>
+      <div style="margin-top:0.7rem">
+        <button type="button" id="pick-start-new" class="btn-import-testament">Start a new chain with this verse</button>
+      </div>
+    </div>
+  `);
+  $('.search-close', pick).onclick = () => closeOverlay(pick);
+  if (!all.length) {
+    $('#pick-list', pick).innerHTML = '<p style="color:var(--text-dim)">No saved chain yet.</p>';
+  } else {
+    $('#pick-list', pick).innerHTML = all.map((c) => `
+      <button type="button" class="xref-item pick-chain" data-id="${escapeHtml(c.id)}">${escapeHtml(c.title || 'Untitled chain')}</button>
+    `).join('');
+    $$('.pick-chain', pick).forEach((btn) => {
+      btn.onclick = async () => {
+        const chain = await storage.getChain(btn.dataset.id);
+        if (!chain) return;
+        const result = await addKeyToSavedChain(chain, key, 'add');
+        setOpenChain(result.chain);
+        closeOverlay(pick);
+        if (parentOverlay) closeOverlay(parentOverlay);
+        if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
+      };
+    });
+  }
+  $('#pick-start-new', pick).onclick = () => {
+    closeOverlay(pick);
+    if (parentOverlay) closeOverlay(parentOverlay);
+    openStartChainFromVerse(key);
+  };
+}
+
+async function addThisVerseToOpenChain(key, parentOverlay) {
+  if (!chainRead.id) {
+    await pickChainThenAdd(key, parentOverlay);
+    return;
+  }
+  const chain = await storage.getChain(chainRead.id);
+  if (!chain) {
+    chainRead = { id: null, index: 0, title: '' };
+    persistChainRead();
+    updateChainReadBar();
+    await pickChainThenAdd(key, parentOverlay);
+    return;
+  }
+  const result = await addKeyToSavedChain(chain, key, 'add');
+  setOpenChain(result.chain);
+  if (parentOverlay) closeOverlay(parentOverlay);
+  if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
+}
+
 async function openVerseChains(key) {
   let mine = [];
   let all = [];
@@ -838,7 +1060,6 @@ async function openVerseChains(key) {
     all = await storage.getAllChains();
     mine = all.filter((c) => Array.isArray(c.nodes) && c.nodes.some((n) => n && n.key === key));
   } catch (_) {}
-  const onTrail = studyTrail.nodes.some((n) => n.key === key);
   const overlay = showOverlay(`
     <div class="panel trail-panel">
       <div class="search-header-top">
@@ -846,12 +1067,13 @@ async function openVerseChains(key) {
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
       <p style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.6rem">
-        Tap a title to read that chain in order. Or start a new one with this verse.
+        Chains that contain this verse. Add uses the open chain.
       </p>
       <div id="verse-chain-list"></div>
       <div style="display:flex;flex-direction:column;gap:0.45rem;margin-top:0.8rem">
-        <button type="button" id="vc-start" class="btn-import-testament">Start a chain with this verse</button>
-        <button type="button" id="vc-add-saved">Add this verse to an existing chain…</button>
+        <button type="button" id="vc-add-open" class="btn-import-testament">Add this verse</button>
+        <button type="button" id="vc-add-other">Add to a different chain…</button>
+        <button type="button" id="vc-start">Start a chain with this verse</button>
       </div>
     </div>
   `);
@@ -873,48 +1095,11 @@ async function openVerseChains(key) {
       };
     });
   }
+  $('#vc-add-open', overlay).onclick = () => addThisVerseToOpenChain(key, overlay);
+  $('#vc-add-other', overlay).onclick = () => pickChainThenAdd(key, overlay);
   $('#vc-start', overlay).onclick = () => {
     closeOverlay(overlay);
     openStartChainFromVerse(key);
-  };
-  $('#vc-add-saved', overlay).onclick = async () => {
-    if (!all.length) {
-      alert('No saved chain yet. Save today&rsquo;s trail first.');
-      return;
-    }
-    const pick = showOverlay(`
-      <div class="panel trail-panel">
-        <div class="search-header-top">
-          <h2 class="search-title" style="margin:0">Add to which chain?</h2>
-          <button type="button" class="close search-close" aria-label="Close">×</button>
-        </div>
-        <div id="pick-list"></div>
-      </div>
-    `);
-    $('.search-close', pick).onclick = () => closeOverlay(pick);
-    $('#pick-list', pick).innerHTML = all.map((c) => `
-      <button type="button" class="xref-item pick-chain" data-id="${escapeHtml(c.id)}">${escapeHtml(c.title || 'Untitled chain')}</button>
-    `).join('');
-    $$('.pick-chain', pick).forEach((btn) => {
-      btn.onclick = async () => {
-        const chain = await storage.getChain(btn.dataset.id);
-        if (!chain) return;
-        if (!Array.isArray(chain.nodes)) chain.nodes = [];
-        if (!chain.nodes.some((n) => n.key === key)) {
-          chain.nodes.push({
-            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            key,
-            label: formatKeyLabel(key),
-            source: 'add',
-            note: ''
-          });
-          await storage.saveChain(chain);
-        }
-        closeOverlay(pick);
-        closeOverlay(overlay);
-        if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
-      };
-    });
   };
 }
 
@@ -4383,7 +4568,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.37.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.38.0</p>
       </div>
     </div>
   `);
@@ -4394,7 +4579,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.37.0</h2>
+      <h2>About – KJV Study v6.38.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4419,7 +4604,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.37.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.38.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

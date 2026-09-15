@@ -1,6 +1,14 @@
-# KJV Study PWA – v6.37.0
+# KJV Study PWA – v6.38.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.38.0
+**Chain workbench — one open chain**
+- At most one open chain. It is set when you start a chain from a verse or tap **Work on this**. The teal bar shows title · hop n of m and opens that chain’s reader. Opening a verse does not add it.
+- **Add this verse** appends the verse on screen to the open chain only (no picker). If none is open, pick an existing chain or start a new one. **Add to a different chain…** is separate; that pick becomes the open chain.
+- Start-chain title begins empty (**Name this chain**). The starting verse is named only in the helper line. Empty save uses Untitled chain.
+- Menu → Chains is last used first, with a filter on title, explanation, and hop labels. Zero hits: **No chain matches** and **Clear**. Each row has title (reader), **Edit**, and **Work on this**. Delete stays in the reader.
+- Edit workshop: title, explanation, hop list with remove, add current verse or a typed ref, save same id.
 
 ## New in 6.37.0
 **Chain reader shows the verses first**

@@ -1577,3 +1577,37 @@ body.chrome-is-hidden main#main {
 .chain-reader .search-header {
   flex-shrink: 0;
 }
+
+.saved-chain-row {
+  margin: 0 0 0.55rem;
+}
+.saved-chain-row .saved-chain-open {
+  width: 100%;
+  text-align: left;
+}
+.saved-chain-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.3rem 0 0.15rem;
+}
+.saved-chain-actions button {
+  flex: 1;
+  min-height: 44px;
+}
+.ws-hop-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.25rem 0;
+  min-height: 44px;
+}
+.ws-hop-label { flex: 1; min-width: 0; }
+.ws-hop-remove { min-height: 44px; }
+.ws-add-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.35rem 0;
+}
+.ws-add-row .search-box { flex: 1; }
+.ws-add-row button { min-height: 44px; }
