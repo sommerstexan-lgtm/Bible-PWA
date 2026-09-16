@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.39.1
+/* app.js – Main application controller. KJV Study PWA v6.40.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -149,7 +149,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.39.1', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.40.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -214,7 +214,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.39.1</div>
+      <div class="version-bar">v6.40.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -4417,58 +4417,47 @@ function openContext() {
   if (closeBtn) closeBtn.onclick = () => closeOverlay(overlay);
 }
 
-// ---------- Research / Commentary (bible.helloao.org – Adam Clarke + Tyndale) ----------
+// ---------- Research / Commentary (bible.helloao.org) ----------
 const COMMENTARY_SOURCES = [
   { id: "adam-clarke", label: "Adam Clarke", short: "Clarke" },
+  { id: "jamieson-fausset-brown", label: "Jamieson-Fausset-Brown", short: "JFB" },
   { id: "tyndale", label: "Tyndale Open Study Notes", short: "Tyndale" }
 ];
 
-/* helloao Adam Clarke catalog is missing DEU and published Deuteronomy notes under NUM. */
-const CLARKE_FETCH_BOOK = { DEU: "NUM" };
+/*
+  helloao Clarke catalog (GET /api/c/adam-clarke/books.json) lists NUM and does
+  not list DEU. Every Clarke NUM chapter payload was fetched and checked:
 
-const COMMENTARY_BOOK_HINTS = [
-  ["GEN", /(?:^|[^\w])(?:Gen(?:esis)?)\s+\d/i],
-  ["EXO", /(?:^|[^\w])(?:Exo(?:dus)?)\s+\d/i],
-  ["LEV", /(?:^|[^\w])(?:Lev(?:iticus)?)\s+\d/i],
-  ["NUM", /(?:^|[^\w])(?:Num(?:bers)?)\s+\d/i],
-  ["DEU", /(?:^|[^\w])(?:Deu(?:t(?:eronomy)?)?)\s+\d/i],
-  ["JOS", /(?:^|[^\w])(?:Jos(?:hua)?)\s+\d/i],
-  ["JDG", /(?:^|[^\w])(?:Jdg|Judg(?:es)?)\s+\d/i],
-  ["PSA", /(?:^|[^\w])(?:Psa(?:lm)?s?)\s+\d/i],
-  ["MAT", /(?:^|[^\w])(?:Mat(?:thew)?)\s+\d/i]
-];
+    NUM 1–34  introduction is Deuteronomy N (Clarke heading “Deu N:…”, no verse notes)
+    NUM 35–36 introduction and verse notes are Numbers
 
-function commentaryBlob(data) {
-  const ch = (data && data.chapter) || {};
-  const parts = [ch.introduction || ""];
-  const verses = Array.isArray(ch.content) ? ch.content : [];
-  for (const v of verses) {
-    const notes = Array.isArray(v.content) ? v.content : (v.content ? [v.content] : []);
-    for (const n of notes) parts.push(String(n || ""));
-  }
-  return parts.join("\n");
-}
-
-function commentaryCitedBook(text) {
-  const blob = String(text || "");
-  let best = null;
-  let bestCount = 0;
-  for (const [code, re] of COMMENTARY_BOOK_HINTS) {
-    const flags = re.flags.includes("g") ? re.flags : re.flags + "g";
-    const matches = blob.match(new RegExp(re.source, flags)) || [];
-    if (matches.length > bestCount) {
-      best = code;
-      bestCount = matches.length;
-    }
-  }
-  return bestCount >= 2 ? best : null;
-}
+  So Clarke Deuteronomy notes live in the NUM slot. Clarke Numbers 1–34 are not
+  on this feed. Tyndale lists both NUM and DEU and files each book under its
+  own code. Research must not scan the whole note text for book names — that
+  counted cross-references and hid Tyndale (and labeled it as Clarke).
+*/
+const CLARKE_INTRO_BOOK = {
+  gen: "GEN", exo: "EXO", lev: "LEV", num: "NUM",
+  deu: "DEU", deut: "DEU", jos: "JOS", jdg: "JDG", judg: "JDG"
+};
 
 function commentaryFetchBook(sourceId, apiBook) {
-  if (sourceId === "adam-clarke" && CLARKE_FETCH_BOOK[apiBook]) {
-    return CLARKE_FETCH_BOOK[apiBook];
-  }
+  if (sourceId === "adam-clarke" && apiBook === "DEU") return "NUM";
   return apiBook;
+}
+
+function clarkeHeadingBook(data) {
+  const intro = String(((data || {}).chapter || {}).introduction || "");
+  const m = intro.match(/\b(Gen|Exo|Lev|Num|Deu|Deut|Jos|Jdg|Judg)\b/i);
+  if (!m) return null;
+  return CLARKE_INTRO_BOOK[m[1].toLowerCase()] || null;
+}
+
+function clarkePayloadMatchesRequest(apiBook, fetchBook, data) {
+  const heading = clarkeHeadingBook(data);
+  if (!heading) return true;
+  if (apiBook === "DEU" && fetchBook === "NUM" && heading === "DEU") return true;
+  return heading === apiBook;
 }
 
 
@@ -4649,10 +4638,10 @@ async function openResearch() {
       }
     }
 
-    const cited = commentaryCitedBook(commentaryBlob(data));
-    if (cited && cited !== apiBook) {
-      statusEl.textContent = "Source mismatch — notes not shown.";
-      bodyEl.innerHTML = `<p style="color:var(--text-dim)">Adam Clarke from this free feed is filed under the wrong book for <strong>${escapeHtml(bookName)} ${currentChapter}</strong> (the text belongs to ${escapeHtml(cited)}). Nothing was cached. Use <strong>Tyndale</strong> for this chapter.</p>`;
+    if (sourceId === "adam-clarke" && !clarkePayloadMatchesRequest(apiBook, fetchBook, data)) {
+      const heading = clarkeHeadingBook(data) || "another book";
+      statusEl.textContent = "Clarke notes for this chapter are not on this feed.";
+      bodyEl.innerHTML = `<p style="color:var(--text-dim)">Adam Clarke’s <strong>Numbers</strong> notes for chapter ${escapeHtml(String(currentChapter))} are not in the free feed (the NUM/${currentChapter} file is ${escapeHtml(heading)}). Nothing was cached. Use <strong>JFB</strong> or <strong>Tyndale</strong> for this chapter.</p>`;
       bodyHasContent = true;
       return;
     }
@@ -4740,7 +4729,7 @@ function openHelp() {
         Tap <strong>Context</strong> while viewing a chapter for a short overview: book purpose, key themes, simple chapter outline, and where the chapter sits in the larger story. Fully offline.</p>
 
         <p style="margin-bottom:1rem"><strong>Research / Commentary</strong><br>
-        Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke or Tyndale Open Study Notes.
+        Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke, Jamieson-Fausset-Brown (all 66 books), or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
@@ -4767,7 +4756,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.39.1</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.40.0</p>
       </div>
     </div>
   `);
@@ -4778,7 +4767,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.39.1</h2>
+      <h2>About – KJV Study v6.40.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4795,7 +4784,7 @@ function openAbout() {
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Context:</strong> Offline book purpose, key themes, chapter outline, and place in the story for the current chapter.<br><br>
-        <strong>Research:</strong> Adam Clarke’s Commentary and Tyndale Open Study Notes
+        <strong>Research:</strong> Adam Clarke, Jamieson-Fausset-Brown (66 books), and Tyndale Open Study Notes
         (via the free bible.helloao.org API). Chapters are cached locally after first load.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
@@ -4803,7 +4792,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.39.1 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.40.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

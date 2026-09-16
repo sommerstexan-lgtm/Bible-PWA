@@ -1,6 +1,17 @@
-# KJV Study PWA – v6.39.1
+# KJV Study PWA – v6.40.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.40.0
+**Research — JFB**
+- Third source: Jamieson-Fausset-Brown (public domain, all 66 books on bible.helloao.org).
+- Same fetch/cache path as Clarke and Tyndale. Clarke-only NUM/DEU handling is unchanged.
+
+## New in 6.39.3
+**Research**
+- Removed the 6.39.1 whole-text book-name counter. It treated Tyndale cross-references as the wrong book and printed a Clarke error on the Tyndale tab.
+- Tyndale is loaded by the requested book code only (NUM for Numbers, DEU for Deuteronomy).
+- Clarke Deuteronomy is fetched from NUM because that catalog has no DEU book. Clarke Numbers 1–34 are withheld only when that file’s own heading is Deuteronomy. Chapters 35–36 show as Numbers.
 
 ## New in 6.39.1
 **Research / Clarke**
