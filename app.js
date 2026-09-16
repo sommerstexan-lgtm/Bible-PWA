@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.38.0
+/* app.js – Main application controller. KJV Study PWA v6.39.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -92,6 +92,18 @@ try {
 } catch (_) {}
 /** In-memory verse-number suggestions. Not saved until Keep. */
 let verseSuggestPreview = null; // { key, items: [{start,end,colorId,reason,keep}] }
+/** One reading Anchor. Search / Books / hops do not move it. localStorage only. */
+let readingAnchor = null; // { bookId, chapter, verse, verseKey, scrollTop, label }
+let previousAnchor = null;
+let anchorUndoTimer = null;
+const ANCHOR_STORE_KEY = 'kjv-reading-anchor';
+try {
+  const rawA = localStorage.getItem(ANCHOR_STORE_KEY);
+  if (rawA) {
+    const parsed = JSON.parse(rawA);
+    if (parsed && parsed.bookId && parsed.chapter) readingAnchor = parsed;
+  }
+} catch (_) {}
 
 // ---------- DOM helpers ----------
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -137,7 +149,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.38.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.39.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -202,10 +214,17 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.38.0</div>
+      <div class="version-bar">v6.39.0</div>
+      <div class="anchor-bar" id="anchor-bar">
+        <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
+        <span id="anchor-label">Not set</span>
+        <button type="button" id="btn-set-anchor" title="Set Anchor to the verse on screen">Set Anchor here</button>
+        <button type="button" id="btn-undo-anchor" hidden>Undo</button>
+      </div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
-    <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
+    <button type="button" id="anchor-chip" class="anchor-chip" hidden title="Return to Anchor">Anchor</button>
+    <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button
     <div id="chain-read-bar" class="chain-read-bar" hidden>
       <button type="button" id="chain-bar-list">List</button>
       <span id="chain-bar-label">Chain</span>
@@ -240,6 +259,15 @@ function renderShell() {
   $('#btn-next-ch').onclick = () => changeChapter(1);
   $('#chrome-reveal').onclick = () => showChrome();
   $('#nav-back').onclick = () => goNavBack();
+  const goA = document.getElementById('btn-go-anchor');
+  const setA = document.getElementById('btn-set-anchor');
+  const undoA = document.getElementById('btn-undo-anchor');
+  const chipA = document.getElementById('anchor-chip');
+  if (goA) goA.onclick = () => goAnchor();
+  if (setA) setA.onclick = () => setAnchorHere();
+  if (undoA) undoA.onclick = () => undoAnchor();
+  if (chipA) chipA.onclick = () => goAnchor();
+  updateAnchorUI();
   const listBtn = document.getElementById('chain-bar-list');
   const nextBtn = document.getElementById('chain-bar-next');
   const xBtn = document.getElementById('chain-bar-x');
@@ -264,6 +292,7 @@ function showChrome() {
   document.body.classList.remove('chrome-is-hidden');
   if (reveal) reveal.hidden = true;
   chromeHidden = false;
+  updateAnchorUI();
 }
 
 function hideChrome() {
@@ -276,6 +305,7 @@ function hideChrome() {
   document.body.classList.add('chrome-is-hidden');
   if (reveal) reveal.hidden = false;
   chromeHidden = true;
+  updateAnchorUI();
 }
 
 
@@ -300,6 +330,109 @@ function updateNavBackButton() {
   } else {
     btn.hidden = true;
   }
+}
+
+function persistAnchor() {
+  try {
+    if (readingAnchor) localStorage.setItem(ANCHOR_STORE_KEY, JSON.stringify(readingAnchor));
+    else localStorage.removeItem(ANCHOR_STORE_KEY);
+  } catch (_) {}
+}
+
+function formatAnchorShort(a) {
+  if (!a) return 'Not set';
+  if (a.label) return a.label;
+  const book = books.find((b) => b.id === a.bookId);
+  const name = book ? book.name : a.bookId;
+  return name + ' ' + a.chapter + ':' + (a.verse || 1);
+}
+
+function currentSeatForAnchor() {
+  const key = getNearestVerseKey();
+  let bookId = currentBookId;
+  let chapter = currentChapter;
+  let verse = 1;
+  if (key) {
+    const parsed = bible.parseKey(key);
+    bookId = parsed.bookId || bookId;
+    chapter = parsed.chapter || chapter;
+    verse = parsed.verse || 1;
+  }
+  if (!bookId) return null;
+  const book = books.find((b) => b.id === bookId);
+  const name = book ? book.name : bookId;
+  const main = document.getElementById('main');
+  return {
+    bookId,
+    chapter,
+    verse,
+    verseKey: bible.verseKey(bookId, chapter, verse),
+    scrollTop: main ? main.scrollTop : 0,
+    label: name + ' ' + chapter + ':' + verse
+  };
+}
+
+function updateAnchorUI() {
+  const labelEl = document.getElementById('anchor-label');
+  const goBtn = document.getElementById('btn-go-anchor');
+  const chip = document.getElementById('anchor-chip');
+  const undoBtn = document.getElementById('btn-undo-anchor');
+  const text = formatAnchorShort(readingAnchor);
+  if (labelEl) labelEl.textContent = readingAnchor ? text : 'Not set';
+  if (goBtn) {
+    goBtn.disabled = !readingAnchor;
+    goBtn.setAttribute('aria-label', readingAnchor ? ('Go to Anchor ' + text) : 'Anchor not set');
+  }
+  if (chip) {
+    chip.hidden = !chromeHidden;
+    chip.textContent = readingAnchor ? ('Anchor · ' + text) : 'Anchor · Not set';
+    chip.disabled = !readingAnchor;
+  }
+  if (undoBtn) undoBtn.hidden = !previousAnchor;
+}
+
+async function goAnchor() {
+  if (!readingAnchor || !readingAnchor.bookId) return;
+  if (!books.find((b) => b.id === readingAnchor.bookId)) {
+    alert('Anchor book is not loaded on this device.');
+    return;
+  }
+  const key = readingAnchor.verseKey || bible.verseKey(readingAnchor.bookId, readingAnchor.chapter, readingAnchor.verse || 1);
+  await renderChapter(readingAnchor.bookId, readingAnchor.chapter, {
+    scrollToKey: key,
+    preserveScroll: readingAnchor.scrollTop
+  });
+  setTimeout(() => {
+    const t = document.getElementById('v-' + key.replace(/\./g, '-'));
+    if (t) {
+      t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      t.style.outline = '2px solid var(--accent)';
+      setTimeout(() => { t.style.outline = ''; }, 2500);
+    }
+  }, 80);
+}
+
+function setAnchorHere() {
+  const seat = currentSeatForAnchor();
+  if (!seat) return;
+  previousAnchor = readingAnchor ? { ...readingAnchor } : null;
+  readingAnchor = seat;
+  persistAnchor();
+  if (anchorUndoTimer) clearTimeout(anchorUndoTimer);
+  anchorUndoTimer = setTimeout(() => {
+    previousAnchor = null;
+    updateAnchorUI();
+  }, 8000);
+  updateAnchorUI();
+}
+
+function undoAnchor() {
+  if (!previousAnchor) return;
+  readingAnchor = previousAnchor;
+  previousAnchor = null;
+  if (anchorUndoTimer) clearTimeout(anchorUndoTimer);
+  persistAnchor();
+  updateAnchorUI();
 }
 
 function persistSearchSession() {
@@ -4534,6 +4667,12 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Shared notes</strong><br>
         Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
 
+        <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
+        One reading spot. Books, Search, and hops do not move it.<br>
+        <strong>Set Anchor here</strong> saves the verse on screen.<br>
+        <strong>Anchor</strong> returns you there. <strong>Undo</strong> is offered for a few seconds after a set.<br>
+        When controls are hidden, the Anchor chip at the top also returns you.</p>
+
         <p style="margin-bottom:1rem"><strong>Chapters</strong><br>
         ◀ ▶ move chapters. Dim at first/last. Sample has Gen 1–2.</p>
 
@@ -4568,7 +4707,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.38.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.39.0</p>
       </div>
     </div>
   `);
@@ -4579,7 +4718,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.38.0</h2>
+      <h2>About – KJV Study v6.39.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4604,7 +4743,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.38.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.39.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

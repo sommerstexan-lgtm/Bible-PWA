@@ -1,6 +1,14 @@
-# KJV Study PWA – v6.38.0
+# KJV Study PWA – v6.39.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.39.0
+**Reading Anchor**
+- One named spot: book, chapter, verse. Stored on this device only (`localStorage`).
+- Books picker, word Search, cross-refs, Prev/Next, and chains do **not** change it.
+- **Set Anchor here** uses the verse now on screen. Label updates at once (e.g. `Numbers 14:1`).
+- **Anchor** returns to that verse. **Undo** is available for a few seconds after a set.
+- When chrome is hidden, the top **Anchor · …** chip still returns you there.
 
 ## New in 6.38.0
 **Chain workbench — one open chain**
