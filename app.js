@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.39.0
+/* app.js – Main application controller. KJV Study PWA v6.39.1
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -149,7 +149,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.39.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.39.1', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -214,7 +214,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.39.0</div>
+      <div class="version-bar">v6.39.1</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -4423,6 +4423,54 @@ const COMMENTARY_SOURCES = [
   { id: "tyndale", label: "Tyndale Open Study Notes", short: "Tyndale" }
 ];
 
+/* helloao Adam Clarke catalog is missing DEU and published Deuteronomy notes under NUM. */
+const CLARKE_FETCH_BOOK = { DEU: "NUM" };
+
+const COMMENTARY_BOOK_HINTS = [
+  ["GEN", /(?:^|[^\w])(?:Gen(?:esis)?)\s+\d/i],
+  ["EXO", /(?:^|[^\w])(?:Exo(?:dus)?)\s+\d/i],
+  ["LEV", /(?:^|[^\w])(?:Lev(?:iticus)?)\s+\d/i],
+  ["NUM", /(?:^|[^\w])(?:Num(?:bers)?)\s+\d/i],
+  ["DEU", /(?:^|[^\w])(?:Deu(?:t(?:eronomy)?)?)\s+\d/i],
+  ["JOS", /(?:^|[^\w])(?:Jos(?:hua)?)\s+\d/i],
+  ["JDG", /(?:^|[^\w])(?:Jdg|Judg(?:es)?)\s+\d/i],
+  ["PSA", /(?:^|[^\w])(?:Psa(?:lm)?s?)\s+\d/i],
+  ["MAT", /(?:^|[^\w])(?:Mat(?:thew)?)\s+\d/i]
+];
+
+function commentaryBlob(data) {
+  const ch = (data && data.chapter) || {};
+  const parts = [ch.introduction || ""];
+  const verses = Array.isArray(ch.content) ? ch.content : [];
+  for (const v of verses) {
+    const notes = Array.isArray(v.content) ? v.content : (v.content ? [v.content] : []);
+    for (const n of notes) parts.push(String(n || ""));
+  }
+  return parts.join("\n");
+}
+
+function commentaryCitedBook(text) {
+  const blob = String(text || "");
+  let best = null;
+  let bestCount = 0;
+  for (const [code, re] of COMMENTARY_BOOK_HINTS) {
+    const flags = re.flags.includes("g") ? re.flags : re.flags + "g";
+    const matches = blob.match(new RegExp(re.source, flags)) || [];
+    if (matches.length > bestCount) {
+      best = code;
+      bestCount = matches.length;
+    }
+  }
+  return bestCount >= 2 ? best : null;
+}
+
+function commentaryFetchBook(sourceId, apiBook) {
+  if (sourceId === "adam-clarke" && CLARKE_FETCH_BOOK[apiBook]) {
+    return CLARKE_FETCH_BOOK[apiBook];
+  }
+  return apiBook;
+}
+
 
 
 
@@ -4566,7 +4614,8 @@ async function openResearch() {
     statusEl.textContent = "Loading…";
     bodyEl.innerHTML = "";
 
-    const cacheKey = `${sourceId}:${apiBook}:${currentChapter}`;
+    const fetchBook = commentaryFetchBook(sourceId, apiBook);
+    const cacheKey = `c3:${sourceId}:${apiBook}:${currentChapter}`;
     let data = null;
     let fromCache = false;
 
@@ -4580,7 +4629,7 @@ async function openResearch() {
 
     if (!data) {
       try {
-        const url = `https://bible.helloao.org/api/c/${sourceId}/${apiBook}/${currentChapter}.json`;
+        const url = `https://bible.helloao.org/api/c/${sourceId}/${fetchBook}/${currentChapter}.json`;
         const resp = await fetch(url, { mode: "cors" });
         if (!resp.ok) {
           if (resp.status === 404) {
@@ -4591,11 +4640,6 @@ async function openResearch() {
           throw new Error(`HTTP ${resp.status}`);
         }
         data = await resp.json();
-        try {
-          await storage.saveCachedCommentary(cacheKey, { payload: data, sourceId, book: apiBook, chapter: currentChapter });
-        } catch (e) {
-          console.warn("Could not cache commentary", e);
-        }
       } catch (err) {
         console.error(err);
         statusEl.textContent = "Could not load commentary.";
@@ -4603,6 +4647,22 @@ async function openResearch() {
           <p style="font-size:0.9em;color:var(--text-dim)">${escapeHtml(String(err.message || err))}</p>`;
         return;
       }
+    }
+
+    const cited = commentaryCitedBook(commentaryBlob(data));
+    if (cited && cited !== apiBook) {
+      statusEl.textContent = "Source mismatch — notes not shown.";
+      bodyEl.innerHTML = `<p style="color:var(--text-dim)">Adam Clarke from this free feed is filed under the wrong book for <strong>${escapeHtml(bookName)} ${currentChapter}</strong> (the text belongs to ${escapeHtml(cited)}). Nothing was cached. Use <strong>Tyndale</strong> for this chapter.</p>`;
+      bodyHasContent = true;
+      return;
+    }
+
+    try {
+      if (!fromCache) {
+        await storage.saveCachedCommentary(cacheKey, { payload: data, sourceId, book: apiBook, chapter: currentChapter });
+      }
+    } catch (e) {
+      console.warn("Could not cache commentary", e);
     }
 
     const srcLabel = (COMMENTARY_SOURCES.find(s => s.id === sourceId) || {}).label || sourceId;
@@ -4707,7 +4767,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.39.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.39.1</p>
       </div>
     </div>
   `);
@@ -4718,7 +4778,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.39.0</h2>
+      <h2>About – KJV Study v6.39.1</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4743,7 +4803,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.39.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.39.1 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

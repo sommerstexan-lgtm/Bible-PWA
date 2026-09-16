@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.39.0
+# KJV Study PWA – v6.39.1
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.39.1
+**Research / Clarke**
+- Do not show Adam Clarke when the helloao feed files the wrong book (Numbers was serving Deuteronomy).
+- Deuteronomy Clarke notes are fetched from that feed’s NUM slot.
+- Wrong chapters are not cached. Cache key changed so old Numbers notes are not reused.
 
 ## New in 6.39.0
 **Reading Anchor**
