@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.40.0
+/* app.js – Main application controller. KJV Study PWA v6.41.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -149,7 +149,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.40.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.41.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -214,7 +214,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.40.0</div>
+      <div class="version-bar">v6.41.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -3331,7 +3331,7 @@ function openSearch() {
     } else if (q.length >= 2 && lastSubjects.length) {
       wordHtml = '<p style="color:var(--text-dim);padding:0.4rem 0 0.8rem;font-size:0.92em">No word matches in loaded books.</p>';
     }
-    resultsEl.innerHTML = subHtml + wordHtml;
+    resultsEl.innerHTML = wordHtml + subHtml;
     bindSubjectRows(resultsEl);
     $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
@@ -4756,7 +4756,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.40.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.41.0</p>
       </div>
     </div>
   `);
@@ -4767,7 +4767,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.40.0</h2>
+      <h2>About – KJV Study v6.41.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4792,7 +4792,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.40.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.41.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

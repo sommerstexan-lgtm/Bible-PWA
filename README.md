@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.40.0
+# KJV Study PWA – v6.41.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.41.0
+**Search — word hits are complete and whole-word**
+- Loaded books are scanned in canon order, not IndexedDB id order.
+- Match is the typed word as a word (`east` is not `feast`, `beast`, or `breast`).
+- Every loaded book with a count greater than 0 is listed. The number is the full count. There is no 80-hit cutoff.
+- Word-in-loaded-KJV book rows come first. Tap a book for that book’s verses, in chapter/verse order. Subjects come after. Subject headings match exact name, starts-with, or a whole heading token — not letters inside another word.
 
 ## New in 6.40.0
 **Research — JFB**

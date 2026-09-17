@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v6.31.0 */
+/* bible.js – Book loading, navigation helpers, search. v6.41.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -223,37 +223,48 @@ export async function loadBundledTestament(testament, loadedBooks) {
   return { imported: toStore, skipped: packBooks.length - toStore.length, url };
 }
 
-export async function searchBooks(query, books) {
-  if (!query || query.trim().length < 2) return [];
-  const q = query.trim().toLowerCase();
-  const results = [];
-
-  for (const book of books) {
-    for (const ch of book.chapters) {
-      for (const v of ch.verses) {
-        if (v.text.toLowerCase().includes(q)) {
-          results.push({
-            key: verseKey(book.id, ch.number, v.number),
-            bookId: book.id,
-            bookName: book.name,
-            chapter: ch.number,
-            verse: v.number,
-            text: v.text,
-            snippet: highlightSnippet(v.text, q)
-          });
-          if (results.length >= 80) return results; // safety
-        }
-      }
-    }
-  }
-  return results;
-}
-
 function wordHit(text, word) {
   const q = String(word || '').trim();
   if (!q) return false;
   const re = new RegExp(`(^|[^A-Za-z])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z]|$)`, 'i');
   return re.test(text);
+}
+
+function booksInCanonOrder(bookList) {
+  const idx = new Map(CANONICAL_BOOKS.map((b, i) => [b.id, i]));
+  return (bookList || []).slice().sort((a, b) => {
+    const ia = idx.has(a.id) ? idx.get(a.id) : 999;
+    const ib = idx.has(b.id) ? idx.get(b.id) : 999;
+    if (ia !== ib) return ia - ib;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+export async function searchBooks(query, books) {
+  if (!query || query.trim().length < 2) return [];
+  const q = query.trim();
+  const results = [];
+
+  for (const book of booksInCanonOrder(books)) {
+    if (!book || !Array.isArray(book.chapters)) continue;
+    for (const ch of book.chapters) {
+      if (!ch || !Array.isArray(ch.verses)) continue;
+      for (const v of ch.verses) {
+        const text = v && v.text;
+        if (!text || !wordHit(text, q)) continue;
+        results.push({
+          key: verseKey(book.id, ch.number, v.number),
+          bookId: book.id,
+          bookName: book.name,
+          chapter: ch.number,
+          verse: v.number,
+          text,
+          snippet: highlightSnippet(text, q.toLowerCase())
+        });
+      }
+    }
+  }
+  return results;
 }
 
 /**

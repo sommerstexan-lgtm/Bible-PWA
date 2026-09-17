@@ -145,7 +145,7 @@ export function suggestSubjectHeadings(query) {
     const named = headingByName(norm);
     if (named) add(named);
     for (const [alias, list] of Object.entries(ALIAS_TO_HEADINGS)) {
-      if (alias.length >= 3 && (norm.includes(alias) || alias.includes(norm))) {
+      if (alias.length >= 3 && (alias === norm || alias.startsWith(norm + ' ') || alias.split(' ').includes(norm))) {
         list.forEach(add);
       }
     }
