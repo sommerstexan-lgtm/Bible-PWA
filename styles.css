@@ -1151,6 +1151,54 @@ body.chrome-is-hidden main#main {
   white-space: pre-wrap;
 }
 
+.theme-lead, .theme-ctx, .theme-note {
+  font-size: 0.92em;
+  line-height: 1.45;
+  margin: 0 0 0.7rem;
+  color: var(--text-dim);
+}
+.theme-ctx { color: var(--text); }
+.theme-label {
+  display: block;
+  font-weight: 600;
+  margin: 0.6rem 0 0.3rem;
+}
+.theme-q {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 0.65rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+}
+.theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.7rem 0;
+}
+.theme-actions button, .theme-open-list {
+  min-height: 44px;
+  padding: 0.4rem 0.8rem;
+  font-weight: 600;
+}
+.theme-prompt {
+  white-space: pre-wrap;
+  font-size: 0.82em;
+  line-height: 1.4;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem;
+  margin: 0 0 0.8rem;
+}
+.theme-hits { margin: 0.4rem 0 0.8rem; }
+.theme-open-list { width: 100%; margin: 0.45rem 0 0.6rem; }
+
 /* ===== v5.16+ Tap-a-word Strong's – user-controlled marks only =====
    v6.19: removed negative margins so adjacent .tap-word boxes no longer
    overlap. Overlapping inline boxes made native selection (esp. after

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.41.0
+/* app.js – Main application controller. KJV Study PWA v6.42.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -149,7 +149,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.41.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.42.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -214,7 +214,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.41.0</div>
+      <div class="version-bar">v6.42.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -4463,6 +4463,84 @@ function clarkePayloadMatchesRequest(apiBook, fetchBook, data) {
 
 
 
+const THEME_STOP = new Set(("a an the and or of to in on at by for from with as is be was were are not but if then so this that these those it its he his him she her they them their ye you your we our us which who what when where why how also even unto into upon over under after before among between out up down all any no nor such than there here shall will may can one two").split(" "));
+
+function themeContextLabel() {
+  const bookMeta = bible.CANONICAL_BOOKS.find(b => b.id === currentBookId);
+  const bookName = bookMeta ? bookMeta.name : (currentBookId || "—");
+  const verse = getNearestVerseKey();
+  let verseBit = "";
+  if (verse) {
+    try {
+      const p = bible.parseKey(verse);
+      if (p && p.verse) verseBit = ":" + p.verse;
+    } catch (_) {}
+  }
+  return currentBookId ? `${bookName} ${currentChapter}${verseBit}` : "no chapter open";
+}
+
+function themeSeedWords(raw) {
+  const words = String(raw || "").toLowerCase().match(/[a-z']{3,}/g) || [];
+  const out = [];
+  const seen = new Set();
+  for (const w of words) {
+    if (THEME_STOP.has(w) || seen.has(w)) continue;
+    if (/theolog|signific|meaning|motif|weight|loaded|passage|verse|every|around|direction|question|rewrite|sloppy|sermon|application|incidental|geography|weather/.test(w)) continue;
+    seen.add(w);
+    out.push(w);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+function improveThemeQuestion(raw, contextLabel) {
+  const q = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!q) return { improved: "", note: "Type a theme first." };
+  const hasTheo = /theolog|significan|mean(ing)?|motif|weight|loaded/i.test(q);
+  const hasList = /list|passage|verse/i.test(q);
+  const parts = [`Context: ${contextLabel}.`];
+  if (!hasTheo) {
+    parts.push(`Theme: ${q}.`);
+    parts.push("KJV passages where this carries theological weight, not mere geography, weather, or incidental mention.");
+  } else {
+    parts.push(q.endsWith(".") ? q : q + ".");
+  }
+  if (!hasList) parts.push("List verses first. One short reason each. No sermon. No application. Mark weak hits.");
+  parts.push("If this question is sloppy, rewrite it once, then answer the rewrite.");
+  const note = hasTheo && hasList
+    ? "Usable as written. Context and KJV rules were attached."
+    : "Tightened: context, theological filter, verse-first, no sermon.";
+  return { improved: parts.join(" "), note };
+}
+
+function buildGrokThemePrompt(question, contextLabel, seedSummary) {
+  const q = String(question || "").trim();
+  const lines = [
+    "KJV only.",
+    "Where I am: " + contextLabel + ".",
+    q ? "Question: " + q : "Question: (none yet).",
+    "Return a working list: reference + why it belongs. Drop or mark weak hits.",
+    "Do not write a sermon. Do not invent application."
+  ];
+  if (seedSummary) lines.push("Local whole-word inventory from loaded books (not theology by itself): " + seedSummary);
+  lines.push("If this question is sloppy, rewrite it once, then answer the rewrite.");
+  return lines.join("\n");
+}
+
+function parseThemeRefList(raw) {
+  const parts = String(raw || "").split(/[\n;,]+/).map(s => s.trim()).filter(Boolean);
+  const rows = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const bit = part.replace(/^[-*•]\s*/, "").replace(/\s+[—–-]\s+.*$/, "").trim();
+    const parsed = parseUserRef(bit) || parseUserRef((bit.match(/^[1-3]?\s*[A-Za-z]+\s+\d+\s*:\s*\d+/) || [""])[0]);
+    if (!parsed || seen.has(parsed.key)) continue;
+    seen.add(parsed.key);
+    rows.push(parsed);
+  }
+  return rows;
+}
+
 async function openResearch() {
   if (!currentBookId || !currentChapter) {
     alert("Open a chapter first, then use Research.");
@@ -4473,6 +4551,7 @@ async function openResearch() {
   const bookName = bookMeta ? bookMeta.name : currentBookId;
 
   let preferred = localStorage.getItem("kjv-research-source") || "tyndale";
+  if (preferred === "theme") preferred = localStorage.getItem("kjv-research-notes-source") || "tyndale";
 
   function scrollKey(src) {
     return `${src}:${currentBookId}:${currentChapter}`;
@@ -4509,6 +4588,8 @@ async function openResearch() {
             style="background:${s.id === preferred ? "var(--accent)" : "var(--bg)"};color:${s.id === preferred ? "#111" : "var(--text)"}">
             ${s.short}
           </button>`).join("")}
+        <button type="button" class="research-src" data-id="theme"
+          style="background:var(--bg);color:var(--text)">Theme</button>
       </div>
       <div id="research-status" class="research-status">Loading…</div>
       <div id="research-body" class="research-body"></div>
@@ -4584,7 +4665,135 @@ async function openResearch() {
     requestAnimationFrame(() => tryRestore(0));
   }
 
+  async function showThemePanel() {
+    if (bodyHasContent && bodyEl && activeSource !== "theme") {
+      saveScrollPos(activeSource, bodyEl.scrollTop);
+    }
+    activeSource = "theme";
+    overlay.querySelectorAll(".research-src").forEach(btn => {
+      const active = btn.dataset.id === "theme";
+      btn.style.background = active ? "var(--accent)" : "var(--bg)";
+      btn.style.color = active ? "#111" : "var(--text)";
+    });
+    const ctx = themeContextLabel();
+    const savedQ = localStorage.getItem("kjv-theme-question") || "";
+    statusEl.textContent = "Theme · local inventory + Grok prompt. Not commentary.";
+    bodyEl.innerHTML = `
+      <p class="theme-lead">You stay in the KJV. Grok finds and explains. This tab does not pretend to be Grok.</p>
+      <p class="theme-ctx"><strong>Where you are:</strong> ${escapeHtml(ctx)}</p>
+      <label class="theme-label" for="theme-q">Theme / question</label>
+      <textarea id="theme-q" class="theme-q" rows="4" placeholder="e.g. theological significance of east and west">${escapeHtml(savedQ)}</textarea>
+      <p id="theme-improve-note" class="theme-note"></p>
+      <div class="theme-actions">
+        <button type="button" id="theme-improve">Improve phrasing</button>
+        <button type="button" id="theme-hits">Local hits</button>
+        <button type="button" id="theme-copy">Copy Grok prompt</button>
+      </div>
+      <pre id="theme-prompt" class="theme-prompt" hidden></pre>
+      <div id="theme-hits-box" class="theme-hits"></div>
+      <label class="theme-label" for="theme-paste">Paste Grok verse list, then tap a ref</label>
+      <textarea id="theme-paste" class="theme-q" rows="3" placeholder="Genesis 3:24, Numbers 2:3, Ezekiel 10:19"></textarea>
+      <button type="button" id="theme-open-list" class="theme-open-list">Show pasted refs</button>
+      <div id="theme-paste-list"></div>
+    `;
+    bodyHasContent = true;
+
+    const qEl = $("#theme-q", overlay);
+    const noteEl = $("#theme-improve-note", overlay);
+    const promptEl = $("#theme-prompt", overlay);
+    const hitsBox = $("#theme-hits-box", overlay);
+    const pasteEl = $("#theme-paste", overlay);
+    const pasteList = $("#theme-paste-list", overlay);
+
+    function persistQ() {
+      try { localStorage.setItem("kjv-theme-question", (qEl.value || "").trim()); } catch (_) {}
+    }
+
+    async function inventorySummary() {
+      const seeds = themeSeedWords(qEl.value);
+      if (!seeds.length) return { text: "", html: "<p class='theme-note'>Need a theme word first (east, west, glory…).</p>" };
+      const blocks = [];
+      const summaryBits = [];
+      for (const seed of seeds) {
+        const rows = await bible.searchBooks(seed, books);
+        summaryBits.push(seed + " ×" + rows.length);
+        const cap = rows.slice(0, 30);
+        const list = cap.map(r =>
+          `<div class="search-result theme-hit" data-key="${escapeHtml(r.key)}"><span class="ref">${escapeHtml(r.bookName)} ${r.chapter}:${r.verse}</span> ${escapeHtml(r.snippet)}</div>`
+        ).join("");
+        blocks.push(`<p class="subject-section-label">${escapeHtml(seed)} · ${rows.length} in loaded books${rows.length > 30 ? " (showing 30)" : ""}</p>${list || "<p class='theme-note'>No whole-word hits.</p>"}`);
+      }
+      return { text: summaryBits.join("; "), html: blocks.join("") };
+    }
+
+    function bindHitClicks(container) {
+      $$(".theme-hit", container).forEach(row => {
+        row.onclick = async () => {
+          persistQ();
+          if (currentBookId) {
+            const main = document.getElementById("main");
+            const book = books.find(b => b.id === currentBookId);
+            const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+            navStack.push({
+              bookId: currentBookId,
+              chapter: currentChapter,
+              verseKey: getNearestVerseKey() || null,
+              scrollTop: main ? main.scrollTop : 0,
+              label
+            });
+            updateNavBackButton();
+          }
+          trailPush(row.dataset.key, "theme");
+          closeOverlay(overlay);
+          await jumpToRef(row.dataset.key);
+        };
+      });
+    }
+
+    $("#theme-improve", overlay).onclick = () => {
+      persistQ();
+      const r = improveThemeQuestion(qEl.value, ctx);
+      noteEl.textContent = r.note;
+      if (r.improved) qEl.value = r.improved;
+      persistQ();
+    };
+
+    $("#theme-hits", overlay).onclick = async () => {
+      persistQ();
+      hitsBox.innerHTML = "<p class='theme-note'>Scanning loaded books…</p>";
+      const inv = await inventorySummary();
+      hitsBox.innerHTML = inv.html;
+      bindHitClicks(hitsBox);
+    };
+
+    $("#theme-copy", overlay).onclick = async () => {
+      persistQ();
+      const inv = await inventorySummary();
+      const prompt = buildGrokThemePrompt(qEl.value, ctx, inv.text);
+      promptEl.hidden = false;
+      promptEl.textContent = prompt;
+      const ok = await copyText(prompt);
+      noteEl.textContent = ok ? "Prompt copied. Paste it to Grok. Then paste verse refs below." : "Could not copy. Select the prompt text.";
+    };
+
+    $("#theme-open-list", overlay).onclick = () => {
+      const rows = parseThemeRefList(pasteEl.value);
+      if (!rows.length) {
+        pasteList.innerHTML = "<p class='theme-note'>No recognizable refs (use Genesis 3:24 or gen.3.24).</p>";
+        return;
+      }
+      pasteList.innerHTML = rows.map(r =>
+        `<div class="search-result theme-hit" data-key="${escapeHtml(r.key)}"><span class="ref">${escapeHtml(r.label)}</span></div>`
+      ).join("");
+      bindHitClicks(pasteList);
+    };
+  }
+
   async function loadSource(sourceId) {
+    if (sourceId === "theme") {
+      await showThemePanel();
+      return;
+    }
     // Save previous source position only if we actually had content on screen
     if (bodyHasContent && bodyEl) {
       saveScrollPos(activeSource, bodyEl.scrollTop);
@@ -4592,6 +4801,7 @@ async function openResearch() {
     activeSource = sourceId;
     preferred = sourceId;
     localStorage.setItem("kjv-research-source", sourceId);
+    try { localStorage.setItem("kjv-research-notes-source", sourceId); } catch (_) {}
     bodyHasContent = false;
 
     overlay.querySelectorAll(".research-src").forEach(btn => {
@@ -4731,6 +4941,11 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Research / Commentary</strong><br>
         Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke, Jamieson-Fausset-Brown (all 66 books), or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
+        <p style="margin-bottom:1rem"><strong>Research / Theme</strong><br>
+        Same Research button, then <strong>Theme</strong>. This is not Grok and not commentary.
+        Type the motif. <strong>Improve phrasing</strong> tightens the question (context, theological filter, verses first).
+        <strong>Local hits</strong> lists whole-word matches in loaded books. <strong>Copy Grok prompt</strong> packages where you are, the question, and those hits for Grok.
+        Paste verse refs Grok returns and tap one to open it. Anchor, Search, notes, and chains stay available.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
@@ -4756,7 +4971,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.41.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.42.0</p>
       </div>
     </div>
   `);
@@ -4767,7 +4982,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.41.0</h2>
+      <h2>About – KJV Study v6.42.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -4786,13 +5001,14 @@ function openAbout() {
         <strong>Context:</strong> Offline book purpose, key themes, chapter outline, and place in the story for the current chapter.<br><br>
         <strong>Research:</strong> Adam Clarke, Jamieson-Fausset-Brown (66 books), and Tyndale Open Study Notes
         (via the free bible.helloao.org API). Chapters are cached locally after first load.
+        <strong>Theme</strong> tab builds a Grok prompt and local word inventory. It does not answer as Grok.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Install:</strong> On supported browsers (Chrome, Edge, Safari on iOS/iPadOS,
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.41.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.42.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

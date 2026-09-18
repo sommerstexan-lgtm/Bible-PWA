@@ -1,6 +1,16 @@
-# KJV Study PWA – v6.41.0
+# KJV Study PWA – v6.42.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.42.0
+**Research — Theme**
+- Fourth tab on Research: **Theme**. Not Grok. Not commentary.
+- Uses the chapter on screen as context.
+- **Improve phrasing** attaches context, a theological filter, verse-first, no sermon.
+- **Local hits** scans loaded books with the same whole-word match as Search.
+- **Copy Grok prompt** puts context + question + local inventory on the clipboard for Grok.
+- Paste a verse list (Genesis 3:24 or gen.3.24). Tap a ref to open it. Chrome ← Back still returns.
+- Clarke / JFB / Tyndale are unchanged.
 
 ## New in 6.41.0
 **Search — word hits are complete and whole-word**
