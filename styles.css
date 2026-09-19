@@ -184,6 +184,19 @@ main#main {
   flex-shrink: 0;
 }
 
+.color-chip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+
+.color-chip-label {
+  font-size: 0.78rem;
+  line-height: 1.2;
+  color: var(--text-dim, #b8b8c8);
+}
+
 .verse-actions {
   display: flex;
   flex-wrap: wrap;

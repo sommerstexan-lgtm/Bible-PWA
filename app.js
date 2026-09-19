@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.43.1
+/* app.js – Main application controller. KJV Study PWA v6.44.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -150,7 +150,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.42.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.44.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -215,7 +215,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.43.1</div>
+      <div class="version-bar">v6.44.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -1724,7 +1724,10 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
 
     const chips = colors.map(c => {
       const meta = analyze.getColorMeta(c);
-      return `<span class="color-chip" style="background:${meta ? meta.hex : '#666'}" title="${meta ? meta.label : c}"></span>`;
+      const hex = meta ? meta.hex : '#666';
+      const subject = meta ? (meta.meaning || meta.label) : c;
+      const title = meta ? `${meta.label} — ${meta.meaning}` : c;
+      return `<span class="color-chip-row" title="${escapeHtml(title)}"><span class="color-chip" style="background:${hex}"></span><span class="color-chip-label">${escapeHtml(subject)}</span></span>`;
     }).join('');
 
     const previewItems = (verseSuggestPreview && verseSuggestPreview.key === key)
@@ -4256,7 +4259,7 @@ async function openVerseSuggestions(key) {
     if (verseEl) {
       const note = document.createElement('div');
       note.className = 'suggest-empty-note';
-      note.textContent = 'No word-level suggestions here. Nothing to keep. Your highlights are unchanged.';
+      note.textContent = analyze.explainNoSuggestion(bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '');
       verseEl.appendChild(note);
     }
     return;
@@ -4292,7 +4295,7 @@ function mountSuggestBar(main) {
       <button type="button" id="sug-keep" ${kept.length ? '' : 'disabled'}>Keep</button>
       <button type="button" id="sug-clear">Clear</button>
     </div>
-    <p class="suggest-bar-hint">Tap a faint word to drop it before Keep. Speech frames only — not the whole verse.</p>
+    <p class="suggest-bar-hint">Tap a faint word to drop it before Keep. Reason is why that span is painted — not a lesson.</p>
   `;
   main.appendChild(bar);
 
@@ -5085,7 +5088,7 @@ function openHelp() {
         Use <strong>Mark this word</strong> inside the panel to put a thin outline on that occurrence only.<br>
         <strong>Remove mark</strong> clears it. Long-press + drag still selects text for Color as before.</p>
         <p style="margin-bottom:1rem"><strong>Verse number</strong><br>
-        Tap a verse number for faint word-level color suggestions with a one-line reason. Nothing is saved until Keep or Clear. Speech frames may be blue; the rest of the verse is not washed.</p>
+        Tap a verse number for faint word-level color suggestions. Each mark quotes this verse and says why that span is painted. If nothing qualifies, the note quotes the verse and says why it was left alone. Nothing is saved until Keep or Clear. Color chips show the subject next to the color.</p>
         <p style="margin-bottom:1rem"><strong>Phrase as a unit</strong><br>
         If you tap a word that belongs to a known phrase (meal offering, burnt offering, holy convocation), the phrase is treated first: one sense, then that phrase in this book, then in the loaded KJV.</p>
         <p style="margin-bottom:1rem"><strong>Then · Kind · Now</strong><br>
@@ -5094,7 +5097,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.43.1</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.44.0</p>
       </div>
     </div>
   `);
@@ -5105,7 +5108,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.43.1</h2>
+      <h2>About – KJV Study v6.44.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -5131,7 +5134,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.43.1 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.44.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

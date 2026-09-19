@@ -1,4 +1,4 @@
-/* analyze.js – Rule-based color suggestion engine + local learning. v6.31.0
+/* analyze.js – Rule-based color suggestion engine + local learning. v6.44.0
    All learning stays in IndexedDB. User corrections improve future suggestions.
    Highlight text color is ALWAYS computed for max contrast (pure black or pure white).
 */
@@ -235,10 +235,22 @@ export function allColors() {
   }));
 }
 
+function clipQuote(s, max) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max).trim() + '…';
+}
+
+function paintReason(colorId, quoted, why) {
+  const meta = COLOR_MAP[colorId];
+  const name = meta ? `${meta.label} · ${meta.meaning}` : colorId;
+  return `${name} · “${clipQuote(quoted, 48)}” — ${why}`;
+}
+
 /**
  * Word-level color suggestions for one verse.
- * Speech-frame phrases may be blue; payload words are left alone.
- * Every span has a one-line reason. No reason → no span.
+ * Named subject tokens and speech frames only. Payload after a frame is left alone.
+ * Every span has a reason that quotes this verse. No reason → no span.
  * Does not write highlights.
  */
 export function suggestWordSpans(text) {
@@ -267,31 +279,79 @@ export function suggestWordSpans(text) {
     return out;
   }
 
-  // Speech frames only — not the content that follows (offering, herd, etc.)
   const speech = [
-    { re: /\bthus saith the LORD\b/gi, reason: 'speech frame' },
-    { re: /\bsaith the LORD\b/gi, reason: 'speech frame' },
-    { re: /\bthe LORD(?:\s+\w+){0,2}?\s+(?:called|spake|spoke|said|saith)\b/gi, reason: 'speech frame' },
-    { re: /\band\s+spake\s+unto\s+him\b/gi, reason: 'speech frame' },
-    { re: /\bthe word of the LORD\b/gi, reason: 'speech frame' },
-    { re: /\bGod\s+said\b/gi, reason: 'speech frame' },
-    { re: /\bthe LORD\s+said\b/gi, reason: 'speech frame' }
+    { re: /\bthus saith the LORD\b/gi, why: 'speech frame only; words after it stay unpainted' },
+    { re: /\bsaith the LORD\b/gi, why: 'speech frame only; words after it stay unpainted' },
+    { re: /\bthe LORD(?:\s+\w+){0,2}?\s+(?:called|spake|spoke|said|saith)\b/gi, why: 'speech frame only; words after it stay unpainted' },
+    { re: /\band\s+spake\s+unto\s+him\b/gi, why: 'speech frame only; not the message that follows' },
+    { re: /\bthe word of the LORD\b/gi, why: 'names the speech, not the payload' },
+    { re: /\bGod\s+said\b/gi, why: 'speech frame only; words after it stay unpainted' },
+    { re: /\bthe LORD\s+said\b/gi, why: 'speech frame only; words after it stay unpainted' }
   ];
   for (const rule of speech) {
     for (const hit of findAll(rule.re)) {
-      addSpan(hit.start, hit.end, 'blue', rule.reason);
+      addSpan(hit.start, hit.end, 'blue', paintReason('blue', hit.text, rule.why));
     }
   }
 
-  // “saying,” as the opener after a speech verb already framed
   for (const hit of findAll(/\bsaying\b/gi)) {
     const before = text.slice(Math.max(0, hit.start - 80), hit.start);
     if (/\b(said|saith|spake|spoke|called|saying)\b/i.test(before) ||
         /\b(LORD|God|LORD God)\b/.test(before)) {
-      addSpan(hit.start, hit.end, 'blue', 'speech frame');
+      addSpan(hit.start, hit.end, 'blue', paintReason('blue', hit.text, 'hinge after a speech verb — not the quote body'));
+    }
+  }
+
+  const named = [
+    { id: 'red', re: /\bjesus\s+(said|answered|replied|spake|spoke|saith)\b/gi, why: 'Jesus-speech frame; not the rest of the line' },
+    { id: 'red', re: /\bverily,?\s+verily\b/gi, why: 'Jesus’ speech marker in this wording' },
+    { id: 'red', re: /\bverily\s+I\s+say\s+unto\s+you\b/gi, why: 'Jesus’ speech marker in this wording' },
+    { id: 'yellow', re: /\bholy\s+ghost\b/gi, why: 'named Holy Ghost in this verse' },
+    { id: 'yellow', re: /\bholy\s+spirit\b/gi, why: 'named Holy Spirit in this verse' },
+    { id: 'yellow', re: /\bspirit\s+of\s+(?:god|the\s+lord|the\s+living\s+god)\b/gi, why: 'Spirit named with God / the LORD' },
+    { id: 'yg', re: /\bparable\b/gi, why: 'the verse names a parable' },
+    { id: 'yg', re: /\blike\s+unto\b/gi, why: 'figure marker only; image words stay unpainted' },
+    { id: 'brown', re: /\b(firmament|begat|selah|ephod|teraphim|shibboleth)\b/gi, why: 'uncommon KJV word — look-up color' },
+    { id: 'tan', re: /\bgreat\s+tribulation\b/gi, why: 'named great tribulation' },
+    { id: 'tan', re: /\btribulation\b/gi, why: 'the word tribulation is in this verse' },
+    { id: 'lblue', re: /\b(prophesy|prophecy|prophet)\b/gi, why: 'prophecy word named here' },
+    { id: 'aqua', re: /\bcaught\s+up\b/gi, why: 'caught up — rapture-color token only' },
+    { id: 'aqua', re: /\bmeet\s+the\s+lord\s+in\s+the\s+air\b/gi, why: 'meet the Lord in the air named here' },
+    { id: 'pink', re: /\bantichrist\b/gi, why: 'antichrist named here' },
+    { id: 'pink', re: /\bman\s+of\s+sin\b/gi, why: 'man of sin named here' },
+    { id: 'pink', re: /\bson\s+of\s+perdition\b/gi, why: 'son of perdition named here' },
+    { id: 'grey', re: /\b(satan|devil|the\s+tempter)\b/gi, why: 'the adversary named here' }
+  ];
+  for (const rule of named) {
+    for (const hit of findAll(rule.re)) {
+      addSpan(hit.start, hit.end, rule.id, paintReason(rule.id, hit.text, rule.why));
+    }
+  }
+
+  if (/\?/.test(text)) {
+    for (const hit of findAll(/\b(why|how|what|who|where|when|whom)\b/gi)) {
+      addSpan(hit.start, hit.end, 'violet', paintReason('violet', hit.text, 'question word in a verse that asks'));
     }
   }
 
   spans.sort((a, b) => a.start - b.start);
   return spans;
+}
+
+/**
+ * One-line reason when tap finds no paintable span. Quotes this verse. Not a lesson.
+ */
+export function explainNoSuggestion(text) {
+  const clip = clipQuote(text, 56);
+  if (!clip) return 'No word-level suggestions. Nothing to keep.';
+  if (/\bsaying\b/i.test(text) && !/\b(said|saith|spake|LORD|God)\b/i.test(text)) {
+    return `No span in “${clip}” — “saying” here is not a speech-frame hinge.`;
+  }
+  if (/\bspirit\b/i.test(text) && !/\bholy\s+(ghost|spirit)\b/i.test(text) && !/\bspirit\s+of\s+(god|the\s+lord)\b/i.test(text)) {
+    return `No span in “${clip}” — “spirit” is not marked unless Holy Ghost / Spirit of God.`;
+  }
+  if (/\bbeast\b/i.test(text) && !/\bantichrist\b/i.test(text)) {
+    return `No span in “${clip}” — “beast” alone is not painted (dual use).`;
+  }
+  return `No named subject token or speech frame in “${clip}”. Highlights unchanged.`;
 }

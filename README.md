@@ -1,6 +1,14 @@
-# KJV Study PWA – v6.43.1
+# KJV Study PWA – v6.44.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.44.0
+**Verse-number tap — reason for the paint**
+- Tap any verse number. Faint word-level suggestions still wait for Keep or Clear.
+- Each suggestion quotes the span in this verse and names the color subject (not a lesson).
+- If nothing qualifies, the note quotes the verse and says why it was left alone (dual-sense words such as bare “spirit” or “beast” stay unpainted).
+- Speech frames stay blue; the words after the frame are not washed.
+- Color chips next to a highlighted verse now show the subject beside the color so you do not open the palette to remember it.
 
 ## New in 6.43.1
 **Research — Theme steps + Clear**
