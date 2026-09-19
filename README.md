@@ -1,6 +1,19 @@
-# KJV Study PWA – v6.42.0
+# KJV Study PWA – v6.43.1
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.43.1
+**Research — Theme steps + Clear**
+- Numbered recipe at the top of Theme: type → Scan KJV → peek → optional Grok prompt → paste refs.
+- **Clear theme** wipes the theme box, prompt, hits, peek, and pasted list so the next motif starts clean.
+
+## New in 6.43.0
+**Research — Theme workbench**
+- Theme is a numbered workbench. Your theme box is never overwritten by the Grok prompt.
+- Tap a local hit or pasted ref to **peek** the verse in the same panel (Stay / Open chapter / Add to trail).
+- **Open chapter** still jumps to the reader. ← Back restores the Theme panel with the same theme, prompt, and pasted list.
+- Pasted refs now show the KJV verse text when that book is loaded.
+- Theme tab is remembered if it was the last Research tab used.
 
 ## New in 6.42.0
 **Research — Theme**

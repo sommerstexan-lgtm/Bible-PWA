@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.42.0
+/* app.js – Main application controller. KJV Study PWA v6.43.1
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -71,6 +71,7 @@ let currentBookId = null;
 let currentChapter = 1;
 let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
+let reopenResearchTheme = false; // after a Theme verse hop, Back reopens Theme
 /** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
 let searchSession = {
   query: '',
@@ -214,7 +215,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.42.0</div>
+      <div class="version-bar">v6.43.1</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -312,11 +313,16 @@ function hideChrome() {
 async function goNavBack() {
   if (!navStack.length) return;
   const prev = navStack.pop();
+  const reopenTheme = !!prev.reopenTheme;
   updateNavBackButton();
   await renderChapter(prev.bookId, prev.chapter, {
     scrollToKey: prev.verseKey || null,
     preserveScroll: prev.scrollTop
   });
+  if (reopenTheme) {
+    reopenResearchTheme = true;
+    openResearch();
+  }
 }
 
 function updateNavBackButton() {
@@ -4495,7 +4501,7 @@ function themeSeedWords(raw) {
 
 function improveThemeQuestion(raw, contextLabel) {
   const q = String(raw || "").replace(/\s+/g, " ").trim();
-  if (!q) return { improved: "", note: "Type a theme first." };
+  if (!q) return { improved: "", prompt: "", note: "Type a short theme first. The question box stays yours." };
   const hasTheo = /theolog|significan|mean(ing)?|motif|weight|loaded/i.test(q);
   const hasList = /list|passage|verse/i.test(q);
   const parts = [`Context: ${contextLabel}.`];
@@ -4507,10 +4513,8 @@ function improveThemeQuestion(raw, contextLabel) {
   }
   if (!hasList) parts.push("List verses first. One short reason each. No sermon. No application. Mark weak hits.");
   parts.push("If this question is sloppy, rewrite it once, then answer the rewrite.");
-  const note = hasTheo && hasList
-    ? "Usable as written. Context and KJV rules were attached."
-    : "Tightened: context, theological filter, verse-first, no sermon.";
-  return { improved: parts.join(" "), note };
+  const note = "Prompt built below. Your theme text was not replaced.";
+  return { improved: q, prompt: parts.join(" "), note };
 }
 
 function buildGrokThemePrompt(question, contextLabel, seedSummary) {
@@ -4551,7 +4555,10 @@ async function openResearch() {
   const bookName = bookMeta ? bookMeta.name : currentBookId;
 
   let preferred = localStorage.getItem("kjv-research-source") || "tyndale";
-  if (preferred === "theme") preferred = localStorage.getItem("kjv-research-notes-source") || "tyndale";
+  if (reopenResearchTheme) {
+    preferred = "theme";
+    reopenResearchTheme = false;
+  }
 
   function scrollKey(src) {
     return `${src}:${currentBookId}:${currentChapter}`;
@@ -4670,6 +4677,7 @@ async function openResearch() {
       saveScrollPos(activeSource, bodyEl.scrollTop);
     }
     activeSource = "theme";
+    try { localStorage.setItem("kjv-research-source", "theme"); } catch (_) {}
     overlay.querySelectorAll(".research-src").forEach(btn => {
       const active = btn.dataset.id === "theme";
       btn.style.background = active ? "var(--accent)" : "var(--bg)";
@@ -4677,22 +4685,45 @@ async function openResearch() {
     });
     const ctx = themeContextLabel();
     const savedQ = localStorage.getItem("kjv-theme-question") || "";
-    statusEl.textContent = "Theme · local inventory + Grok prompt. Not commentary.";
+    const savedPrompt = localStorage.getItem("kjv-theme-prompt") || "";
+    const savedPaste = localStorage.getItem("kjv-theme-paste") || "";
+    statusEl.textContent = "Theme · do the numbered steps. Clear starts the next theme.";
     bodyEl.innerHTML = `
-      <p class="theme-lead">You stay in the KJV. Grok finds and explains. This tab does not pretend to be Grok.</p>
-      <p class="theme-ctx"><strong>Where you are:</strong> ${escapeHtml(ctx)}</p>
-      <label class="theme-label" for="theme-q">Theme / question</label>
-      <textarea id="theme-q" class="theme-q" rows="4" placeholder="e.g. theological significance of east and west">${escapeHtml(savedQ)}</textarea>
-      <p id="theme-improve-note" class="theme-note"></p>
-      <div class="theme-actions">
-        <button type="button" id="theme-improve">Improve phrasing</button>
-        <button type="button" id="theme-hits">Local hits</button>
-        <button type="button" id="theme-copy">Copy Grok prompt</button>
+      <div class="theme-toolbar">
+        <p class="theme-ctx"><strong>Reading from:</strong> ${escapeHtml(ctx)}</p>
+        <button type="button" id="theme-clear" class="theme-clear">Clear theme</button>
       </div>
-      <pre id="theme-prompt" class="theme-prompt" hidden></pre>
+      <ol class="theme-recipe">
+        <li>Type short theme words in the box.</li>
+        <li>Tap <strong>Scan KJV</strong>.</li>
+        <li>Tap a hit to peek. Stay here, or Open chapter (← Back returns to Theme).</li>
+        <li>Optional: <strong>Build prompt</strong> → <strong>Copy prompt</strong> → paste Grok’s list below.</li>
+        <li>Tap <strong>Show pasted refs</strong>, peek those the same way.</li>
+      </ol>
+      <p class="theme-lead">Done with this motif? Tap <strong>Clear theme</strong> before you start the next one.</p>
+
+      <p class="theme-step">1 · Type the theme</p>
+      <textarea id="theme-q" class="theme-q" rows="2" placeholder="e.g. east west">${escapeHtml(savedQ)}</textarea>
+      <p id="theme-improve-note" class="theme-note"></p>
+
+      <p class="theme-step">2 · Scan KJV</p>
+      <div class="theme-actions">
+        <button type="button" id="theme-hits">Scan KJV</button>
+      </div>
+      <div id="theme-peek" class="theme-peek" hidden></div>
       <div id="theme-hits-box" class="theme-hits"></div>
-      <label class="theme-label" for="theme-paste">Paste Grok verse list, then tap a ref</label>
-      <textarea id="theme-paste" class="theme-q" rows="3" placeholder="Genesis 3:24, Numbers 2:3, Ezekiel 10:19"></textarea>
+
+      <p class="theme-step">3 · Peek a verse <span class="theme-step-hint">(tap a hit above — panel stays open)</span></p>
+
+      <p class="theme-step">4 · Optional Grok prompt</p>
+      <div class="theme-actions">
+        <button type="button" id="theme-improve">Build prompt</button>
+        <button type="button" id="theme-copy">Copy prompt</button>
+      </div>
+      <pre id="theme-prompt" class="theme-prompt"${savedPrompt ? "" : " hidden"}>${escapeHtml(savedPrompt)}</pre>
+
+      <p class="theme-step">5 · Paste Grok’s verse list</p>
+      <textarea id="theme-paste" class="theme-q" rows="3" placeholder="Genesis 3:24, Numbers 2:3, Ezekiel 10:19">${escapeHtml(savedPaste)}</textarea>
       <button type="button" id="theme-open-list" class="theme-open-list">Show pasted refs</button>
       <div id="theme-paste-list"></div>
     `;
@@ -4704,9 +4735,83 @@ async function openResearch() {
     const hitsBox = $("#theme-hits-box", overlay);
     const pasteEl = $("#theme-paste", overlay);
     const pasteList = $("#theme-paste-list", overlay);
+    const peekEl = $("#theme-peek", overlay);
 
-    function persistQ() {
-      try { localStorage.setItem("kjv-theme-question", (qEl.value || "").trim()); } catch (_) {}
+    function persistThemeFields() {
+      try {
+        localStorage.setItem("kjv-theme-question", (qEl.value || "").trim());
+        localStorage.setItem("kjv-theme-paste", (pasteEl.value || "").trim());
+        localStorage.setItem("kjv-theme-prompt", (promptEl.textContent || "").trim());
+      } catch (_) {}
+    }
+
+    function verseCardHtml(key, label, snippet) {
+      return `<div class="search-result theme-hit" data-key="${escapeHtml(key)}">
+        <span class="ref">${escapeHtml(label)}</span>
+        ${snippet ? `<div class="theme-hit-text">${escapeHtml(snippet)}</div>` : ""}
+      </div>`;
+    }
+
+    function textForKey(key) {
+      try {
+        const p = bible.parseKey(key);
+        if (!p) return "";
+        return bible.getVerseText(books, p.bookId, p.chapter, p.verse) || "";
+      } catch (_) { return ""; }
+    }
+
+    function labelForKey(key) {
+      try {
+        const p = bible.parseKey(key);
+        if (!p) return key;
+        const meta = bible.CANONICAL_BOOKS.find(b => b.id === p.bookId);
+        return `${meta ? meta.name : p.bookId} ${p.chapter}:${p.verse}`;
+      } catch (_) { return key; }
+    }
+
+    function showPeek(key) {
+      const label = labelForKey(key);
+      const text = textForKey(key);
+      const loaded = !!text;
+      peekEl.hidden = false;
+      peekEl.innerHTML = `
+        <div class="theme-peek-head">
+          <strong>${escapeHtml(label)}</strong>
+          <button type="button" class="theme-peek-x" aria-label="Close peek">×</button>
+        </div>
+        <p class="theme-peek-text">${loaded ? escapeHtml(text) : "Book is not loaded. Import it to read the verse here."}</p>
+        <div class="theme-peek-actions">
+          <button type="button" id="theme-peek-stay">Stay in Theme</button>
+          <button type="button" id="theme-peek-open">Open chapter</button>
+          <button type="button" id="theme-peek-trail">Add to trail</button>
+        </div>
+      `;
+      peekEl.scrollIntoView({ block: "nearest" });
+      $(".theme-peek-x", peekEl).onclick = () => { peekEl.hidden = true; peekEl.innerHTML = ""; };
+      $("#theme-peek-stay", peekEl).onclick = () => { peekEl.hidden = true; peekEl.innerHTML = ""; };
+      $("#theme-peek-trail", peekEl).onclick = () => {
+        trailPush(key, "theme");
+        noteEl.textContent = label + " added to trail. Theme panel stayed open.";
+      };
+      $("#theme-peek-open", peekEl).onclick = async () => {
+        persistThemeFields();
+        if (currentBookId) {
+          const main = document.getElementById("main");
+          const book = books.find(b => b.id === currentBookId);
+          const originLabel = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
+          navStack.push({
+            bookId: currentBookId,
+            chapter: currentChapter,
+            verseKey: getNearestVerseKey() || null,
+            scrollTop: main ? main.scrollTop : 0,
+            label: "Theme · " + originLabel,
+            reopenTheme: true
+          });
+          updateNavBackButton();
+        }
+        closeOverlay(overlay);
+        await jumpToRef(key);
+      };
     }
 
     async function inventorySummary() {
@@ -4718,9 +4823,7 @@ async function openResearch() {
         const rows = await bible.searchBooks(seed, books);
         summaryBits.push(seed + " ×" + rows.length);
         const cap = rows.slice(0, 30);
-        const list = cap.map(r =>
-          `<div class="search-result theme-hit" data-key="${escapeHtml(r.key)}"><span class="ref">${escapeHtml(r.bookName)} ${r.chapter}:${r.verse}</span> ${escapeHtml(r.snippet)}</div>`
-        ).join("");
+        const list = cap.map(r => verseCardHtml(r.key, `${r.bookName} ${r.chapter}:${r.verse}`, r.snippet)).join("");
         blocks.push(`<p class="subject-section-label">${escapeHtml(seed)} · ${rows.length} in loaded books${rows.length > 30 ? " (showing 30)" : ""}</p>${list || "<p class='theme-note'>No whole-word hits.</p>"}`);
       }
       return { text: summaryBits.join("; "), html: blocks.join("") };
@@ -4728,65 +4831,86 @@ async function openResearch() {
 
     function bindHitClicks(container) {
       $$(".theme-hit", container).forEach(row => {
-        row.onclick = async () => {
-          persistQ();
-          if (currentBookId) {
-            const main = document.getElementById("main");
-            const book = books.find(b => b.id === currentBookId);
-            const label = book ? `${book.name} ${currentChapter}` : `${currentBookId} ${currentChapter}`;
-            navStack.push({
-              bookId: currentBookId,
-              chapter: currentChapter,
-              verseKey: getNearestVerseKey() || null,
-              scrollTop: main ? main.scrollTop : 0,
-              label
-            });
-            updateNavBackButton();
-          }
-          trailPush(row.dataset.key, "theme");
-          closeOverlay(overlay);
-          await jumpToRef(row.dataset.key);
+        row.onclick = () => {
+          persistThemeFields();
+          showPeek(row.dataset.key);
         };
       });
     }
 
     $("#theme-improve", overlay).onclick = () => {
-      persistQ();
+      persistThemeFields();
       const r = improveThemeQuestion(qEl.value, ctx);
       noteEl.textContent = r.note;
-      if (r.improved) qEl.value = r.improved;
-      persistQ();
+      if (r.prompt) {
+        promptEl.hidden = false;
+        promptEl.textContent = r.prompt;
+      }
+      persistThemeFields();
     };
 
     $("#theme-hits", overlay).onclick = async () => {
-      persistQ();
+      persistThemeFields();
       hitsBox.innerHTML = "<p class='theme-note'>Scanning loaded books…</p>";
       const inv = await inventorySummary();
       hitsBox.innerHTML = inv.html;
       bindHitClicks(hitsBox);
+      noteEl.textContent = "Tap a hit to peek at the verse without leaving Theme.";
     };
 
     $("#theme-copy", overlay).onclick = async () => {
-      persistQ();
+      persistThemeFields();
       const inv = await inventorySummary();
-      const prompt = buildGrokThemePrompt(qEl.value, ctx, inv.text);
+      const built = (promptEl.textContent || "").trim() || buildGrokThemePrompt(qEl.value, ctx, inv.text);
       promptEl.hidden = false;
-      promptEl.textContent = prompt;
-      const ok = await copyText(prompt);
-      noteEl.textContent = ok ? "Prompt copied. Paste it to Grok. Then paste verse refs below." : "Could not copy. Select the prompt text.";
+      promptEl.textContent = built;
+      const ok = await copyText(built);
+      noteEl.textContent = ok
+        ? "Prompt copied. Paste it to Grok. Bring the verse list back to step 5."
+        : "Could not copy. Select the prompt text.";
+      persistThemeFields();
     };
 
     $("#theme-open-list", overlay).onclick = () => {
+      persistThemeFields();
       const rows = parseThemeRefList(pasteEl.value);
       if (!rows.length) {
         pasteList.innerHTML = "<p class='theme-note'>No recognizable refs (use Genesis 3:24 or gen.3.24).</p>";
         return;
       }
-      pasteList.innerHTML = rows.map(r =>
-        `<div class="search-result theme-hit" data-key="${escapeHtml(r.key)}"><span class="ref">${escapeHtml(r.label)}</span></div>`
-      ).join("");
+      pasteList.innerHTML = rows.map(r => verseCardHtml(r.key, r.label, textForKey(r.key))).join("");
       bindHitClicks(pasteList);
+      noteEl.textContent = "Tap a pasted ref to peek. Open chapter only if you want the full page.";
     };
+
+    $("#theme-clear", overlay).onclick = () => {
+      qEl.value = "";
+      pasteEl.value = "";
+      promptEl.textContent = "";
+      promptEl.hidden = true;
+      hitsBox.innerHTML = "";
+      pasteList.innerHTML = "";
+      peekEl.hidden = true;
+      peekEl.innerHTML = "";
+      noteEl.textContent = "Cleared. Step 1: type the next theme.";
+      try {
+        localStorage.removeItem("kjv-theme-question");
+        localStorage.removeItem("kjv-theme-paste");
+        localStorage.removeItem("kjv-theme-prompt");
+      } catch (_) {}
+      qEl.focus();
+    };
+
+    qEl.addEventListener("blur", persistThemeFields);
+    pasteEl.addEventListener("blur", persistThemeFields);
+
+    if (savedPaste.trim()) {
+      const rows = parseThemeRefList(savedPaste);
+      if (rows.length) {
+        pasteList.innerHTML = rows.map(r => verseCardHtml(r.key, r.label, textForKey(r.key))).join("");
+        bindHitClicks(pasteList);
+      }
+    }
   }
 
   async function loadSource(sourceId) {
@@ -4942,10 +5066,9 @@ function openHelp() {
         Tap <strong>Research</strong> while viewing a chapter. Choose Adam Clarke, Jamieson-Fausset-Brown (all 66 books), or Tyndale Open Study Notes.
         Notes are fetched from the free bible.helloao.org API and cached on this device so they work offline afterward.</p>
         <p style="margin-bottom:1rem"><strong>Research / Theme</strong><br>
-        Same Research button, then <strong>Theme</strong>. This is not Grok and not commentary.
-        Type the motif. <strong>Improve phrasing</strong> tightens the question (context, theological filter, verses first).
-        <strong>Local hits</strong> lists whole-word matches in loaded books. <strong>Copy Grok prompt</strong> packages where you are, the question, and those hits for Grok.
-        Paste verse refs Grok returns and tap one to open it. Anchor, Search, notes, and chains stay available.</p>
+        Same Research button, then <strong>Theme</strong>. Follow the numbered steps on that tab.
+        <strong>Clear theme</strong> wipes the box, prompt, hits, and pasted list so the next motif starts clean.
+        <strong>Scan KJV</strong> lists whole-word hits. Tap a hit to peek. <strong>Open chapter</strong> jumps to the reader; ← Back returns to Theme.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
@@ -4971,7 +5094,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.42.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.43.1</p>
       </div>
     </div>
   `);
@@ -4982,7 +5105,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.42.0</h2>
+      <h2>About – KJV Study v6.43.1</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -5001,14 +5124,14 @@ function openAbout() {
         <strong>Context:</strong> Offline book purpose, key themes, chapter outline, and place in the story for the current chapter.<br><br>
         <strong>Research:</strong> Adam Clarke, Jamieson-Fausset-Brown (66 books), and Tyndale Open Study Notes
         (via the free bible.helloao.org API). Chapters are cached locally after first load.
-        <strong>Theme</strong> tab builds a Grok prompt and local word inventory. It does not answer as Grok.
+        <strong>Theme</strong> tab is a workbench: scan loaded KJV, peek verses in place, then optionally copy a Grok prompt. It does not answer as Grok.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Install:</strong> On supported browsers (Chrome, Edge, Safari on iOS/iPadOS,
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.42.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.43.1 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
