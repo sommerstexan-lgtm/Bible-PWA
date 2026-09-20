@@ -3,7 +3,7 @@
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 let db = null;
 
@@ -58,6 +58,9 @@ export function openDB() {
       if (!database.objectStoreNames.contains('chains')) {
         // Named saved study chains (title + explanation + ordered refs)
         database.createObjectStore('chains', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('generalNotes')) {
+        database.createObjectStore('generalNotes', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -319,6 +322,53 @@ export async function deleteSharedNote(id) {
   });
 }
 
+/* ----- General notes (titled, not tied to a verse) ----- */
+function newGeneralNoteId() {
+  return 'gn_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+export async function getGeneralNote(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('generalNotes').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getAllGeneralNotes() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('generalNotes').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function saveGeneralNote(note) {
+  await openDB();
+  const now = new Date().toISOString();
+  if (!note.id) note.id = newGeneralNoteId();
+  if (!note.createdAt) note.createdAt = now;
+  note.updatedAt = now;
+  note.title = (note.title || '').trim();
+  note.text = note.text || '';
+  return new Promise((res, rej) => {
+    const r = tx('generalNotes', 'readwrite').put(note);
+    r.onsuccess = () => res(note);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function deleteGeneralNote(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('generalNotes', 'readwrite').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
 /** Find shared note that includes this verse key, if any */
 export async function findSharedNoteForVerse(verseKey) {
   const all = await getAllSharedNotes();
@@ -467,7 +517,7 @@ export async function saveCachedCommentary(key, data) {
 /* ----- Export / Import all personal data ----- */
 export async function exportAllData() {
   await openDB();
-  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains] = await Promise.all([
+  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains, generalNotes] = await Promise.all([
     getAllBooks(),
     getAllHighlights(),
     new Promise((res, rej) => {
@@ -485,12 +535,13 @@ export async function exportAllData() {
     getLastPosition(),
     getAllSharedNotes(),
     getAllWordMarks(),
-    getAllChains()
+    getAllChains(),
+    getAllGeneralNotes()
   ]);
 
   return {
     format: 'kjv-study-backup',
-    version: 4,
+    version: 5,
     exportedAt: new Date().toISOString(),
     books,
     highlights,
@@ -501,7 +552,8 @@ export async function exportAllData() {
     history,
     sharedNotes,
     wordMarks,
-    chains
+    chains,
+    generalNotes
   };
 }
 
@@ -578,6 +630,12 @@ export async function importAllData(data, { replace = true } = {}) {
   if (Array.isArray(data.chains)) {
     for (const chain of data.chains) {
       if (chain && chain.id) await saveChain(chain);
+    }
+  }
+
+  if (Array.isArray(data.generalNotes)) {
+    for (const note of data.generalNotes) {
+      if (note && note.id) await saveGeneralNote(note);
     }
   }
 }

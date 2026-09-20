@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.45.0
+# KJV Study PWA – v6.46.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.46.0
+**Menu → General notes**
+- Titled notes that are not tied to a verse. Empty title saves as Untitled note.
+- Filter matches title and body. New / edit / delete stay on this device.
+- Included in Export / Import study data.
 
 ## New in 6.45.0
 **Menu → Notes — find verse notes**

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.45.0
+/* app.js – Main application controller. KJV Study PWA v6.46.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -150,7 +150,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.45.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.46.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -215,7 +215,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.45.0</div>
+      <div class="version-bar">v6.46.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -3590,6 +3590,133 @@ async function openNotesList() {
   setTimeout(() => filterBox && filterBox.focus(), 80);
 }
 
+// ---------- General notes (titled, not tied to a verse) ----------
+function openGeneralNoteEditor(existing) {
+  const isNew = !existing || !existing.id;
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">${isNew ? 'New general note' : 'Edit general note'}</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
+      <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
+      <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+      <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
+      ${isNew ? '' : '<button type="button" id="gn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
+      <button type="button" id="gn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
+    </div>
+  `);
+  const close = () => closeOverlay(overlay);
+  $('.close', overlay).onclick = close;
+  $('#gn-cancel', overlay).onclick = close;
+  $('#gn-save', overlay).onclick = async () => {
+    const title = ($('#gn-title', overlay).value || '').trim() || 'Untitled note';
+    const text = $('#gn-text', overlay).value || '';
+    try {
+      await storage.saveGeneralNote({
+        id: existing && existing.id,
+        title,
+        text,
+        createdAt: existing && existing.createdAt
+      });
+      close();
+      openGeneralNotesList();
+    } catch (_) {
+      alert('Could not save the note.');
+    }
+  };
+  const del = $('#gn-delete', overlay);
+  if (del) {
+    del.onclick = async () => {
+      if (!confirm('Delete this general note?')) return;
+      try {
+        await storage.deleteGeneralNote(existing.id);
+      } catch (_) {}
+      close();
+      openGeneralNotesList();
+    };
+  }
+  setTimeout(() => {
+    const t = $('#gn-title', overlay);
+    if (t) t.focus();
+  }, 80);
+}
+
+async function openGeneralNotesList() {
+  let list = [];
+  try { list = await storage.getAllGeneralNotes(); } catch (_) { list = []; }
+  list.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+
+  const overlay = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">General notes</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      <input id="gn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.5rem 0 0.4rem">
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.7rem">
+        Title plus body are searched. These notes are not tied to a verse.
+      </p>
+      <button type="button" id="gn-new" style="width:100%;margin-bottom:0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New note</button>
+      <div id="gn-list"></div>
+    </div>
+  `);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  $('#gn-new', overlay).onclick = () => {
+    closeOverlay(overlay);
+    openGeneralNoteEditor(null);
+  };
+  const el = $('#gn-list', overlay);
+  const filterBox = $('#gn-filter', overlay);
+
+  function snippet(text) {
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!one) return '';
+    if (one.length <= 140) return one;
+    return one.slice(0, 137) + '…';
+  }
+
+  function matches(note, q) {
+    if (!q) return true;
+    const hay = ((note.title || '') + ' ' + (note.text || '')).toLowerCase();
+    return hay.includes(q);
+  }
+
+  function renderList() {
+    const q = ((filterBox && filterBox.value || '')).trim().toLowerCase();
+    const shown = list.filter(n => matches(n, q));
+    if (!list.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">None yet. Tap New note and give it a title.</p>';
+      return;
+    }
+    if (!shown.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="gn-filter-clear">Clear</button>';
+      const clr = $('#gn-filter-clear', overlay);
+      if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      return;
+    }
+    el.innerHTML = shown.map(n => `
+      <button type="button" class="xref-item gn-row" data-id="${escapeHtml(n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
+        <strong>${escapeHtml(n.title || 'Untitled note')}</strong>
+        ${snippet(n.text) ? `<div class="trail-src">${escapeHtml(snippet(n.text))}</div>` : ''}
+      </button>
+    `).join('');
+    $$('.gn-row', overlay).forEach(btn => {
+      btn.onclick = () => {
+        const rec = list.find(x => x.id === btn.dataset.id);
+        closeOverlay(overlay);
+        openGeneralNoteEditor(rec || { id: btn.dataset.id });
+      };
+    });
+  }
+
+  if (filterBox) filterBox.oninput = renderList;
+  renderList();
+  setTimeout(() => filterBox && filterBox.focus(), 80);
+}
+
 // ---------- Menu (Import, Settings, About) ----------
 function openMenu() {
   const overlay = showOverlay(`
@@ -3598,7 +3725,8 @@ function openMenu() {
         <h2 style="margin:0;border:none;padding:0">Menu</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Notes</button>
+      <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Verse notes</button>
+      <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
       <button type="button" id="menu-chains" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chains</button>
       <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
@@ -3617,6 +3745,7 @@ function openMenu() {
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
   $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
+  $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
   $('#menu-chains', overlay).onclick = () => { closeOverlay(overlay); openSavedChainsList(); };
   $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
@@ -5177,8 +5306,12 @@ function openHelp() {
         Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
 
         <p style="margin-bottom:1rem"><strong>Find your verse notes</strong><br>
-        Menu → <strong>Notes</strong>. Filter matches the note text and the verse reference.
+        Menu → <strong>Verse notes</strong>. Filter matches the note text and the verse reference.
         Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.</p>
+
+        <p style="margin-bottom:1rem"><strong>General notes</strong><br>
+        Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
+        These notes are not tied to a verse. They stay on this device and go out with Export study data.</p>
 
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
         One reading spot. Books, Search, and hops do not move it.<br>
@@ -5224,7 +5357,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.45.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.46.0</p>
       </div>
     </div>
   `);
@@ -5235,7 +5368,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.45.0</h2>
+      <h2>About – KJV Study v6.46.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -5261,7 +5394,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.45.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.46.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
