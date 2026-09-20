@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.44.0
+# KJV Study PWA – v6.45.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.45.0
+**Menu → Notes — find verse notes**
+- Lists every private verse note and every shared note on this device.
+- Filter matches note text and the verse reference (e.g. John, gen.1.3).
+- Tap a row to open that verse and the note panel.
+- Shared notes appear once, with all linked verses named. No new note type. No titles.
 
 ## New in 6.44.0
 **Verse-number tap — reason for the paint**

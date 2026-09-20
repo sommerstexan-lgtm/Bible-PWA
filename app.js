@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.44.0
+/* app.js – Main application controller. KJV Study PWA v6.45.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -150,7 +150,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.44.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.45.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -215,7 +215,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.44.0</div>
+      <div class="version-bar">v6.45.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -3469,6 +3469,127 @@ function openSearch() {
 }
 
 
+// ---------- Verse notes list + filter ----------
+function formatNoteRefLabel(key) {
+  const parsed = bible.parseKey(key);
+  if (!parsed || !parsed.bookId) return key || '';
+  const meta = bible.CANONICAL_BOOKS.find(b => b.id === parsed.bookId);
+  const name = meta ? meta.name : parsed.bookId.toUpperCase();
+  return `${name} ${parsed.chapter}:${parsed.verse}`;
+}
+
+function noteCanonRank(key) {
+  const parsed = bible.parseKey(key) || {};
+  const idx = bible.CANONICAL_BOOKS.findIndex(b => b.id === parsed.bookId);
+  const book = idx < 0 ? 999 : idx;
+  return book * 100000 + (Number(parsed.chapter) || 0) * 100 + (Number(parsed.verse) || 0);
+}
+
+async function openNotesList() {
+  let privateNotes = [];
+  let sharedNotes = [];
+  try { privateNotes = await storage.getAllNotes(); } catch (_) { privateNotes = []; }
+  try { sharedNotes = await storage.getAllSharedNotes(); } catch (_) { sharedNotes = []; }
+
+  const sharedKeys = new Set();
+  sharedNotes.forEach(n => (n.verseKeys || []).forEach(k => sharedKeys.add(k)));
+
+  const items = [];
+  sharedNotes.forEach(n => {
+    const text = (n.text || '').trim();
+    const keys = (n.verseKeys || []).filter(Boolean);
+    if (!text && !keys.length) return;
+    keys.sort((a, b) => noteCanonRank(a) - noteCanonRank(b));
+    items.push({
+      kind: 'shared',
+      id: n.id,
+      openKey: keys[0] || '',
+      keys,
+      labels: keys.map(formatNoteRefLabel),
+      text
+    });
+  });
+  privateNotes.forEach(n => {
+    const text = (n.text || '').trim();
+    if (!text || !n.key || sharedKeys.has(n.key)) return;
+    items.push({
+      kind: 'private',
+      id: n.key,
+      openKey: n.key,
+      keys: [n.key],
+      labels: [formatNoteRefLabel(n.key)],
+      text
+    });
+  });
+  items.sort((a, b) => noteCanonRank(a.openKey) - noteCanonRank(b.openKey));
+
+  const overlay = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">Verse notes</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      <input id="note-filter" class="search-box" type="search" placeholder="Filter notes" autocomplete="off" style="margin:0.5rem 0 0.4rem">
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.7rem">
+        Tap a row to open that verse and its note. Filter matches the note text and the reference.
+      </p>
+      <div id="notes-list"></div>
+    </div>
+  `);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const el = $('#notes-list', overlay);
+  const filterBox = $('#note-filter', overlay);
+
+  function snippet(text) {
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    if (one.length <= 140) return one;
+    return one.slice(0, 137) + '…';
+  }
+
+  function matches(item, q) {
+    if (!q) return true;
+    const hay = (item.text + ' ' + item.labels.join(' ') + ' ' + item.keys.join(' ')).toLowerCase();
+    return hay.includes(q);
+  }
+
+  async function openHit(item) {
+    const key = item.openKey;
+    closeOverlay(overlay);
+    if (!key) return;
+    await jumpToRef(key);
+    setTimeout(() => openNote(key), 120);
+  }
+
+  function renderList() {
+    const q = ((filterBox && filterBox.value) || '').trim().toLowerCase();
+    const shown = items.filter(it => matches(it, q));
+    if (!items.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">None yet. Open a verse and tap Note.</p>';
+      return;
+    }
+    if (!shown.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="note-filter-clear">Clear</button>';
+      const clr = $('#note-filter-clear', overlay);
+      if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      return;
+    }
+    el.innerHTML = shown.map((it, i) => `
+      <button type="button" class="xref-item note-list-row" data-idx="${i}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
+        <strong>${escapeHtml(it.labels.join(', ') || 'Note')}</strong>
+        ${it.kind === 'shared' ? '<div class="trail-src">Shared note</div>' : ''}
+        <div class="trail-src">${escapeHtml(snippet(it.text) || '(empty)')}</div>
+      </button>
+    `).join('');
+    $$('.note-list-row', overlay).forEach(btn => {
+      btn.onclick = () => openHit(shown[Number(btn.dataset.idx)]);
+    });
+  }
+
+  if (filterBox) filterBox.oninput = renderList;
+  renderList();
+  setTimeout(() => filterBox && filterBox.focus(), 80);
+}
+
 // ---------- Menu (Import, Settings, About) ----------
 function openMenu() {
   const overlay = showOverlay(`
@@ -3477,6 +3598,7 @@ function openMenu() {
         <h2 style="margin:0;border:none;padding:0">Menu</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
+      <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Notes</button>
       <button type="button" id="menu-chains" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chains</button>
       <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
@@ -3494,6 +3616,7 @@ function openMenu() {
     </div>
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
   $('#menu-chains', overlay).onclick = () => { closeOverlay(overlay); openSavedChainsList(); };
   $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
@@ -5053,6 +5176,10 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Shared notes</strong><br>
         Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
 
+        <p style="margin-bottom:1rem"><strong>Find your verse notes</strong><br>
+        Menu → <strong>Notes</strong>. Filter matches the note text and the verse reference.
+        Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.</p>
+
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
         One reading spot. Books, Search, and hops do not move it.<br>
         <strong>Set Anchor here</strong> saves the verse on screen.<br>
@@ -5097,7 +5224,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.44.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.45.0</p>
       </div>
     </div>
   `);
@@ -5108,7 +5235,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.44.0</h2>
+      <h2>About – KJV Study v6.45.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -5134,7 +5261,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.44.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.45.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));

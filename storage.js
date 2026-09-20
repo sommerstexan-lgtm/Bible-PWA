@@ -182,6 +182,15 @@ export async function setNote(key, text) {
   });
 }
 
+export async function getAllNotes() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('notes').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
 /* Cross-refs: { key, refs: [{ target: "mat.5.3", label?: "" }] } */
 export async function getCrossRefs(key) {
   await openDB();
