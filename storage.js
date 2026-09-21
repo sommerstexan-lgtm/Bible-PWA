@@ -1,9 +1,9 @@
-/* storage.js – IndexedDB wrapper for all private data. v6.37.0
+/* storage.js – IndexedDB wrapper for all private data. v6.47.0
    Everything stays on-device. No network calls.
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 
 let db = null;
 
@@ -61,6 +61,10 @@ export function openDB() {
       }
       if (!database.objectStoreNames.contains('generalNotes')) {
         database.createObjectStore('generalNotes', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('noteImages')) {
+        // Original image blobs for notes and chains (no resize)
+        database.createObjectStore('noteImages', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -162,23 +166,34 @@ export async function getAllHighlights() {
 
 /* Notes */
 export async function getNote(key) {
+  const rec = await getNoteRecord(key);
+  return rec ? (rec.text || '') : '';
+}
+
+export async function getNoteRecord(key) {
   await openDB();
   return new Promise((res, rej) => {
     const r = tx('notes').get(key);
-    r.onsuccess = () => res(r.result ? r.result.text : '');
+    r.onsuccess = () => res(r.result || null);
     r.onerror = () => rej(r.error);
   });
 }
 
-export async function setNote(key, text) {
+export async function setNote(key, text, imageIds) {
   await openDB();
+  const ids = Array.isArray(imageIds) ? imageIds.filter(Boolean) : null;
   return new Promise((res, rej) => {
-    if (!text || !text.trim()) {
+    const emptyText = !text || !String(text).trim();
+    const emptyImgs = !ids || !ids.length;
+    if (emptyText && emptyImgs) {
       const r = tx('notes', 'readwrite').delete(key);
       r.onsuccess = () => res();
       r.onerror = () => rej(r.error);
     } else {
-      const r = tx('notes', 'readwrite').put({ key, text });
+      const rec = { key, text: text || '' };
+      if (ids) rec.imageIds = ids;
+      else rec.imageIds = [];
+      const r = tx('notes', 'readwrite').put(rec);
       r.onsuccess = () => res();
       r.onerror = () => rej(r.error);
     }
@@ -517,7 +532,7 @@ export async function saveCachedCommentary(key, data) {
 /* ----- Export / Import all personal data ----- */
 export async function exportAllData() {
   await openDB();
-  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains, generalNotes] = await Promise.all([
+  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains, generalNotes, noteImages] = await Promise.all([
     getAllBooks(),
     getAllHighlights(),
     new Promise((res, rej) => {
@@ -536,12 +551,18 @@ export async function exportAllData() {
     getAllSharedNotes(),
     getAllWordMarks(),
     getAllChains(),
-    getAllGeneralNotes()
+    getAllGeneralNotes(),
+    getAllNoteImages()
   ]);
+
+  const imagesOut = [];
+  for (const img of (noteImages || [])) {
+    imagesOut.push(await noteImageToExport(img));
+  }
 
   return {
     format: 'kjv-study-backup',
-    version: 5,
+    version: 6,
     exportedAt: new Date().toISOString(),
     books,
     highlights,
@@ -553,7 +574,8 @@ export async function exportAllData() {
     sharedNotes,
     wordMarks,
     chains,
-    generalNotes
+    generalNotes,
+    noteImages: imagesOut
   };
 }
 
@@ -586,7 +608,7 @@ export async function importAllData(data, { replace = true } = {}) {
   // Notes
   if (Array.isArray(data.notes)) {
     for (const row of data.notes) {
-      if (row && row.key) await setNote(row.key, row.text || '');
+      if (row && row.key) await setNote(row.key, row.text || '', row.imageIds || []);
     }
   }
 
@@ -636,6 +658,12 @@ export async function importAllData(data, { replace = true } = {}) {
   if (Array.isArray(data.generalNotes)) {
     for (const note of data.generalNotes) {
       if (note && note.id) await saveGeneralNote(note);
+    }
+  }
+
+  if (Array.isArray(data.noteImages)) {
+    for (const img of data.noteImages) {
+      if (img && img.id) await importNoteImage(img);
     }
   }
 }
@@ -716,3 +744,127 @@ export async function getChainsForVerse(verseKey) {
   return all.filter((c) => Array.isArray(c.nodes) && c.nodes.some((n) => n && n.key === verseKey));
 }
 
+/* ----- Note / chain images (original pixels, stored as Blob) ----- */
+function newImageId() {
+  return 'img_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+}
+
+export async function saveNoteImage(file) {
+  await openDB();
+  if (!file) throw new Error('No image file');
+  const blob = file instanceof Blob ? file : new Blob([file]);
+  const rec = {
+    id: newImageId(),
+    blob,
+    mime: blob.type || 'image/jpeg',
+    name: (file && file.name) ? String(file.name) : '',
+    size: blob.size || 0,
+    createdAt: new Date().toISOString()
+  };
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('noteImages')) return rej(new Error('Images store missing'));
+    const r = tx('noteImages', 'readwrite').put(rec);
+    r.onsuccess = () => res(rec);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getNoteImage(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('noteImages')) return res(null);
+    const r = tx('noteImages').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getNoteImages(ids) {
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  const out = [];
+  for (const id of list) {
+    const rec = await getNoteImage(id);
+    if (rec) out.push(rec);
+  }
+  return out;
+}
+
+export async function deleteNoteImage(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('noteImages')) return res();
+    const r = tx('noteImages', 'readwrite').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function deleteNoteImages(ids) {
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  for (const id of list) await deleteNoteImage(id);
+}
+
+export async function getAllNoteImages() {
+  await openDB();
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('noteImages')) return res([]);
+    const r = tx('noteImages').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
+async function noteImageToExport(img) {
+  if (!img) return null;
+  let dataUrl = '';
+  try {
+    if (img.blob) dataUrl = await blobToDataUrl(img.blob);
+    else if (img.dataUrl) dataUrl = img.dataUrl;
+  } catch (_) {}
+  return {
+    id: img.id,
+    mime: img.mime || '',
+    name: img.name || '',
+    size: img.size || 0,
+    createdAt: img.createdAt || '',
+    dataUrl
+  };
+}
+
+async function importNoteImage(row) {
+  if (!row || !row.id) return;
+  let blob = row.blob;
+  if (!blob && row.dataUrl && typeof row.dataUrl === 'string') {
+    try {
+      const res = await fetch(row.dataUrl);
+      blob = await res.blob();
+    } catch (_) {
+      blob = null;
+    }
+  }
+  if (!blob) return;
+  await openDB();
+  const rec = {
+    id: row.id,
+    blob,
+    mime: row.mime || blob.type || 'image/jpeg',
+    name: row.name || '',
+    size: blob.size || row.size || 0,
+    createdAt: row.createdAt || new Date().toISOString()
+  };
+  return new Promise((res, rej) => {
+    if (!db.objectStoreNames.contains('noteImages')) return res();
+    const r = tx('noteImages', 'readwrite').put(rec);
+    r.onsuccess = () => res(rec);
+    r.onerror = () => rej(r.error);
+  });
+}

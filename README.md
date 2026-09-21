@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.46.0
+# KJV Study PWA – v6.47.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.47.0
+**Images on verse notes, general notes, and chains**
+- Add image from the note or chain editor. The file is stored as-is (original pixels). No shrink, no re-encode.
+- Thumbnails sit under the text. Tap a thumbnail for a full-screen view of the original image.
+- Remove with the × on the thumbnail. Images stay on this device and ride along in Export / Import study data.
 
 ## New in 6.46.0
 **Menu → General notes**

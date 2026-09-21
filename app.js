@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.46.0
+/* app.js – Main application controller. KJV Study PWA v6.47.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -150,7 +150,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.46.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=6.47.0', {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -215,7 +215,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.46.0</div>
+      <div class="version-bar">v6.47.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -796,6 +796,7 @@ function openSaveChainDialog(existing) {
       <input id="chain-title" class="search-box" value="${escapeHtml(seedTitle)}" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
       <textarea id="chain-note" class="note-input" placeholder="What this chain shows you">${escapeHtml(seedNote)}</textarea>
+      ${noteImagesMarkup()}
       <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-top:0.9rem">
         <button type="button" id="chain-save-go">${isUpdate ? 'Save' : 'Save chain'}</button>
         ${isUpdate ? '<button type="button" id="chain-save-as">Save as new</button>' : ''}
@@ -803,6 +804,7 @@ function openSaveChainDialog(existing) {
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const chainImgs = mountNoteImages(overlay, existing && existing.imageIds);
   const go = async (asNew) => {
     const title = ($('#chain-title', overlay).value || '').trim() || 'Untitled chain';
     const note = ($('#chain-note', overlay).value || '').trim();
@@ -816,6 +818,7 @@ function openSaveChainDialog(existing) {
       title,
       note,
       nodes,
+      imageIds: chainImgs.getIds(),
       createdAt: (!asNew && existing && existing.createdAt) ? existing.createdAt : undefined
     };
     try {
@@ -957,6 +960,11 @@ async function openSavedChainReader(id) {
   const expl = chain.note
     ? `<details class="chain-expl-box"><summary>Explanation</summary><p class="chain-expl">${escapeHtml(chain.note)}</p></details>`
     : '';
+  const imgStrip = (Array.isArray(chain.imageIds) && chain.imageIds.length)
+    ? `<div class="note-thumbs note-thumbs-readonly" id="chain-read-thumbs">${chain.imageIds.map((id) =>
+        `<button type="button" class="note-thumb-open" data-id="${escapeHtml(id)}"><img alt="" data-src-id="${escapeHtml(id)}"></button>`
+      ).join('')}</div>`
+    : '';
 
   async function openHop(i) {
     if (i < 0 || i >= nodes.length) return;
@@ -972,9 +980,9 @@ async function openSavedChainReader(id) {
   }
 
   if (!nodes.length) {
-    list.innerHTML = expl + '<p style="color:var(--text-dim)">This chain has no verses.</p>';
+    list.innerHTML = expl + imgStrip + '<p style="color:var(--text-dim)">This chain has no verses.</p>';
   } else {
-    list.innerHTML = expl + nodes.map((n, i) => `
+    list.innerHTML = expl + imgStrip + nodes.map((n, i) => `
       <button type="button" class="xref-item chain-hop${i === chainRead.index ? ' is-current' : ''}" data-i="${i}">
         <span class="trail-idx">${i + 1}</span>
         ${escapeHtml(n.label || n.key)}
@@ -983,6 +991,20 @@ async function openSavedChainReader(id) {
     `).join('');
     $$('.chain-hop', overlay).forEach((btn) => {
       btn.onclick = () => openHop(+btn.dataset.i);
+    });
+  }
+
+  const thumbsBox = $('#chain-read-thumbs', overlay);
+  if (thumbsBox) {
+    thumbsBox.querySelectorAll('img[data-src-id]').forEach(async (img) => {
+      const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
+      if (url) img.src = url;
+    });
+    thumbsBox.querySelectorAll('.note-thumb-open').forEach((btn) => {
+      btn.onclick = async () => {
+        const url = await noteImageObjectUrl(btn.dataset.id);
+        openNoteImageViewer(url, chain.title || 'Saved image');
+      };
     });
   }
   $('#chain-prev', overlay).onclick = () => openHop(Math.max(0, (chainRead.index || 0) - 1));
@@ -997,6 +1019,7 @@ async function openSavedChainReader(id) {
   };
   $('#chain-del', overlay).onclick = async () => {
     if (!confirm('Delete this saved chain? The verses themselves stay in the Bible.')) return;
+    try { await storage.deleteNoteImages(chain.imageIds || []); } catch (_) {}
     await storage.deleteChain(chain.id);
     if (chainRead.id === chain.id) {
       chainRead = { id: null, index: 0, title: '' };
@@ -1025,6 +1048,7 @@ async function openChainWorkshop(id) {
       <input id="chain-title" class="search-box" value="${escapeHtml(chain.title || '')}" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
       <textarea id="chain-note" class="note-input">${escapeHtml(chain.note || '')}</textarea>
+      ${noteImagesMarkup()}
       <p style="margin:0.8rem 0 0.35rem;font-weight:700">Hops</p>
       <div id="ws-hops"></div>
       <div class="ws-add-row">
@@ -1040,6 +1064,7 @@ async function openChainWorkshop(id) {
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const wsImgs = mountNoteImages(overlay, chain.imageIds);
   const hopsEl = $('#ws-hops', overlay);
   const msg = $('#ws-msg', overlay);
   function setMsg(s) { if (msg) msg.textContent = s || ''; }
@@ -1089,6 +1114,7 @@ async function openChainWorkshop(id) {
   $('#chain-save-meta', overlay).onclick = async () => {
     chain.title = ($('#chain-title', overlay).value || '').trim() || 'Untitled chain';
     chain.note = ($('#chain-note', overlay).value || '').trim();
+    chain.imageIds = wsImgs.getIds();
     await storage.saveChain(chain);
     setOpenChain(chain);
     closeOverlay(overlay);
@@ -1111,16 +1137,18 @@ function openStartChainFromVerse(key) {
       <input id="chain-title" class="search-box" value="" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
       <textarea id="chain-note" class="note-input" placeholder="What this chain shows you"></textarea>
+      ${noteImagesMarkup()}
       <div style="margin-top:0.9rem"><button type="button" id="chain-start-go">Save chain</button></div>
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const startImgs = mountNoteImages(overlay, []);
   $('#chain-start-go', overlay).onclick = async () => {
     const title = ($('#chain-title', overlay).value || '').trim() || 'Untitled chain';
     const note = ($('#chain-note', overlay).value || '').trim();
     const node = makeHop(key, 'start');
     try {
-      const saved = await storage.saveChain({ title, note, nodes: [node] });
+      const saved = await storage.saveChain({ title, note, nodes: [node], imageIds: startImgs.getIds() });
       setOpenChain(saved, 0);
       closeOverlay(overlay);
       if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
@@ -2732,7 +2760,120 @@ async function openColorPicker(key) {
 }
 
 
+
 // ---------- Notes ----------
+
+const NOTE_IMAGE_URLS = new Map();
+
+function revokeNoteImageUrl(id) {
+  const u = NOTE_IMAGE_URLS.get(id);
+  if (u) {
+    try { URL.revokeObjectURL(u); } catch (_) {}
+    NOTE_IMAGE_URLS.delete(id);
+  }
+}
+
+async function noteImageObjectUrl(id) {
+  if (!id) return '';
+  if (NOTE_IMAGE_URLS.has(id)) return NOTE_IMAGE_URLS.get(id);
+  const rec = await storage.getNoteImage(id);
+  if (!rec || !rec.blob) return '';
+  const url = URL.createObjectURL(rec.blob);
+  NOTE_IMAGE_URLS.set(id, url);
+  return url;
+}
+
+function openNoteImageViewer(url, name) {
+  if (!url) return;
+  const layer = document.createElement('div');
+  layer.className = 'img-viewer';
+  layer.innerHTML = `
+    <button type="button" class="img-viewer-close" aria-label="Close">×</button>
+    <img alt="${escapeHtml(name || 'Saved image')}" src="${url}">
+  `;
+  document.body.appendChild(layer);
+  const close = () => { if (layer.parentNode) layer.parentNode.removeChild(layer); };
+  layer.onclick = (e) => { if (e.target === layer) close(); };
+  layer.querySelector('.img-viewer-close').onclick = close;
+}
+
+function noteImagesMarkup() {
+  return `
+    <div class="note-images-block">
+      <strong class="note-images-label">Images</strong>
+      <p class="note-images-hint">Saved at original size. Tap a thumbnail for full screen.</p>
+      <div class="note-thumbs" data-role="thumbs"></div>
+      <label class="note-add-image">
+        Add image
+        <input type="file" accept="image/*" hidden>
+      </label>
+    </div>
+  `;
+}
+
+function mountNoteImages(root, imageIds) {
+  const ids = Array.isArray(imageIds) ? imageIds.slice() : [];
+  const block = root.querySelector('.note-images-block');
+  if (!block) return { getIds: () => ids.slice() };
+  const thumbs = block.querySelector('[data-role="thumbs"]');
+  const fileInput = block.querySelector('input[type="file"]');
+
+  async function paint() {
+    if (!ids.length) {
+      thumbs.innerHTML = '<p class="note-images-empty">No images yet.</p>';
+      return;
+    }
+    thumbs.innerHTML = ids.map((id) => `
+      <div class="note-thumb" data-id="${escapeHtml(id)}">
+        <button type="button" class="note-thumb-open" data-id="${escapeHtml(id)}" aria-label="Open image">
+          <img alt="" data-src-id="${escapeHtml(id)}">
+        </button>
+        <button type="button" class="note-thumb-del" data-id="${escapeHtml(id)}" aria-label="Remove image">×</button>
+      </div>
+    `).join('');
+    for (const img of thumbs.querySelectorAll('img[data-src-id]')) {
+      const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
+      if (url) img.src = url;
+    }
+    thumbs.querySelectorAll('.note-thumb-open').forEach((btn) => {
+      btn.onclick = async () => {
+        const url = await noteImageObjectUrl(btn.dataset.id);
+        openNoteImageViewer(url, 'Saved image');
+      };
+    });
+    thumbs.querySelectorAll('.note-thumb-del').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.id;
+        const i = ids.indexOf(id);
+        if (i >= 0) ids.splice(i, 1);
+        try { await storage.deleteNoteImage(id); } catch (_) {}
+        revokeNoteImageUrl(id);
+        await paint();
+      };
+    });
+  }
+
+  if (fileInput) {
+    fileInput.onchange = async () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!file) return;
+      if (!String(file.type || '').startsWith('image/')) {
+        alert('Please choose an image.');
+        return;
+      }
+      try {
+        const rec = await storage.saveNoteImage(file);
+        ids.push(rec.id);
+        await paint();
+      } catch (_) {
+        alert('Could not save that image.');
+      }
+    };
+  }
+  paint();
+  return { getIds: () => ids.slice() };
+}
 
 async function openNote(key) {
   const { bookId, chapter, verse } = bible.parseKey(key);
@@ -2740,9 +2881,13 @@ async function openNote(key) {
 
   // Prefer shared note that includes this verse; else private per-verse note
   let shared = await storage.findSharedNoteForVerse(key);
-  let privateText = await storage.getNote(key);
+  let privateRec = await storage.getNoteRecord(key);
+  let privateText = privateRec ? (privateRec.text || '') : '';
   let mode = shared ? 'shared' : 'private';
   let text = shared ? (shared.text || '') : privateText;
+  let workingImageIds = shared
+    ? (Array.isArray(shared.imageIds) ? shared.imageIds.slice() : [])
+    : (privateRec && Array.isArray(privateRec.imageIds) ? privateRec.imageIds.slice() : []);
 
   function linkedListHtml(note) {
     if (!note || !note.verseKeys || !note.verseKeys.length) return '<p style="color:var(--text-dim);font-size:0.9em">No other verses linked.</p>';
@@ -2770,6 +2915,7 @@ async function openNote(key) {
           : 'Private note for this verse only. Link more verses to share one note.'}
       </p>
       <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
+      ${noteImagesMarkup()}
 
       <div style="margin-top:0.9rem;padding-top:0.7rem;border-top:1px solid var(--border)">
         <strong style="font-size:0.95em">Linked verses</strong>
@@ -2789,6 +2935,7 @@ async function openNote(key) {
     </div>
   `);
 
+  const noteImgs = mountNoteImages(overlay, workingImageIds);
   const close = () => closeOverlay(overlay);
   $('.close', overlay).onclick = close;
   $('#cancel-note', overlay).onclick = close;
@@ -2852,18 +2999,21 @@ async function openNote(key) {
 
     const body = ($('#note-text', overlay).value || '').trim();
 
+    const imgs = noteImgs.getIds();
     if (!shared) {
       // Promote private note to shared
       shared = await storage.saveSharedNote({
         id: null,
         text: body || privateText || '',
-        verseKeys: [...new Set(keys)]
+        verseKeys: [...new Set(keys)],
+        imageIds: imgs
       });
       // Clear private note for this verse to avoid dual storage confusion
-      await storage.setNote(key, '');
+      await storage.setNote(key, '', []);
     } else {
       shared.verseKeys = [...new Set([...(shared.verseKeys || []), ...keys])];
       if (body) shared.text = body;
+      shared.imageIds = imgs;
       await storage.saveSharedNote(shared);
     }
     $('#link-refs', overlay).value = '';
@@ -2873,14 +3023,16 @@ async function openNote(key) {
 
   $('#save-note', overlay).onclick = async () => {
     const body = $('#note-text', overlay).value || '';
+    const imgs = noteImgs.getIds();
     if (shared) {
       shared.text = body;
+      shared.imageIds = imgs;
       if (!shared.verseKeys.includes(key)) shared.verseKeys.push(key);
       await storage.saveSharedNote(shared);
       // keep private empty when shared
-      await storage.setNote(key, '');
+      await storage.setNote(key, '', []);
     } else {
-      await storage.setNote(key, body);
+      await storage.setNote(key, body, imgs);
     }
     closeOverlay(overlay);
     if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
@@ -2892,13 +3044,14 @@ async function openNote(key) {
       if (!shared) return;
       // Keep a private copy of the text on this verse
       const body = $('#note-text', overlay).value || shared.text || '';
+      const imgs = noteImgs.getIds();
       shared.verseKeys = shared.verseKeys.filter(k => k !== key);
       if (shared.verseKeys.length === 0) {
         await storage.deleteSharedNote(shared.id);
       } else {
         await storage.saveSharedNote(shared);
       }
-      await storage.setNote(key, body);
+      await storage.setNote(key, body, imgs);
       closeOverlay(overlay);
       if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
     };
@@ -3603,11 +3756,13 @@ function openGeneralNoteEditor(existing) {
       <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
       <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+      ${noteImagesMarkup()}
       <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
       ${isNew ? '' : '<button type="button" id="gn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
       <button type="button" id="gn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
     </div>
   `);
+  const gnImgs = mountNoteImages(overlay, existing && existing.imageIds);
   const close = () => closeOverlay(overlay);
   $('.close', overlay).onclick = close;
   $('#gn-cancel', overlay).onclick = close;
@@ -3619,6 +3774,7 @@ function openGeneralNoteEditor(existing) {
         id: existing && existing.id,
         title,
         text,
+        imageIds: gnImgs.getIds(),
         createdAt: existing && existing.createdAt
       });
       close();
@@ -3632,6 +3788,7 @@ function openGeneralNoteEditor(existing) {
     del.onclick = async () => {
       if (!confirm('Delete this general note?')) return;
       try {
+        try { await storage.deleteNoteImages(existing.imageIds || []); } catch (_) {}
         await storage.deleteGeneralNote(existing.id);
       } catch (_) {}
       close();
@@ -5357,7 +5514,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.46.0</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.47.0</p>
       </div>
     </div>
   `);
@@ -5368,7 +5525,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.46.0</h2>
+      <h2>About – KJV Study v6.47.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -5394,7 +5551,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.46.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.47.0 – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
