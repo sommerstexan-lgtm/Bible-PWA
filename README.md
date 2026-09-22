@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.47.0
+# KJV Study PWA – v6.48.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.48.0
+**Cross-refs — Back returns to the list**
+- Tap a personal or TSK cross-reference, then chrome ← Back.
+- You land on the origin verse and the Cross-references panel opens again so the next ref is one tap, not a hunt through verse tools.
 
 ## New in 6.47.0
 **Images on verse notes, general notes, and chains**

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.47.0
+/* app.js – Main application controller. KJV Study PWA v6.48.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -215,7 +215,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.47.0</div>
+      <div class="version-bar">v6.48.0</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -314,11 +314,16 @@ async function goNavBack() {
   if (!navStack.length) return;
   const prev = navStack.pop();
   const reopenTheme = !!prev.reopenTheme;
+  const reopenXrefKey = prev.reopenXref && prev.verseKey ? prev.verseKey : null;
   updateNavBackButton();
   await renderChapter(prev.bookId, prev.chapter, {
     scrollToKey: prev.verseKey || null,
     preserveScroll: prev.scrollTop
   });
+  if (reopenXrefKey) {
+    await openCrossRefs(reopenXrefKey);
+    return;
+  }
   if (reopenTheme) {
     reopenResearchTheme = true;
     openResearch();
@@ -3149,7 +3154,8 @@ async function openCrossRefs(key) {
           chapter: currentChapter,
           verseKey: key,
           scrollTop: main ? main.scrollTop : 0,
-          label
+          label: 'Cross-refs · ' + label,
+          reopenXref: true
         });
         updateNavBackButton();
         trailPush(btn.dataset.target, 'xref');
@@ -3185,7 +3191,8 @@ async function openCrossRefs(key) {
                 chapter: currentChapter,
                 verseKey: key,
                 scrollTop: main ? main.scrollTop : 0,
-                label: `${currentBookId} ${currentChapter}`
+                label: `Cross-refs · ${currentBookId} ${currentChapter}`,
+                reopenXref: true
               });
               updateNavBackButton();
               trailPush(target, 'tsk');
@@ -3203,7 +3210,8 @@ async function openCrossRefs(key) {
           chapter: currentChapter,
           verseKey: key,
           scrollTop: main ? main.scrollTop : 0,
-          label: `${currentBookId} ${currentChapter}`
+          label: `Cross-refs · ${currentBookId} ${currentChapter}`,
+          reopenXref: true
         });
         updateNavBackButton();
         trailPush(parsed.key, 'tsk');
@@ -5525,7 +5533,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.47.0</h2>
+      <h2>About – KJV Study v6.48.0</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
