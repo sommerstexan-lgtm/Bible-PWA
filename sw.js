@@ -1,8 +1,9 @@
-/* KJV Study PWA – Service Worker  v6.48.0
+/* KJV Study PWA – Service Worker  v6.49.0
    Network-first for app shell so updates apply on the first reload.
    IndexedDB data is never cached by the SW.
+   version.json is never written to Cache Storage.
 */
-const CACHE_NAME = 'kjv-study-v6.48.0';
+const CACHE_NAME = 'kjv-study-v6.49.0';
 const SHELL = [
   './',
   './index.html',
@@ -43,10 +44,26 @@ self.addEventListener('message', (event) => {
   }
 });
 
+function isVersionManifest(req) {
+  try {
+    const u = new URL(req.url);
+    return u.pathname.endsWith('/version.json') || u.pathname.endsWith('version.json');
+  } catch (_) {
+    return false;
+  }
+}
+
 // Network-first: try live files, fall back to cache (offline / flaky network)
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
+
+  if (isVersionManifest(req)) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' }).catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
 
   event.respondWith(
     fetch(req)

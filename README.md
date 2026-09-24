@@ -1,8 +1,18 @@
-# KJV Study PWA – v6.48.0
+# KJV Study PWA – v6.49.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
+## New in 6.49.0
+**Menu → Check for update**
+- Compares this device to `version.json` on the site (not a guess from the service worker).
+- If the site is newer, **Update now** replaces app files only. IndexedDB study data is not touched.
+- **Force refresh app** is back on the menu (the handler was already there; the button was missing).
+- `app.js` uses one `APP_VERSION` for the register query, version bar, Help, and About.
+
 ## New in 6.48.0
+**Service worker query matches this release**
+- `app.js` registers `./sw.js?v=6.48.0` (was left at 6.47.0). Help/About version lines match.
+
 **Cross-refs — Back returns to the list**
 - Tap a personal or TSK cross-reference, then chrome ← Back.
 - You land on the origin verse and the Cross-references panel opens again so the next ref is one tap, not a hunt through verse tools.

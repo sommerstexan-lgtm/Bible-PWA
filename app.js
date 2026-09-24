@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.48.0
+/* app.js – Main application controller. KJV Study PWA v6.49.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -11,6 +11,9 @@ import { buildThenKindNow } from './then-kind-now.js';
 import { kjvEnglishSense, phraseUnitAt } from './kjv-english.js';
 import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './subject-aliases.js';
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
+
+// ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
+const APP_VERSION = '6.49.0';
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -150,7 +153,7 @@ async function init() {
       });
 
       // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=6.47.0', {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION, {
         updateViaCache: 'none'
       });
       if (reg.waiting) {
@@ -215,7 +218,7 @@ function renderShell() {
         <button type="button" id="btn-prev-ch" aria-label="Previous chapter">◀</button>
         <button type="button" id="btn-next-ch" aria-label="Next chapter">▶</button>
       </div>
-      <div class="version-bar">v6.48.0</div>
+      <div class="version-bar">v${APP_VERSION}</div>
       <div class="anchor-bar" id="anchor-bar">
         <button type="button" id="btn-go-anchor" title="Return to Anchor">Anchor</button>
         <span id="anchor-label">Not set</span>
@@ -3882,6 +3885,82 @@ async function openGeneralNotesList() {
   setTimeout(() => filterBox && filterBox.focus(), 80);
 }
 
+
+function compareSemver(a, b) {
+  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const da = pa[i] || 0;
+    const db = pb[i] || 0;
+    if (da > db) return 1;
+    if (da < db) return -1;
+  }
+  return 0;
+}
+
+async function applyShellUpdate() {
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => String(k).startsWith('kjv-study-')).map((k) => caches.delete(k)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) {
+        try { await r.update(); } catch (_) {}
+        if (r.waiting) r.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    }
+  } catch (_) {}
+  location.reload();
+}
+
+async function checkForAppUpdate() {
+  const status = showOverlay(`
+    <div class="panel">
+      <button class="close" type="button">×</button>
+      <h2>Check for update</h2>
+      <p id="upd-msg">This device is v${APP_VERSION}. Asking the site for a newer app file…</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Study data (notes, highlights, imported KJV) stays on this device. Only app files update.</p>
+    </div>
+  `);
+  $('.close', status).onclick = () => closeOverlay(status);
+  const msg = $('#upd-msg', status);
+
+  try {
+    const resp = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!resp.ok) throw new Error('Could not read version.json (' + resp.status + ')');
+    const data = await resp.json();
+    const remote = String((data && data.version) || '').trim();
+    if (!remote) throw new Error('version.json has no version');
+
+    if (compareSemver(remote, APP_VERSION) > 0) {
+      msg.innerHTML = 'Site has <strong>v' + remote + '</strong>. This device has <strong>v' + APP_VERSION + '</strong>.';
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.style.cssText = 'width:100%;margin-top:0.8rem;min-height:52px';
+      go.textContent = 'Update now';
+      go.onclick = () => {
+        if (!confirm('Update this device from v' + APP_VERSION + ' to v' + remote + '? Notes and imported Bible text stay here.')) return;
+        msg.textContent = 'Updating app files…';
+        applyShellUpdate();
+      };
+      msg.parentNode.appendChild(go);
+      return;
+    }
+
+    msg.innerHTML = 'This device already has the latest app on the site: <strong>v' + APP_VERSION + '</strong>.';
+  } catch (err) {
+    const offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    msg.innerHTML = (offline
+      ? 'Need an internet connection to check the site.'
+      : 'Could not check. Connect and try again.') +
+      '<br><span style="font-size:0.9em;color:var(--text-dim)">' +
+      String(err.message || err) + '</span>';
+  }
+}
+
 // ---------- Menu (Import, Settings, About) ----------
 function openMenu() {
   const overlay = showOverlay(`
@@ -3903,6 +3982,8 @@ function openMenu() {
       <button type="button" id="menu-import-nt" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import New Testament (JSON)</button>
       <button type="button" id="menu-import" style="width:100%;margin-bottom:0.5rem;min-height:52px">Import Book (JSON)</button>
       <button type="button" id="menu-settings" style="width:100%;margin-bottom:0.5rem;min-height:52px">Settings</button>
+      <button type="button" id="menu-check-update" style="width:100%;margin-bottom:0.5rem;min-height:52px">Check for update</button>
+      <button type="button" id="menu-force-refresh" style="width:100%;margin-bottom:0.5rem;min-height:52px">Force refresh app</button>
       <button type="button" id="menu-about" style="width:100%;margin-bottom:0.5rem;min-height:52px">About / Privacy</button>
       <button type="button" id="menu-lock" style="width:100%;margin-bottom:0.5rem;min-height:52px">Lock app (require password)</button>
       <button type="button" id="menu-clear-sample" style="width:100%;margin-bottom:0.5rem;min-height:52px;color:var(--danger)">Remove sample book</button>
@@ -3922,6 +4003,7 @@ function openMenu() {
   $('#menu-import-nt', overlay).onclick = () => { closeOverlay(overlay); openBookNav(); };
   $('#menu-import', overlay).onclick = () => { closeOverlay(overlay); openImport(); };
   $('#menu-settings', overlay).onclick = () => { closeOverlay(overlay); openSettings(); };
+  $('#menu-check-update', overlay).onclick = () => { closeOverlay(overlay); checkForAppUpdate(); };
   $('#menu-about', overlay).onclick = () => { closeOverlay(overlay); openAbout(); };
   $('#menu-force-refresh', overlay).onclick = async () => {
     closeOverlay(overlay);
@@ -5522,7 +5604,11 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
 
-        <p style="margin-bottom:0.5rem"><strong>Version</strong> 6.47.0</p>
+        <p style="margin-bottom:1rem"><strong>Check for update</strong><br>
+        Menu → <strong>Check for update</strong>. Needs internet. Compares this device to <code>version.json</code> on the site.
+        If the site is newer, Update now replaces app files only. Notes, highlights, and imported KJV stay on this device.
+        <strong>Force refresh app</strong> is the iOS hammer: drops the service worker cache and reloads.</p>
+        <p style="margin-bottom:0.5rem"><strong>Version</strong> ${APP_VERSION}</p>
       </div>
     </div>
   `);
@@ -5533,7 +5619,7 @@ function openAbout() {
   showOverlay(`
     <div class="panel">
       <button class="close" type="button">×</button>
-      <h2>About – KJV Study v6.48.0</h2>
+      <h2>About – KJV Study v${APP_VERSION}</h2>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         Strictly private, local-only Progressive Web App for personal Bible study.
         Designed for comfortable long sessions and deep color-index thematic study.
@@ -5559,7 +5645,7 @@ function openAbout() {
         Chromebook) use the browser’s “Add to Home Screen” / “Install app” option
         for a full-screen, offline-capable experience.
       </p>
-      <p style="font-size:0.9em;color:var(--text-dim)">Version 6.47.0 – personal data stays on device</p>
+      <p style="font-size:0.9em;color:var(--text-dim)">Version ${APP_VERSION} – personal data stays on device</p>
     </div>
   `).querySelector('.close').onclick = function () {
     closeOverlay(this.closest('.overlay'));
