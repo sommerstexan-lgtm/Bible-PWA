@@ -1221,47 +1221,83 @@ body.chrome-is-hidden main#main {
   font-weight: 600;
   cursor: pointer;
 }
+.overlay.places-fs-overlay,
 .overlay:has(.places-fs) {
   align-items: stretch;
+  justify-content: stretch;
   padding: 0;
   z-index: 120;
+  inset: 0;
 }
 .places-fs {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   max-width: none;
-  background: var(--bg-alt, #16213e);
+  background: #0f1724;
   color: var(--text);
 }
 .places-fs-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  flex-shrink: 0;
-  padding: 0.7rem 1rem;
-  border-bottom: 1px solid var(--border, #334);
+  padding: 0.55rem 0.7rem;
+  background: rgba(15, 23, 36, 0.88);
 }
 .places-fs-title {
   margin: 0;
-  font-size: 1.1rem;
+  flex: 1;
+  font-size: 1.05rem;
   border: none;
   padding: 0;
 }
+.places-fs-notes-btn {
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  border: 0;
+  background: var(--accent, #c9a227);
+  color: #111;
+  font-weight: 600;
+  cursor: pointer;
+}
 .places-fs-map {
   flex: 1 1 auto;
-  min-height: 45vh;
-  background: #1a1a2e;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #d8d4c8;
+}
+.places-fs-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+  font-size: 14px;
 }
 .places-fs-notes {
-  flex: 0 1 38%;
-  max-height: 40vh;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  max-height: 42vh;
   overflow-y: auto;
   padding: 0.7rem 1rem 1rem;
+  background: rgba(15, 23, 36, 0.94);
   border-top: 1px solid var(--border, #334);
+}
+.places-fs-notes[hidden] {
+  display: none !important;
 }
 .places-fs-desc {
   white-space: pre-wrap;

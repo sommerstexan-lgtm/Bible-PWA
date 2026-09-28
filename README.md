@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.52.0
+# KJV Study PWA – v6.53.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.53.0
+**Research — Places map fills the screen**
+- Map uses the full viewport height. Title bar sits on top of the map.
+- English place names via CARTO Voyager tiles (not local-script OSM labels).
+- Footnotes are one tap: **Notes** / **Hide notes**. They no longer steal the map height.
 
 ## New in 6.52.0
 **Research — Places full-screen map**
