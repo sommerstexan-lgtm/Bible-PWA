@@ -1241,18 +1241,24 @@ body.chrome-is-hidden main#main {
   background: #0f1724;
   color: var(--text);
 }
-.places-fs-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 5;
+.places-fs-bar,
+.places-fs-dock {
+  position: relative;
+  z-index: 2000;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
   padding: 0.55rem 0.7rem;
-  background: rgba(15, 23, 36, 0.88);
+  background: #0f1724;
+}
+.places-fs-bar {
+  justify-content: space-between;
+  border-bottom: 1px solid #334;
+}
+.places-fs-dock {
+  justify-content: space-between;
+  border-top: 1px solid #334;
 }
 .places-fs-title {
   margin: 0;
@@ -1261,22 +1267,31 @@ body.chrome-is-hidden main#main {
   border: none;
   padding: 0;
 }
-.places-fs-notes-btn {
+.places-fs-notes-btn,
+.places-fs-close {
   flex-shrink: 0;
-  padding: 0.35rem 0.65rem;
+  padding: 0.4rem 0.75rem;
   border-radius: 8px;
   border: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+.places-fs-notes-btn {
   background: var(--accent, #c9a227);
   color: #111;
-  font-weight: 600;
-  cursor: pointer;
+}
+.places-fs-close {
+  background: #c62828;
+  color: #fff;
+}
+.places-fs-dock-hint {
+  color: var(--text-dim, #aaa);
+  font-size: 0.85em;
 }
 .places-fs-map {
   flex: 1 1 auto;
   width: 100%;
-  height: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 0;
   background: #d8d4c8;
 }
 .places-fs-map .leaflet-container {
@@ -1288,12 +1303,12 @@ body.chrome-is-hidden main#main {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
-  z-index: 6;
+  bottom: 3.1rem;
+  z-index: 2001;
   max-height: 42vh;
   overflow-y: auto;
   padding: 0.7rem 1rem 1rem;
-  background: rgba(15, 23, 36, 0.94);
+  background: rgba(15, 23, 36, 0.96);
   border-top: 1px solid var(--border, #334);
 }
 .places-fs-notes[hidden] {

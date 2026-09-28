@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.54.0
+# KJV Study PWA – v6.55.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.55.0
+**Research — Places chrome stays on screen**
+- Close is a labeled red button on the top bar and the bottom bar. The map cannot cover it.
+- Notes is on the bottom bar. Tap Notes or the gold marker to open footnotes.
+- Removed the broken Leaflet layer-control box.
 
 ## New in 6.54.0
 **Research — Places map tiles**

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.54.0
+/* app.js – Main application controller. KJV Study PWA v6.55.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.54.0';
+const APP_VERSION = '6.55.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -98,10 +98,14 @@ function openPlaceMapScreen(place) {
     <div class="places-fs">
       <div class="places-fs-bar">
         <h2 class="places-fs-title">${escapeHtml(name)}</h2>
-        <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
-        <button type="button" class="close places-fs-close" aria-label="Close map">×</button>
+        <button type="button" class="places-fs-close" id="places-fs-close">Close</button>
       </div>
       <div id="places-fs-map" class="places-fs-map">${hasCoord ? '' : '<p class="theme-note" style="padding:1rem">No coordinates for this place.</p>'}</div>
+      <div class="places-fs-dock">
+        <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
+        <span class="places-fs-dock-hint">Tap the gold marker or Notes</span>
+        <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
+      </div>
       <div class="places-fs-notes" id="places-fs-notes" hidden>
         <p class="theme-note">${escapeHtml(place.featureType || 'Place')}${hasCoord ? ' · ' + lat.toFixed(4) + ', ' + lon.toFixed(4) : ''}</p>
         ${desc ? `<p class="research-note places-fs-desc">${escapeHtml(desc)}</p>` : '<p class="theme-note">No footnote text in Theographic for this place.</p>'}
@@ -114,41 +118,34 @@ function openPlaceMapScreen(place) {
     </div>
   `);
   mapOverlay.classList.add('places-fs-overlay');
-  const closeBtn = $('.places-fs-close', mapOverlay);
-  if (closeBtn) closeBtn.onclick = () => closeOverlay(mapOverlay);
+  function closeMap() { closeOverlay(mapOverlay); }
+  mapOverlay.querySelectorAll('.places-fs-close').forEach((btn) => { btn.onclick = closeMap; });
   const notesBtn = $('#places-fs-notes-btn', mapOverlay);
   const notesEl = $('#places-fs-notes', mapOverlay);
-  if (notesBtn && notesEl) {
-    notesBtn.onclick = () => {
-      const open = notesEl.hasAttribute('hidden');
-      if (open) notesEl.removeAttribute('hidden');
-      else notesEl.setAttribute('hidden', '');
-      notesBtn.textContent = open ? 'Hide notes' : 'Notes';
-    };
+  function setNotesOpen(open) {
+    if (!notesEl || !notesBtn) return;
+    if (open) notesEl.removeAttribute('hidden');
+    else notesEl.setAttribute('hidden', '');
+    notesBtn.textContent = open ? 'Hide notes' : 'Notes';
   }
+  if (notesBtn) notesBtn.onclick = () => setNotesOpen(notesEl.hasAttribute('hidden'));
   if (!hasCoord) return;
   ensureLeaflet().then((L) => {
     const el = $('#places-fs-map', mapOverlay);
     if (!el || !L) return;
     const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 11);
-    // CARTO Voyager now requires an API key. Esri World Street Map is English and key-free.
-    const streets = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
       attribution: 'Tiles &copy; Esri'
-    });
-    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
-    });
-    streets.addTo(map);
-    L.control.layers({ 'English streets': streets, 'OpenStreetMap': osm }, null, { position: 'topright' }).addTo(map);
-    L.circleMarker([lat, lon], {
-      radius: 10,
+    }).addTo(map);
+    const marker = L.circleMarker([lat, lon], {
+      radius: 12,
       color: '#8a6d12',
-      weight: 2,
+      weight: 3,
       fillColor: '#c9a227',
-      fillOpacity: 0.95
-    }).addTo(map).bindPopup(name);
+      fillOpacity: 1
+    }).addTo(map);
+    marker.on('click', () => setNotesOpen(true));
     const size = () => map.invalidateSize();
     setTimeout(size, 50);
     setTimeout(size, 250);
