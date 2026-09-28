@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.51.0
+# KJV Study PWA – v6.52.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.52.0
+**Research — Places full-screen map**
+- Tap a place for a full-screen map: zoom (+/− or pinch), drag to slide.
+- Footnotes (Theographic note + verses) stay under the map and scroll on their own.
+- × closes the map and returns to the Places list.
+- Leaflet is bundled (`leaflet.js` / `leaflet.css`). Map tiles still come from OpenStreetMap (internet).
 
 ## New in 6.51.0
 **Research — Places works in the panel**

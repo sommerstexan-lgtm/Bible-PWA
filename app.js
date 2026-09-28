@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.51.0
+/* app.js – Main application controller. KJV Study PWA v6.52.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.51.0';
+const APP_VERSION = '6.52.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -57,6 +57,88 @@ function osmEmbedSrc(lat, lon) {
   return 'https://www.openstreetmap.org/export/embed.html?bbox=' +
     encodeURIComponent(west + ',' + south + ',' + east + ',' + north) +
     '&layer=mapnik&marker=' + encodeURIComponent(lat + ',' + lon);
+}
+
+let leafletLoading = null;
+function ensureLeaflet() {
+  if (window.L && typeof window.L.map === 'function') return Promise.resolve(window.L);
+  if (leafletLoading) return leafletLoading;
+  leafletLoading = new Promise((resolve, reject) => {
+    const cssId = 'leaflet-css';
+    if (!document.getElementById(cssId)) {
+      const link = document.createElement('link');
+      link.id = cssId;
+      link.rel = 'stylesheet';
+      link.href = './leaflet.css';
+      document.head.appendChild(link);
+    }
+    const script = document.createElement('script');
+    script.src = './leaflet.js';
+    script.onload = () => resolve(window.L);
+    script.onerror = () => {
+      leafletLoading = null;
+      reject(new Error('Leaflet failed to load'));
+    };
+    document.head.appendChild(script);
+  });
+  return leafletLoading;
+}
+
+function openPlaceMapScreen(place) {
+  const name = place.kjvName || place.name || 'Place';
+  const lat = Number(place.latitude);
+  const lon = Number(place.longitude);
+  const hasCoord = Number.isFinite(lat) && Number.isFinite(lon);
+  const desc = Array.isArray(place.description) ? place.description.join(' ') : (place.description || '');
+  const refs = Array.isArray(place.references) ? place.references : [];
+  const shown = refs.slice(0, 40);
+  const extra = refs.length > 40 ? ' +' + (refs.length - 40) + ' more' : '';
+  const atlasQ = encodeURIComponent(name);
+  const mapOverlay = showOverlay(`
+    <div class="places-fs">
+      <div class="places-fs-bar">
+        <h2 class="places-fs-title">${escapeHtml(name)}</h2>
+        <button type="button" class="close places-fs-close" aria-label="Close map">×</button>
+      </div>
+      <div id="places-fs-map" class="places-fs-map">${hasCoord ? '' : '<p class="theme-note" style="padding:1rem">No coordinates for this place.</p>'}</div>
+      <div class="places-fs-notes">
+        <p class="theme-note">${escapeHtml(place.featureType || 'Place')}${hasCoord ? ' · ' + lat.toFixed(4) + ', ' + lon.toFixed(4) : ''}</p>
+        ${desc ? `<p class="research-note places-fs-desc">${escapeHtml(desc)}</p>` : '<p class="theme-note">No footnote text in Theographic for this place.</p>'}
+        ${shown.length ? `<p class="theme-step">Verses</p><p class="research-note">${shown.map(formatPlaceRef).map(escapeHtml).join('; ')}${escapeHtml(extra)}</p>` : ''}
+        <p class="places-links">
+          ${hasCoord ? `<a href="https://www.openstreetmap.org/?mlat=${lat}&amp;mlon=${lon}#map=10/${lat}/${lon}" target="_blank" rel="noopener">OpenStreetMap</a> · ` : ''}
+          <a href="https://www.openbible.info/geo/?q=${atlasQ}" target="_blank" rel="noopener">OpenBible atlas</a>
+        </p>
+        <p class="theme-note">Pinch or use + / − to zoom. Drag to slide the map. Notes stay under the map.</p>
+      </div>
+    </div>
+  `);
+  const closeBtn = $('.places-fs-close', mapOverlay);
+  if (closeBtn) closeBtn.onclick = () => closeOverlay(mapOverlay);
+  if (!hasCoord) return;
+  ensureLeaflet().then((L) => {
+    const el = $('#places-fs-map', mapOverlay);
+    if (!el || !L) return;
+    const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 9);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    L.circleMarker([lat, lon], {
+      radius: 9,
+      color: '#c9a227',
+      weight: 2,
+      fillColor: '#e8c547',
+      fillOpacity: 0.9
+    }).addTo(map).bindPopup(name);
+    setTimeout(() => map.invalidateSize(), 80);
+  }).catch(() => {
+    const el = $('#places-fs-map', mapOverlay);
+    if (el) {
+      el.innerHTML = `<iframe class="places-map places-map-fallback" title="Map of ${escapeHtml(name)}" src="${osmEmbedSrc(lat, lon)}"></iframe>
+        <p class="theme-note">Full zoom map needs leaflet.js on this site. The embed still pans inside its frame.</p>`;
+    }
+  });
 }
 
 // ---------- Password gate (client-side only) ----------
@@ -5278,22 +5360,15 @@ async function openResearch() {
         const lon = Number(p.longitude);
         const hasCoord = Number.isFinite(lat) && Number.isFinite(lon);
         const desc = Array.isArray(p.description) ? p.description.join(" ") : (p.description || "");
-        const refs = Array.isArray(p.references) ? p.references.slice(0, 24) : [];
-        const extra = Array.isArray(p.references) && p.references.length > 24
-          ? ` +${p.references.length - 24} more`
-          : "";
-        const atlasQ = encodeURIComponent(name);
         detailEl.innerHTML = `
           <h3 class="places-detail-title">${escapeHtml(name)}</h3>
           <p class="theme-note">${escapeHtml(p.featureType || "Place")}${hasCoord ? " · " + lat.toFixed(4) + ", " + lon.toFixed(4) : " · no coordinates"}</p>
+          <button type="button" id="places-full-btn" class="places-full-btn">Open full map</button>
           ${desc ? `<p class="research-note">${escapeHtml(desc)}</p>` : ""}
-          ${hasCoord ? `<iframe class="places-map" title="Map of ${escapeHtml(name)}" src="${osmEmbedSrc(lat, lon)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-            <p class="places-links">
-              <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=8/${lat}/${lon}" target="_blank" rel="noopener">Open map</a>
-              · <a href="https://www.openbible.info/geo/?q=${atlasQ}" target="_blank" rel="noopener">OpenBible atlas (other proposed sites)</a>
-            </p>` : `<p class="places-links"><a href="https://www.openbible.info/geo/?q=${atlasQ}" target="_blank" rel="noopener">OpenBible atlas</a></p>`}
-          ${refs.length ? `<p class="theme-step">Verses</p><p class="research-note">${refs.map(formatPlaceRef).map(escapeHtml).join("; ")}${escapeHtml(extra)}</p>` : ""}
         `;
+        const fullBtn = $("#places-full-btn", overlay);
+        if (fullBtn) fullBtn.onclick = () => openPlaceMapScreen(p);
+        openPlaceMapScreen(p);
       } catch (err) {
         detailEl.innerHTML = `<p class="theme-note">Could not load that place. Check the connection and try again.</p>`;
       }
@@ -5761,7 +5836,7 @@ function openHelp() {
         <strong>Clear theme</strong> wipes the box, prompt, hits, and pasted list so the next motif starts clean.
         <strong>Scan KJV</strong> lists whole-word hits. Tap a hit to peek. <strong>Open chapter</strong> jumps to the reader; ← Back returns to Theme.</p>
         <p style="margin-bottom:1rem"><strong>Research / Places</strong><br>
-        Same Research button, then <strong>Places</strong>. Lists named places in the chapter on screen (Theographic API). Search any biblical place. Tap a name for the note, coordinates, and an OpenStreetMap in this panel. OpenBible atlas is offered when a site has more than one proposed location. Needs internet the first time.</p>
+        Same Research button, then <strong>Places</strong>. Lists named places in the chapter on screen. Tap a name for a full-screen map: pinch or +/− to zoom, drag to slide, footnotes and verses under the map. × closes the map and keeps Research open.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
@@ -5822,7 +5897,7 @@ function openAbout() {
         <strong>Research:</strong> Adam Clarke, Jamieson-Fausset-Brown (66 books), and Tyndale Open Study Notes
         (via the free bible.helloao.org API). Chapters are cached locally after first load.
         <strong>Theme</strong> tab is a workbench: scan loaded KJV, peek verses in place, then optionally copy a Grok prompt. It does not answer as Grok.
-        <strong>Places</strong> tab loads Theographic places for the current chapter, searches the 1,274-place index, and shows an OpenStreetMap in the panel. OpenBible.info is used when a location is debated.
+        <strong>Places</strong> tab loads Theographic places, then a full-screen zoomable OpenStreetMap with footnotes under the map.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Install:</strong> On supported browsers (Chrome, Edge, Safari on iOS/iPadOS,
