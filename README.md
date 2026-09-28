@@ -1,6 +1,18 @@
-# KJV Study PWA – v6.49.0
+# KJV Study PWA – v6.51.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.51.0
+**Research — Places works in the panel**
+- Lists named places for the chapter on screen from the Theographic API.
+- Search the 1,274-place index by KJV / modern name.
+- Tap a place for description, coordinates, verse list, and an OpenStreetMap in the same panel.
+- OpenBible.info atlas link is offered when you want other proposed sites.
+- Needs internet the first time. The places index stays in memory for the session.
+
+## New in 6.50.0
+**Research — Places tab added**
+- Fifth tab on Research: **Places**.
 
 ## New in 6.49.0
 **Menu → Check for update**

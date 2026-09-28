@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.49.0
+/* app.js – Main application controller. KJV Study PWA v6.51.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,51 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.49.0';
+const APP_VERSION = '6.51.0';
+const THEO_API = 'https://bible.helloao.org/api/d/theographic';
+let theoPlacesIndex = null;
+let theoPlacesIndexPromise = null;
+
+function theoFetchJson(url) {
+  return fetch(url, { cache: 'default' }).then((r) => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+}
+
+function loadTheoPlacesIndex() {
+  if (theoPlacesIndex) return Promise.resolve(theoPlacesIndex);
+  if (theoPlacesIndexPromise) return theoPlacesIndexPromise;
+  theoPlacesIndexPromise = theoFetchJson(THEO_API + '/places.json')
+    .then((data) => {
+      theoPlacesIndex = Array.isArray(data.places) ? data.places : [];
+      return theoPlacesIndex;
+    })
+    .catch((err) => {
+      theoPlacesIndexPromise = null;
+      throw err;
+    });
+  return theoPlacesIndexPromise;
+}
+
+function formatPlaceRef(ref) {
+  if (!ref) return '';
+  const book = ref.book || '';
+  const ch = ref.chapter != null ? ref.chapter : '';
+  const v = ref.verse != null ? ref.verse : '';
+  return v ? book + ' ' + ch + ':' + v : book + ' ' + ch;
+}
+
+function osmEmbedSrc(lat, lon) {
+  const pad = 0.18;
+  const west = lon - pad;
+  const east = lon + pad;
+  const south = lat - pad * 0.7;
+  const north = lat + pad * 0.7;
+  return 'https://www.openstreetmap.org/export/embed.html?bbox=' +
+    encodeURIComponent(west + ',' + south + ',' + east + ',' + north) +
+    '&layer=mapnik&marker=' + encodeURIComponent(lat + ',' + lon);
+}
 
 // ---------- Password gate (client-side only) ----------
 const APP_PASSWORD = 'KJV-Study-Private';
@@ -5099,12 +5143,14 @@ async function openResearch() {
           </button>`).join("")}
         <button type="button" class="research-src" data-id="theme"
           style="background:var(--bg);color:var(--text)">Theme</button>
+        <button type="button" class="research-src" data-id="places"
+          style="background:var(--bg);color:var(--text)">Places</button>
       </div>
       <div id="research-status" class="research-status">Loading…</div>
       <div id="research-body" class="research-body"></div>
       <p class="research-footer">
-        Sources: public-domain / CC via <a href="https://bible.helloao.org" target="_blank" rel="noopener">bible.helloao.org</a>.
-        Place in notes is remembered.
+        Commentary: public-domain / CC via <a href="https://bible.helloao.org" target="_blank" rel="noopener">bible.helloao.org</a>.
+        Places tab: Theographic + map in this panel. Place in notes is remembered.
       </p>
     </div>
   `);
@@ -5172,6 +5218,137 @@ async function openResearch() {
       }
     };
     requestAnimationFrame(() => tryRestore(0));
+  }
+
+  async function showPlacesPanel() {
+    if (bodyHasContent && bodyEl && activeSource !== "places") {
+      saveScrollPos(activeSource, bodyEl.scrollTop);
+    }
+    activeSource = "places";
+    try { localStorage.setItem("kjv-research-source", "places"); } catch (_) {}
+    overlay.querySelectorAll(".research-src").forEach(btn => {
+      const active = btn.dataset.id === "places";
+      btn.style.background = active ? "var(--accent)" : "var(--bg)";
+      btn.style.color = active ? "#111" : "var(--text)";
+    });
+    statusEl.textContent = "Places · loading this chapter…";
+    bodyEl.innerHTML = `
+      <p class="theme-ctx"><strong>Reading from:</strong> ${escapeHtml(bookName)} ${currentChapter}</p>
+      <p class="theme-step">Find a place</p>
+      <div class="places-search-row">
+        <input type="search" id="places-q" class="places-q" placeholder="Haran, Canaan, Damascus…" autocomplete="off">
+        <button type="button" id="places-go">Search</button>
+      </div>
+      <div id="places-results" class="places-results"></div>
+      <p class="theme-step">This chapter</p>
+      <div id="places-chapter">Loading chapter places…</div>
+      <div id="places-detail" class="places-detail" hidden></div>
+      <p class="research-note" style="margin-top:1rem">Data: Theographic via bible.helloao.org (CC BY-SA). Map tiles: OpenStreetMap. Uncertain sites: OpenBible.info Geocoding.</p>
+    `;
+    bodyHasContent = true;
+
+    const qEl = $("#places-q", overlay);
+    const resultsEl = $("#places-results", overlay);
+    const chapterEl = $("#places-chapter", overlay);
+    const detailEl = $("#places-detail", overlay);
+
+    function renderPlaceButtons(list, emptyText) {
+      if (!list || !list.length) return `<p class="theme-note">${escapeHtml(emptyText)}</p>`;
+      return list.map((p) => {
+        const verses = Array.isArray(p.verses) && p.verses.length
+          ? ` · vv. ${p.verses.join(", ")}`
+          : (p.numberOfReferences ? ` · ${p.numberOfReferences} refs` : "");
+        const kind = p.featureType ? escapeHtml(p.featureType) : "";
+        return `<button type="button" class="place-hit" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name || "")}">
+          <strong>${escapeHtml(p.kjvName || p.name || p.id)}</strong>
+          <span>${kind}${verses}</span>
+        </button>`;
+      }).join("");
+    }
+
+    async function showPlaceDetail(placeId, fallbackName) {
+      detailEl.hidden = false;
+      detailEl.innerHTML = `<p class="theme-note">Loading ${escapeHtml(fallbackName || placeId)}…</p>`;
+      detailEl.scrollIntoView({ block: "nearest" });
+      try {
+        const data = await theoFetchJson(THEO_API + "/places/" + encodeURIComponent(placeId) + ".json");
+        const p = data.place || {};
+        const name = p.kjvName || p.name || fallbackName || placeId;
+        const lat = Number(p.latitude);
+        const lon = Number(p.longitude);
+        const hasCoord = Number.isFinite(lat) && Number.isFinite(lon);
+        const desc = Array.isArray(p.description) ? p.description.join(" ") : (p.description || "");
+        const refs = Array.isArray(p.references) ? p.references.slice(0, 24) : [];
+        const extra = Array.isArray(p.references) && p.references.length > 24
+          ? ` +${p.references.length - 24} more`
+          : "";
+        const atlasQ = encodeURIComponent(name);
+        detailEl.innerHTML = `
+          <h3 class="places-detail-title">${escapeHtml(name)}</h3>
+          <p class="theme-note">${escapeHtml(p.featureType || "Place")}${hasCoord ? " · " + lat.toFixed(4) + ", " + lon.toFixed(4) : " · no coordinates"}</p>
+          ${desc ? `<p class="research-note">${escapeHtml(desc)}</p>` : ""}
+          ${hasCoord ? `<iframe class="places-map" title="Map of ${escapeHtml(name)}" src="${osmEmbedSrc(lat, lon)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+            <p class="places-links">
+              <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=8/${lat}/${lon}" target="_blank" rel="noopener">Open map</a>
+              · <a href="https://www.openbible.info/geo/?q=${atlasQ}" target="_blank" rel="noopener">OpenBible atlas (other proposed sites)</a>
+            </p>` : `<p class="places-links"><a href="https://www.openbible.info/geo/?q=${atlasQ}" target="_blank" rel="noopener">OpenBible atlas</a></p>`}
+          ${refs.length ? `<p class="theme-step">Verses</p><p class="research-note">${refs.map(formatPlaceRef).map(escapeHtml).join("; ")}${escapeHtml(extra)}</p>` : ""}
+        `;
+      } catch (err) {
+        detailEl.innerHTML = `<p class="theme-note">Could not load that place. Check the connection and try again.</p>`;
+      }
+    }
+
+    function bindHits(root) {
+      root.querySelectorAll(".place-hit").forEach((btn) => {
+        btn.onclick = () => showPlaceDetail(btn.dataset.id, btn.dataset.name);
+      });
+    }
+
+    async function runSearch() {
+      const q = (qEl.value || "").trim().toLowerCase();
+      if (q.length < 2) {
+        resultsEl.innerHTML = `<p class="theme-note">Type at least two letters.</p>`;
+        return;
+      }
+      resultsEl.innerHTML = `<p class="theme-note">Searching…</p>`;
+      try {
+        const all = await loadTheoPlacesIndex();
+        const hits = all.filter((p) => {
+          const n = String(p.name || "").toLowerCase();
+          const k = String(p.kjvName || "").toLowerCase();
+          const id = String(p.id || "").toLowerCase();
+          return n.includes(q) || k.includes(q) || id.includes(q);
+        }).slice(0, 40);
+        resultsEl.innerHTML = renderPlaceButtons(hits, "No place name matched.");
+        bindHits(resultsEl);
+      } catch (err) {
+        resultsEl.innerHTML = `<p class="theme-note">Search needs internet the first time (places index).</p>`;
+      }
+    }
+
+    $("#places-go", overlay).onclick = runSearch;
+    qEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        runSearch();
+      }
+    });
+
+    try {
+      const chap = await theoFetchJson(THEO_API + "/" + encodeURIComponent(apiBook) + "/" + currentChapter + ".json");
+      const places = (chap.chapter && chap.chapter.places) || [];
+      chapterEl.innerHTML = renderPlaceButtons(places, "No named places in this chapter’s Theographic file.");
+      bindHits(chapterEl);
+      statusEl.textContent = places.length
+        ? ("Places · " + places.length + " in this chapter. Tap one for map and notes.")
+        : "Places · none listed for this chapter. Use Search.";
+      loadTheoPlacesIndex().catch(() => {});
+    } catch (err) {
+      chapterEl.innerHTML = `<p class="theme-note">Could not load chapter places. Internet is required the first time. Then Search still works if the index loaded.</p>`;
+      statusEl.textContent = "Places · chapter list unavailable.";
+    }
+    restoreScroll("places");
   }
 
   async function showThemePanel() {
@@ -5420,6 +5597,10 @@ async function openResearch() {
       await showThemePanel();
       return;
     }
+    if (sourceId === "places") {
+      await showPlacesPanel();
+      return;
+    }
     // Save previous source position only if we actually had content on screen
     if (bodyHasContent && bodyEl) {
       saveScrollPos(activeSource, bodyEl.scrollTop);
@@ -5579,6 +5760,8 @@ function openHelp() {
         Same Research button, then <strong>Theme</strong>. Follow the numbered steps on that tab.
         <strong>Clear theme</strong> wipes the box, prompt, hits, and pasted list so the next motif starts clean.
         <strong>Scan KJV</strong> lists whole-word hits. Tap a hit to peek. <strong>Open chapter</strong> jumps to the reader; ← Back returns to Theme.</p>
+        <p style="margin-bottom:1rem"><strong>Research / Places</strong><br>
+        Same Research button, then <strong>Places</strong>. Lists named places in the chapter on screen (Theographic API). Search any biblical place. Tap a name for the note, coordinates, and an OpenStreetMap in this panel. OpenBible atlas is offered when a site has more than one proposed location. Needs internet the first time.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
@@ -5639,6 +5822,7 @@ function openAbout() {
         <strong>Research:</strong> Adam Clarke, Jamieson-Fausset-Brown (66 books), and Tyndale Open Study Notes
         (via the free bible.helloao.org API). Chapters are cached locally after first load.
         <strong>Theme</strong> tab is a workbench: scan loaded KJV, peek verses in place, then optionally copy a Grok prompt. It does not answer as Grok.
+        <strong>Places</strong> tab loads Theographic places for the current chapter, searches the 1,274-place index, and shows an OpenStreetMap in the panel. OpenBible.info is used when a location is debated.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Install:</strong> On supported browsers (Chrome, Edge, Safari on iOS/iPadOS,
