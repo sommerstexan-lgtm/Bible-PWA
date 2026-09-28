@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.53.0
+# KJV Study PWA – v6.54.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.54.0
+**Research — Places map tiles**
+- CARTO tiles now demand an API key, so they were replaced.
+- Default map is Esri World Street Map (English labels, no key).
+- Layer control (top right) can switch to OpenStreetMap if Esri is blocked.
 
 ## New in 6.53.0
 **Research — Places map fills the screen**

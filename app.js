@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.53.0
+/* app.js – Main application controller. KJV Study PWA v6.54.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.53.0';
+const APP_VERSION = '6.54.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -131,10 +131,17 @@ function openPlaceMapScreen(place) {
     const el = $('#places-fs-map', mapOverlay);
     if (!el || !L) return;
     const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 11);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // CARTO Voyager now requires an API key. Esri World Street Map is English and key-free.
+    const streets = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap, &copy; CARTO'
-    }).addTo(map);
+      attribution: 'Tiles &copy; Esri'
+    });
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    });
+    streets.addTo(map);
+    L.control.layers({ 'English streets': streets, 'OpenStreetMap': osm }, null, { position: 'topright' }).addTo(map);
     L.circleMarker([lat, lon], {
       radius: 10,
       color: '#8a6d12',
