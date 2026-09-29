@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.57.0
+/* app.js – Main application controller. KJV Study PWA v6.58.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.57.0';
+const APP_VERSION = '6.58.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -144,7 +144,16 @@ function openPlaceMapScreen(place) {
         <h2 class="places-fs-title" id="places-fs-title">${escapeHtml(name)}</h2>
         <button type="button" class="places-fs-close" id="places-fs-close">Close</button>
       </div>
-      <div id="places-fs-map" class="places-fs-map">${hasCoord ? '' : '<p class="theme-note" style="padding:1rem">No coordinates for this place.</p>'}</div>
+      <div class="places-fs-map-wrap">
+        <div id="places-fs-map" class="places-fs-map">${hasCoord ? '' : '<p class="theme-note" style="padding:1rem">No coordinates for this place.</p>'}</div>
+        ${hasCoord ? `<div class="places-compass" aria-hidden="true">
+          <span class="places-compass-n">N</span>
+          <span class="places-compass-e">E</span>
+          <span class="places-compass-s">S</span>
+          <span class="places-compass-w">W</span>
+          <span class="places-compass-needle"></span>
+        </div>` : ''}
+      </div>
       <div class="places-fs-dist" id="places-fs-dist" hidden></div>
       <div class="places-fs-dock">
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>

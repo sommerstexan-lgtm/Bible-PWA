@@ -1,6 +1,10 @@
-# KJV Study PWA – v6.57.0
+# KJV Study PWA – v6.58.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.58.0
+**Research — Places compass**
+- Full-screen map shows N / E / S / W in the top-right corner so north is obvious without street labels.
 
 ## New in 6.57.0
 **Research — Places: add a second city and see the distance**

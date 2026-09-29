@@ -1344,11 +1344,57 @@ body.chrome-is-hidden main#main {
   color: var(--text-dim, #aaa);
   font-size: 0.85em;
 }
+.places-fs-map-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .places-fs-map {
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
   background: #d8d4c8;
+}
+.places-compass {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 1500;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(15, 23, 36, 0.88);
+  border: 2px solid #c9a227;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  pointer-events: none;
+  font-weight: 800;
+  font-size: 13px;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.places-compass-n,
+.places-compass-e,
+.places-compass-s,
+.places-compass-w {
+  position: absolute;
+  line-height: 1;
+}
+.places-compass-n { top: 5px; left: 50%; transform: translateX(-50%); color: #ffd35a; }
+.places-compass-s { bottom: 5px; left: 50%; transform: translateX(-50%); }
+.places-compass-e { right: 7px; top: 50%; transform: translateY(-50%); }
+.places-compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
+.places-compass-needle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: #c9a227;
 }
 .places-fs-map .leaflet-container {
   width: 100%;
