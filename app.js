@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.55.0
+/* app.js – Main application controller. KJV Study PWA v6.57.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.55.0';
+const APP_VERSION = '6.57.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -46,6 +46,51 @@ function formatPlaceRef(ref) {
   const ch = ref.chapter != null ? ref.chapter : '';
   const v = ref.verse != null ? ref.verse : '';
   return v ? book + ' ' + ch + ':' + v : book + ' ' + ch;
+}
+
+function placeDisplayName(p) {
+  return (p && (p.kjvName || p.name)) || 'Place';
+}
+
+function placeCoords(p) {
+  const lat = Number(p && p.latitude);
+  const lon = Number(p && p.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+function haversineMiles(a, b) {
+  const R = 3958.7613;
+  const rad = (d) => d * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLon = rad(b.lon - a.lon);
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+function formatMilesKm(miles) {
+  const km = miles * 1.609344;
+  const mTxt = miles >= 10 ? miles.toFixed(0) : miles.toFixed(1);
+  const kTxt = km >= 10 ? km.toFixed(0) : km.toFixed(1);
+  return mTxt + ' mi / ' + kTxt + ' km';
+}
+
+function walkEstimate(miles) {
+  if (miles < 8) return 'under 1 day on foot';
+  const d = Math.max(1, Math.round(miles / 18));
+  return '~' + d + (d === 1 ? ' day' : ' days') + ' on foot';
+}
+
+function searchTheoPlaces(all, qRaw) {
+  const q = String(qRaw || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  return all.filter((p) => {
+    const n = String(p.name || '').toLowerCase();
+    const k = String(p.kjvName || '').toLowerCase();
+    const id = String(p.id || '').toLowerCase();
+    return n.includes(q) || k.includes(q) || id.includes(q);
+  }).slice(0, 20);
 }
 
 function osmEmbedSrc(lat, lon) {
@@ -85,10 +130,9 @@ function ensureLeaflet() {
 }
 
 function openPlaceMapScreen(place) {
-  const name = place.kjvName || place.name || 'Place';
-  const lat = Number(place.latitude);
-  const lon = Number(place.longitude);
-  const hasCoord = Number.isFinite(lat) && Number.isFinite(lon);
+  const name = placeDisplayName(place);
+  const origin = placeCoords(place);
+  const hasCoord = !!origin;
   const desc = Array.isArray(place.description) ? place.description.join(' ') : (place.description || '');
   const refs = Array.isArray(place.references) ? place.references : [];
   const shown = refs.slice(0, 40);
@@ -97,21 +141,31 @@ function openPlaceMapScreen(place) {
   const mapOverlay = showOverlay(`
     <div class="places-fs">
       <div class="places-fs-bar">
-        <h2 class="places-fs-title">${escapeHtml(name)}</h2>
+        <h2 class="places-fs-title" id="places-fs-title">${escapeHtml(name)}</h2>
         <button type="button" class="places-fs-close" id="places-fs-close">Close</button>
       </div>
       <div id="places-fs-map" class="places-fs-map">${hasCoord ? '' : '<p class="theme-note" style="padding:1rem">No coordinates for this place.</p>'}</div>
+      <div class="places-fs-dist" id="places-fs-dist" hidden></div>
       <div class="places-fs-dock">
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
-        <span class="places-fs-dock-hint">Tap the gold marker or Notes</span>
+        <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
       </div>
+      <div class="places-fs-add" id="places-fs-add" hidden>
+        <p class="theme-step">Add a place</p>
+        <div class="places-search-row">
+          <input type="search" id="places-fs-q" class="places-q" placeholder="Type a name…" autocomplete="off">
+          <button type="button" id="places-fs-go">Search</button>
+        </div>
+        <div id="places-fs-hits"></div>
+        <div id="places-fs-onmap"></div>
+      </div>
       <div class="places-fs-notes" id="places-fs-notes" hidden>
-        <p class="theme-note">${escapeHtml(place.featureType || 'Place')}${hasCoord ? ' · ' + lat.toFixed(4) + ', ' + lon.toFixed(4) : ''}</p>
+        <p class="theme-note">${escapeHtml(place.featureType || 'Place')}${hasCoord ? ' · ' + origin.lat.toFixed(4) + ', ' + origin.lon.toFixed(4) : ''}</p>
         ${desc ? `<p class="research-note places-fs-desc">${escapeHtml(desc)}</p>` : '<p class="theme-note">No footnote text in Theographic for this place.</p>'}
         ${shown.length ? `<p class="theme-step">Verses</p><p class="research-note">${shown.map(formatPlaceRef).map(escapeHtml).join('; ')}${escapeHtml(extra)}</p>` : ''}
         <p class="places-links">
-          ${hasCoord ? `<a href="https://www.openstreetmap.org/?mlat=${lat}&amp;mlon=${lon}#map=10/${lat}/${lon}" target="_blank" rel="noopener">OpenStreetMap</a> · ` : ''}
+          ${hasCoord ? `<a href="https://www.openstreetmap.org/?mlat=${origin.lat}&amp;mlon=${origin.lon}#map=10/${origin.lat}/${origin.lon}" target="_blank" rel="noopener">OpenStreetMap</a> · ` : ''}
           <a href="https://www.openbible.info/geo/?q=${atlasQ}" target="_blank" rel="noopener">OpenBible atlas</a>
         </p>
       </div>
@@ -122,39 +176,219 @@ function openPlaceMapScreen(place) {
   mapOverlay.querySelectorAll('.places-fs-close').forEach((btn) => { btn.onclick = closeMap; });
   const notesBtn = $('#places-fs-notes-btn', mapOverlay);
   const notesEl = $('#places-fs-notes', mapOverlay);
-  function setNotesOpen(open) {
-    if (!notesEl || !notesBtn) return;
-    if (open) notesEl.removeAttribute('hidden');
-    else notesEl.setAttribute('hidden', '');
-    notesBtn.textContent = open ? 'Hide notes' : 'Notes';
+  const addBtn = $('#places-fs-add-btn', mapOverlay);
+  const addEl = $('#places-fs-add', mapOverlay);
+  const distEl = $('#places-fs-dist', mapOverlay);
+  const titleEl = $('#places-fs-title', mapOverlay);
+  const qEl = $('#places-fs-q', mapOverlay);
+  const hitsEl = $('#places-fs-hits', mapOverlay);
+  const onMapEl = $('#places-fs-onmap', mapOverlay);
+
+  function setPanel(which) {
+    if (notesEl) {
+      if (which === 'notes') notesEl.removeAttribute('hidden');
+      else notesEl.setAttribute('hidden', '');
+    }
+    if (addEl) {
+      if (which === 'add') addEl.removeAttribute('hidden');
+      else addEl.setAttribute('hidden', '');
+    }
+    if (notesBtn) notesBtn.textContent = which === 'notes' ? 'Hide notes' : 'Notes';
+    if (addBtn) addBtn.textContent = which === 'add' ? 'Hide add' : 'Add place';
+    if (which === 'add' && qEl) setTimeout(() => qEl.focus(), 50);
   }
-  if (notesBtn) notesBtn.onclick = () => setNotesOpen(notesEl.hasAttribute('hidden'));
+  if (notesBtn) notesBtn.onclick = () => setPanel(notesEl && notesEl.hasAttribute('hidden') ? 'notes' : null);
+  if (addBtn) addBtn.onclick = () => setPanel(addEl && addEl.hasAttribute('hidden') ? 'add' : null);
+
   if (!hasCoord) return;
+
+  const extras = [];
+  let mapObj = null;
+  let lineLayer = null;
+  const MAX_EXTRAS = 5;
+
+  function originId() {
+    return String(place.id || name);
+  }
+
+  function refreshChrome() {
+    if (titleEl) {
+      titleEl.textContent = extras.length
+        ? name + ' + ' + extras.length
+        : name;
+    }
+    if (onMapEl) {
+      if (!extras.length) {
+        onMapEl.innerHTML = `<p class="theme-note">On map: ${escapeHtml(name)} (gold). Search, then tap a result.</p>`;
+      } else {
+        onMapEl.innerHTML = extras.map((ex, i) => {
+          const miles = haversineMiles(origin, ex.coord);
+          return `<div class="places-fs-onitem">
+            <span>${escapeHtml(ex.name)} · ${formatMilesKm(miles)}</span>
+            <button type="button" class="places-fs-remove" data-i="${i}">Remove</button>
+          </div>`;
+        }).join('');
+        onMapEl.querySelectorAll('.places-fs-remove').forEach((btn) => {
+          btn.onclick = () => removeExtra(Number(btn.dataset.i));
+        });
+      }
+    }
+    if (distEl) {
+      if (!extras.length) {
+        distEl.setAttribute('hidden', '');
+        distEl.textContent = '';
+      } else {
+        distEl.removeAttribute('hidden');
+        distEl.innerHTML = extras.map((ex) => {
+          const miles = haversineMiles(origin, ex.coord);
+          return `<div>${escapeHtml(name)} → ${escapeHtml(ex.name)}: ${formatMilesKm(miles)} · ${walkEstimate(miles)}</div>`;
+        }).join('');
+      }
+    }
+  }
+
+  function fitAll() {
+    if (!mapObj || !window.L) return;
+    const pts = [[origin.lat, origin.lon]].concat(extras.map((ex) => [ex.coord.lat, ex.coord.lon]));
+    if (pts.length === 1) mapObj.setView(pts[0], 11);
+    else mapObj.fitBounds(pts, { padding: [48, 48], maxZoom: 12 });
+  }
+
+  function redrawLines() {
+    if (!mapObj || !window.L) return;
+    if (lineLayer) {
+      mapObj.removeLayer(lineLayer);
+      lineLayer = null;
+    }
+    if (!extras.length) return;
+    lineLayer = window.L.layerGroup();
+    extras.forEach((ex) => {
+      window.L.polyline(
+        [[origin.lat, origin.lon], [ex.coord.lat, ex.coord.lon]],
+        { color: '#2a6f97', weight: 3, opacity: 0.85 }
+      ).addTo(lineLayer);
+    });
+    lineLayer.addTo(mapObj);
+  }
+
+  function addMarker(L, coord, label, gold) {
+    const marker = L.circleMarker([coord.lat, coord.lon], {
+      radius: gold ? 12 : 10,
+      color: gold ? '#8a6d12' : '#1d4f70',
+      weight: 3,
+      fillColor: gold ? '#c9a227' : '#4a9fd8',
+      fillOpacity: 1
+    }).addTo(mapObj);
+    marker.bindTooltip(label, {
+      permanent: true,
+      direction: 'right',
+      offset: [14, 0],
+      className: gold ? 'place-en-label' : 'place-en-label place-en-label-alt',
+      opacity: 1
+    });
+    if (gold) marker.on('click', () => setPanel('notes'));
+    return marker;
+  }
+
+  function removeExtra(i) {
+    const ex = extras[i];
+    if (!ex) return;
+    if (ex.marker && mapObj) mapObj.removeLayer(ex.marker);
+    extras.splice(i, 1);
+    redrawLines();
+    refreshChrome();
+    fitAll();
+  }
+
+  async function addById(placeId, fallbackName) {
+    if (String(placeId) === originId()) return;
+    if (extras.some((ex) => String(ex.id) === String(placeId))) return;
+    if (extras.length >= MAX_EXTRAS) {
+      if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Five added places is the limit. Remove one first.</p>`;
+      return;
+    }
+    if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Adding ${escapeHtml(fallbackName || placeId)}…</p>`;
+    try {
+      const data = await theoFetchJson(THEO_API + '/places/' + encodeURIComponent(placeId) + '.json');
+      const p = data.place || {};
+      const coord = placeCoords(p);
+      const label = placeDisplayName(p) || fallbackName || placeId;
+      if (!coord) {
+        if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">${escapeHtml(label)} has no coordinates.</p>`;
+        return;
+      }
+      const marker = addMarker(window.L, coord, label, false);
+      extras.push({ id: p.id || placeId, name: label, coord, marker });
+      redrawLines();
+      refreshChrome();
+      fitAll();
+      if (hitsEl) hitsEl.innerHTML = '';
+      if (qEl) qEl.value = '';
+    } catch (err) {
+      if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Could not load that place.</p>`;
+    }
+  }
+
+  async function runAddSearch() {
+    const q = (qEl && qEl.value) || '';
+    if (String(q).trim().length < 2) {
+      if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Type at least two letters.</p>`;
+      return;
+    }
+    if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Searching…</p>`;
+    try {
+      const all = await loadTheoPlacesIndex();
+      const hits = searchTheoPlaces(all, q);
+      if (!hits.length) {
+        hitsEl.innerHTML = `<p class="theme-note">No place name matched.</p>`;
+        return;
+      }
+      hitsEl.innerHTML = hits.map((p) => {
+        const label = p.kjvName || p.name || p.id;
+        return `<button type="button" class="place-hit" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name || '')}">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${escapeHtml(p.featureType || '')}</span>
+        </button>`;
+      }).join('');
+      hitsEl.querySelectorAll('.place-hit').forEach((btn) => {
+        btn.onclick = () => addById(btn.dataset.id, btn.dataset.name);
+      });
+    } catch (err) {
+      hitsEl.innerHTML = `<p class="theme-note">Search needs internet the first time (places index).</p>`;
+    }
+  }
+
+  const goBtn = $('#places-fs-go', mapOverlay);
+  if (goBtn) goBtn.onclick = runAddSearch;
+  if (qEl) {
+    qEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runAddSearch();
+      }
+    });
+  }
+  refreshChrome();
+
   ensureLeaflet().then((L) => {
     const el = $('#places-fs-map', mapOverlay);
     if (!el || !L) return;
-    const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 11);
+    mapObj = L.map(el, { zoomControl: true, attributionControl: true }).setView([origin.lat, origin.lon], 11);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
       attribution: 'Tiles &copy; Esri'
-    }).addTo(map);
-    const marker = L.circleMarker([lat, lon], {
-      radius: 12,
-      color: '#8a6d12',
-      weight: 3,
-      fillColor: '#c9a227',
-      fillOpacity: 1
-    }).addTo(map);
-    marker.on('click', () => setNotesOpen(true));
-    const size = () => map.invalidateSize();
+    }).addTo(mapObj);
+    addMarker(L, origin, name, true);
+    const size = () => mapObj && mapObj.invalidateSize();
     setTimeout(size, 50);
     setTimeout(size, 250);
     window.addEventListener('resize', size);
   }).catch(() => {
     const el = $('#places-fs-map', mapOverlay);
     if (el) {
-      el.innerHTML = `<iframe class="places-map places-map-fallback" title="Map of ${escapeHtml(name)}" src="${osmEmbedSrc(lat, lon)}"></iframe>`;
+      el.innerHTML = `<iframe class="places-map places-map-fallback" title="Map of ${escapeHtml(name)}" src="${osmEmbedSrc(origin.lat, origin.lon)}"></iframe>`;
     }
+    if (addBtn) addBtn.disabled = true;
   });
 }
 
@@ -5853,7 +6087,7 @@ function openHelp() {
         <strong>Clear theme</strong> wipes the box, prompt, hits, and pasted list so the next motif starts clean.
         <strong>Scan KJV</strong> lists whole-word hits. Tap a hit to peek. <strong>Open chapter</strong> jumps to the reader; ← Back returns to Theme.</p>
         <p style="margin-bottom:1rem"><strong>Research / Places</strong><br>
-        Same Research button, then <strong>Places</strong>. Tap a name for a full-screen English map. Pinch or +/− to zoom, drag to slide. Tap <strong>Notes</strong> for footnotes and verses. × closes the map.</p>
+        Same Research button, then <strong>Places</strong>. Tap a name for a full-screen map. The gold marker carries the English name. <strong>Add place</strong> drops a second city, draws a line, and shows miles. Pinch or +/− to zoom. Notes for footnotes. Close leaves the map.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>

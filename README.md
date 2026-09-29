@@ -1,6 +1,18 @@
-# KJV Study PWA – v6.55.0
+# KJV Study PWA – v6.57.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.57.0
+**Research — Places: add a second city and see the distance**
+- On the full map tap **Add place**.
+- Type a name → Search → tap the hit. A blue marker drops. A line is drawn to the gold place.
+- Miles / km and a rough walking-day estimate appear under the map.
+- Remove undoes one added place. Limit is five extras.
+
+## New in 6.56.0
+**Research — Places English name on the marker**
+- Full-screen map keeps Esri tiles (roads/terrain).
+- The gold marker now shows the Theographic / KJV English name as our own label, so local-script tile text no longer hides the name.
 
 ## New in 6.55.0
 **Research — Places chrome stays on screen**
