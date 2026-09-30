@@ -1,4 +1,4 @@
-/* storage.js – IndexedDB wrapper for all private data. v6.47.0
+/* storage.js – IndexedDB wrapper for all private data. v6.59.0
    Everything stays on-device. No network calls.
 */
 
@@ -226,6 +226,53 @@ export async function setCrossRefs(key, refs) {
     r.onsuccess = () => res();
     r.onerror = () => rej(r.error);
   });
+}
+
+export async function getAllCrossRefs() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('crossrefs').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+/** One-pass chapter maps. Does not change stored records. */
+export async function getChapterVerseMaps(keys) {
+  const keySet = new Set(keys || []);
+  const highlightMap = {};
+  const noteMap = {};
+  const xrefPersonal = {};
+  const wordMarkMap = {};
+  const [highlights, notes, xrefs, marks] = await Promise.all([
+    getAllHighlights(),
+    getAllNotes(),
+    getAllCrossRefs(),
+    getAllWordMarks()
+  ]);
+  for (const row of highlights) {
+    if (!row || !keySet.has(row.key)) continue;
+    if (row._legacy) {
+      highlightMap[row.key] = { _legacyColors: (row.ranges || []).map((r) => r.color) };
+    } else {
+      highlightMap[row.key] = row.ranges || [];
+    }
+  }
+  for (const row of notes) {
+    if (!row || !keySet.has(row.key)) continue;
+    const hasText = !!(row.text && String(row.text).trim());
+    const hasImgs = Array.isArray(row.imageIds) && row.imageIds.length;
+    noteMap[row.key] = hasText || hasImgs;
+  }
+  for (const row of xrefs) {
+    if (!row || !keySet.has(row.key)) continue;
+    xrefPersonal[row.key] = Array.isArray(row.refs) && row.refs.length > 0;
+  }
+  for (const row of marks) {
+    if (!row || !keySet.has(row.key)) continue;
+    wordMarkMap[row.key] = row.marks || [];
+  }
+  return { highlightMap, noteMap, xrefPersonal, wordMarkMap };
 }
 
 /* Learning model – simple keyword boosts from user feedback */

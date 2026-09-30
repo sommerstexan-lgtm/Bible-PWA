@@ -1,6 +1,16 @@
-# KJV Study PWA – v6.58.0
+# KJV Study PWA – v6.59.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.59.0
+**Existing-feature pass (no new study types)**
+- Verse rows stay quiet: status dots + Tools. The six actions open on demand.
+- Search accepts a reference (`John 3:16`, `jhn.3.16`, `John 3`) and shows scan progress on word searches.
+- First-run banner and Menu → Import OT/NT load missing bundled KJV books. Notes are not touched.
+- Cross-ref banner hides after the book is loaded. **Load remaining books** fills the rest from the local TSK file.
+- Anchor bar collapses until a seat is set. High-traffic saves/copies use an in-app status toast instead of a blocking alert.
+- Books list: Last read badge, On device / Missing filter. Chapter render reads study data in one pass.
+- Help / About match the bundled-import path. App update still replaces files only; IndexedDB is unchanged.
 
 ## New in 6.58.0
 **Research — Places compass**

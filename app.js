@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.58.0
+/* app.js – Main application controller. KJV Study PWA v6.59.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -13,7 +13,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.58.0';
+const APP_VERSION = '6.59.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -514,6 +514,28 @@ function closeOverlay(overlay) {
   if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
 }
 
+function showAppStatus(message, kind) {
+  let el = document.getElementById('app-status-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'app-status-toast';
+    el.className = 'app-status-toast';
+    document.body.appendChild(el);
+  }
+  el.classList.remove('ok', 'fail');
+  if (kind === 'ok' || kind === 'fail') el.classList.add(kind);
+  el.textContent = String(message || '');
+  el.hidden = false;
+  clearTimeout(showAppStatus._timer);
+  showAppStatus._timer = setTimeout(() => { el.hidden = true; }, 3400);
+}
+
+let openVerseToolKeys = new Set();
+
+function missingBundledBooks() {
+  return bible.missingTestamentBooks(books, 'OT').concat(bible.missingTestamentBooks(books, 'NT'));
+}
+
 function applySettings() {
   document.documentElement.style.setProperty('--font-size', settings.fontSize + 'rem');
   document.documentElement.style.setProperty('--line-height', settings.lineHeight);
@@ -614,7 +636,7 @@ function renderShell() {
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
     <button type="button" id="anchor-chip" class="anchor-chip" hidden title="Return to Anchor">Anchor</button>
-    <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button
+    <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
     <div id="chain-read-bar" class="chain-read-bar" hidden>
       <button type="button" id="chain-bar-list">List</button>
       <span id="chain-bar-label">Chain</span>
@@ -773,19 +795,22 @@ function currentSeatForAnchor() {
 }
 
 function updateAnchorUI() {
+  const bar = document.getElementById('anchor-bar');
   const labelEl = document.getElementById('anchor-label');
   const goBtn = document.getElementById('btn-go-anchor');
   const chip = document.getElementById('anchor-chip');
   const undoBtn = document.getElementById('btn-undo-anchor');
   const text = formatAnchorShort(readingAnchor);
-  if (labelEl) labelEl.textContent = readingAnchor ? text : 'Not set';
+  if (bar) bar.classList.toggle('is-unset', !readingAnchor);
+  if (labelEl) labelEl.textContent = readingAnchor ? text : 'Set a seat for this session';
   if (goBtn) {
     goBtn.disabled = !readingAnchor;
+    goBtn.hidden = !readingAnchor;
     goBtn.setAttribute('aria-label', readingAnchor ? ('Go to Anchor ' + text) : 'Anchor not set');
   }
   if (chip) {
-    chip.hidden = !chromeHidden;
-    chip.textContent = readingAnchor ? ('Anchor · ' + text) : 'Anchor · Not set';
+    chip.hidden = !chromeHidden || !readingAnchor;
+    chip.textContent = readingAnchor ? ('Anchor · ' + text) : 'Anchor';
     chip.disabled = !readingAnchor;
   }
   if (undoBtn) undoBtn.hidden = !previousAnchor;
@@ -794,7 +819,7 @@ function updateAnchorUI() {
 async function goAnchor() {
   if (!readingAnchor || !readingAnchor.bookId) return;
   if (!books.find((b) => b.id === readingAnchor.bookId)) {
-    alert('Anchor book is not loaded on this device.');
+    showAppStatus('Anchor book is not loaded on this device.', 'fail');
     return;
   }
   const key = readingAnchor.verseKey || bible.verseKey(readingAnchor.bookId, readingAnchor.chapter, readingAnchor.verse || 1);
@@ -1204,7 +1229,7 @@ function openSaveChainDialog(existing) {
     const note = ($('#chain-note', overlay).value || '').trim();
     const nodes = snapshotTrailNodes();
     if (!nodes.length) {
-      alert('The trail is empty. Add a verse first.');
+      showAppStatus('The trail is empty. Add a verse first.', 'fail');
       return;
     }
     const rec = {
@@ -1218,10 +1243,10 @@ function openSaveChainDialog(existing) {
     try {
       await storage.saveChain(rec);
       closeOverlay(overlay);
-      alert('Saved: ' + title);
+      showAppStatus('Saved: ' + title, 'ok');
       if (currentBookId) await renderChapter(currentBookId, currentChapter, { preserveScroll: true });
     } catch (err) {
-      alert('Could not save the chain.');
+      showAppStatus('Could not save the chain.', 'fail');
     }
   };
   $('#chain-save-go', overlay).onclick = () => go(false);
@@ -1405,7 +1430,7 @@ async function openSavedChainReader(id) {
   $('#chain-next', overlay).onclick = () => openHop(Math.min(nodes.length - 1, (chainRead.index || 0) + 1));
   $('#chain-copy', overlay).onclick = async () => {
     const ok = await copyText(formatChainLetter(chain));
-    alert(ok ? 'Copied. Paste into Gmail or Messages.' : 'Could not copy.');
+    showAppStatus(ok ? 'Copied. Paste into Gmail or Messages.' : 'Could not copy.', ok ? 'ok' : 'fail');
   };
   $('#chain-edit', overlay).onclick = () => {
     closeOverlay(overlay);
@@ -2060,19 +2085,32 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
 
   currentBookId = bookId;
   currentChapter = chapterNum;
-  const isSample = book.translation !== 'WEB' && book.id === 'gen' && (!book.chapters || book.chapters.length <= 2);
+  const isSample = bible.isSampleBook(book);
   $('#header-title').textContent = isSample
     ? `${book.name} ${chapterNum} (KJV sample)`
-    : `${book.name} ${chapterNum}${book.translation ? ' (' + book.translation + ')' : ''}`;
+    : `${book.name} ${chapterNum}`;
 
   const main = $('#main');
+  const missingBooks = missingBundledBooks();
+  const hideLoadBanner = (() => {
+    try { return localStorage.getItem('kjv-dismiss-load-banner') === 'yes'; } catch (_) { return false; }
+  })();
+  const loadBanner = (!hideLoadBanner && missingBooks.length)
+    ? `<div id="load-kjv-banner" class="load-kjv-banner">
+        <p>Full public-domain KJV is bundled with this app. ${missingBooks.length} book${missingBooks.length === 1 ? '' : 's'} not loaded yet.</p>
+        <div class="load-kjv-actions">
+          <button type="button" id="btn-load-missing-kjv">Load missing books</button>
+          <button type="button" id="btn-dismiss-load-kjv" class="quiet">Not now</button>
+        </div>
+      </div>`
+    : '';
   main.innerHTML = `
     <div class="chapter-header">${book.name} ${chapterNum}</div>
-    <div id="xref-load-bar" style="padding:0.7rem 0.9rem;margin-bottom:0.5rem;background:var(--panel,#16213e);border-radius:10px">
-      <div id="xref-load-status" style="font-size:1.05em;line-height:1.45;margin-bottom:0.55rem;color:var(--text-dim)">Checking…</div>
-      <button type="button" id="btn-load-book-xrefs" style="min-height:52px;padding:0.6rem 1.1rem;font-weight:700;width:100%">
-        Load Cross-References for ${book.name}
-      </button>
+    ${loadBanner}
+    <div id="xref-load-bar" class="xref-load-bar">
+      <div id="xref-load-status" class="xref-load-status">Checking…</div>
+      <button type="button" id="btn-load-book-xrefs">Load Cross-References for ${book.name}</button>
+      <button type="button" id="btn-load-remaining-xrefs" hidden>Load remaining books</button>
     </div>`;
 
   const keys = ch.verses.map(v => bible.verseKey(bookId, chapterNum, v.number));
@@ -2081,49 +2119,36 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const xrefMap = {};
   const wordMarkMap = {};
   const chainCountMap = {};
-  // Lexicon presence enables Tap-a-word wrappers (fully offline); outlines only on user marks
-  const [lexPack] = await Promise.all([
-    storage.getLexiconPack(),
-    ...keys.map(async (k) => {
-      const [hl, note, xrefs, shared, marks] = await Promise.all([
-        storage.getHighlights(k),
-        storage.getNote(k),
-        storage.getCrossRefs(k),
-        storage.findSharedNoteForVerse(k),
-        storage.getWordMarks(k)
-      ]);
-      highlightMap[k] = hl;
-      const hasPrivate = !!(note && String(note).trim());
-      const hasShared = !!(shared && shared.body && String(shared.body).trim());
-      noteMap[k] = hasPrivate || hasShared;
-      const hasPersonalXref = Array.isArray(xrefs) && xrefs.length > 0;
-      // Green indicator if personal refs OR built-in/loaded TSK data exists
-      const hasTsk = !!(STARTER_TSK[k] && STARTER_TSK[k].length) || false;
-      xrefMap[k] = hasPersonalXref || hasTsk;
-      wordMarkMap[k] = marks;
-    })
+  const [maps, sharedNotes, savedChains, pack] = await Promise.all([
+    storage.getChapterVerseMaps(keys),
+    storage.getAllSharedNotes().catch(() => []),
+    storage.getAllChains().catch(() => []),
+    storage.getTskPack().catch(() => null)
   ]);
-  // Also mark verses that exist in the full TSK pack (if user has loaded it)
-  try {
-    const pack = await storage.getTskPack();
-    if (pack && pack.verses) {
-      for (const k of keys) {
-        if (pack.verses[k] && pack.verses[k].length) xrefMap[k] = true;
-      }
+  Object.assign(highlightMap, maps.highlightMap || {});
+  Object.assign(noteMap, maps.noteMap || {});
+  Object.assign(wordMarkMap, maps.wordMarkMap || {});
+  for (const k of keys) {
+    const hasPersonalXref = !!(maps.xrefPersonal && maps.xrefPersonal[k]);
+    const hasTsk = !!(STARTER_TSK[k] && STARTER_TSK[k].length) ||
+      !!(pack && pack.verses && pack.verses[k] && pack.verses[k].length);
+    xrefMap[k] = hasPersonalXref || hasTsk;
+  }
+  for (const n of (sharedNotes || [])) {
+    if (!n || !n.body || !String(n.body).trim()) continue;
+    for (const k of (n.verseKeys || [])) {
+      if (noteMap[k] !== undefined || keys.includes(k)) noteMap[k] = true;
     }
-  } catch (_) {}
-  try {
-    const savedChains = await storage.getAllChains();
-    for (const c of savedChains) {
-      const seen = new Set();
-      for (const n of (c.nodes || [])) {
-        if (!n || !n.key || seen.has(n.key)) continue;
-        seen.add(n.key);
-        chainCountMap[n.key] = (chainCountMap[n.key] || 0) + 1;
-      }
+  }
+  for (const c of (savedChains || [])) {
+    const seen = new Set();
+    for (const n of (c.nodes || [])) {
+      if (!n || !n.key || seen.has(n.key)) continue;
+      seen.add(n.key);
+      chainCountMap[n.key] = (chainCountMap[n.key] || 0) + 1;
     }
-  } catch (_) {}
-  const enableTap = true; // English sense + occurrence lists work without lexicon
+  }
+  const enableTap = true;
 
   for (const v of ch.verses) {
     const key = bible.verseKey(bookId, chapterNum, v.number);
@@ -2158,17 +2183,29 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     const coloredText = buildColoredHtml(v.text, ranges, enableTap, wordMarkMap[key] || [], previewItems);
     const noteCls = noteMap[key] ? ' has-content' : '';
     const xrefCls = xrefMap[key] ? ' has-content' : '';
+    const chainCls = chainCountMap[key] ? ' has-content' : '';
+    const toolsOpen = openVerseToolKeys.has(key);
+    const dots = [
+      colors.length ? `<button type="button" class="verse-dot color" data-act="color" data-key="${key}" title="Color"></button>` : '',
+      noteMap[key] ? `<button type="button" class="verse-dot note" data-act="note" data-key="${key}" title="Note"></button>` : '',
+      xrefMap[key] ? `<button type="button" class="verse-dot xref" data-act="xref" data-key="${key}" title="Cross-refs"></button>` : '',
+      chainCountMap[key] ? `<button type="button" class="verse-dot chain" data-act="chains" data-key="${key}" title="Chains"></button>` : ''
+    ].join('');
 
     verseEl.innerHTML = `
       <span class="verse-num" data-act-verse="${key}" title="Word-level color suggestions">${v.number}</span>
       <span class="verse-text">${coloredText}</span>
       <div class="color-chips">${chips}</div>
-      <div class="verse-actions">
+      <div class="verse-status-row">
+        <span class="verse-dots">${dots}</span>
+        <button type="button" class="verse-tools-toggle" data-act="tools" data-key="${key}">${toolsOpen ? 'Hide tools' : 'Tools'}</button>
+      </div>
+      <div class="verse-actions${toolsOpen ? '' : ' is-collapsed'}">
         <button type="button" data-act="analyze" data-key="${key}">Analyze</button>
         <button type="button" data-act="color" data-key="${key}">Color</button>
         <button type="button" data-act="note" data-key="${key}" class="${noteCls.trim()}">Note</button>
         <button type="button" data-act="xref" data-key="${key}" class="${xrefCls.trim()}">Cross-refs</button>
-        <button type="button" data-act="chains" data-key="${key}" class="${(chainCountMap[key] ? 'has-content' : '')}">Chains${chainCountMap[key] ? ' ' + chainCountMap[key] : ''}</button>
+        <button type="button" data-act="chains" data-key="${key}" class="${chainCls.trim()}">Chains${chainCountMap[key] ? ' ' + chainCountMap[key] : ''}</button>
         <button type="button" data-act="tkn" data-key="${key}">Then-Now</button>
       </div>
     `;
@@ -2181,37 +2218,36 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const loadBtn = document.getElementById('btn-load-book-xrefs');
   const loadStatus = document.getElementById('xref-load-status');
   if (loadBtn && loadStatus) {
-    const setLoadedUI = (count) => {
-      loadStatus.innerHTML = `<span style="color:#2ecc71;font-weight:700">✓ Cross-references loaded for ${book.name}</span>` +
-        (count ? `<br><span style="font-size:0.9em;color:var(--text-dim)">${count} verses in this book have links</span>` : '');
-      loadBtn.textContent = '✓ Loaded for ' + book.name;
-      loadBtn.disabled = true;
-      loadBtn.style.background = '#1b7a3d';
-      loadBtn.style.color = '#fff';
-      loadBtn.style.border = '1px solid #2ecc71';
+    const remainBtn = document.getElementById('btn-load-remaining-xrefs');
+    const bar = document.getElementById('xref-load-bar');
+    const setLoadedUI = (count, remain) => {
+      loadStatus.innerHTML = `<span class="xref-ok">✓ Cross-references loaded for ${escapeHtml(book.name)}</span>` +
+        (count ? ` · ${count} verses` : '');
+      loadBtn.hidden = true;
+      if (bar) bar.classList.add('is-loaded');
+      if (remainBtn) remainBtn.hidden = !remain;
     };
     const setNotLoadedUI = () => {
-      loadStatus.textContent = 'Not loaded yet. Tap the button once to load cross-references for this book. They will stay loaded.';
+      loadStatus.textContent = 'Not loaded yet. Tap once to load cross-references for this book. They stay on this device.';
+      loadBtn.hidden = false;
       loadBtn.disabled = false;
       loadBtn.textContent = 'Load Cross-References for ' + book.name;
-      loadBtn.style.background = '';
-      loadBtn.style.color = '';
-      loadBtn.style.border = '';
+      if (bar) bar.classList.remove('is-loaded');
     };
 
     (async () => {
-      const pack = await storage.getTskPack();
-      const loadedBooks = (pack && Array.isArray(pack.loadedBooks)) ? pack.loadedBooks : [];
+      const packNow = await storage.getTskPack();
+      const loadedBooks = (packNow && Array.isArray(packNow.loadedBooks)) ? packNow.loadedBooks : [];
       const isLoaded = loadedBooks.includes(bookId);
       let count = 0;
       const prefix = bookId + '.';
-      if (pack && pack.verses) {
-        for (const k of Object.keys(pack.verses)) {
+      if (packNow && packNow.verses) {
+        for (const k of Object.keys(packNow.verses)) {
           if (k.startsWith(prefix)) count++;
         }
       }
-      // Starter-only does not count as "fully loaded by user"
-      if (isLoaded) setLoadedUI(count);
+      const remain = books.some((b) => b && b.id && !loadedBooks.includes(b.id) && !bible.isSampleBook(b));
+      if (isLoaded) setLoadedUI(count, remain);
       else setNotLoadedUI();
     })();
 
@@ -2220,16 +2256,43 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       loadStatus.textContent = 'Loading… please wait. Do not leave this page.';
       try {
         const count = await loadCrossRefsForBook(bookId, book.name);
-        setLoadedUI(count);
-        // Brief pause so the user sees the success state, then refresh greens
+        setLoadedUI(count, true);
         setTimeout(() => {
           renderChapter(bookId, chapterNum, { preserveScroll: main.scrollTop });
-        }, 900);
+        }, 700);
       } catch (err) {
-        loadStatus.innerHTML = `<span style="color:#e57373;font-weight:700">Not completed.</span> ${escapeHtml(String(err.message || err))}`;
+        loadStatus.innerHTML = `<span class="xref-fail">Not completed.</span> ${escapeHtml(String(err.message || err))}`;
         loadBtn.disabled = false;
+        loadBtn.hidden = false;
         loadBtn.textContent = 'Try again – Load Cross-References for ' + book.name;
       }
+    };
+    if (remainBtn) {
+      remainBtn.onclick = async () => {
+        remainBtn.disabled = true;
+        loadStatus.textContent = 'Loading remaining books…';
+        try {
+          const n = await loadCrossRefsForLoadedBooks();
+          showAppStatus('Cross-references ready for ' + n + ' book(s).', 'ok');
+          renderChapter(bookId, chapterNum, { preserveScroll: main.scrollTop });
+        } catch (err) {
+          loadStatus.innerHTML = `<span class="xref-fail">Not completed.</span> ${escapeHtml(String(err.message || err))}`;
+          remainBtn.disabled = false;
+        }
+      };
+    }
+  }
+
+  const loadMissingBtn = document.getElementById('btn-load-missing-kjv');
+  const dismissLoadBtn = document.getElementById('btn-dismiss-load-kjv');
+  if (loadMissingBtn) {
+    loadMissingBtn.onclick = () => openBookNav({ importTestament: 'both' });
+  }
+  if (dismissLoadBtn) {
+    dismissLoadBtn.onclick = () => {
+      try { localStorage.setItem('kjv-dismiss-load-banner', 'yes'); } catch (_) {}
+      const banner = document.getElementById('load-kjv-banner');
+      if (banner) banner.remove();
     };
   }
 
@@ -2279,7 +2342,16 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       captureSelectionFromVerse(key);
     }
 
-    if (act === 'analyze') openAnalyze(key);
+    if (act === 'tools') {
+      const row = btn.closest('.verse');
+      const box = row && row.querySelector('.verse-actions');
+      const open = !openVerseToolKeys.has(key);
+      if (open) openVerseToolKeys.add(key);
+      else openVerseToolKeys.delete(key);
+      if (box) box.classList.toggle('is-collapsed', !open);
+      btn.textContent = open ? 'Hide tools' : 'Tools';
+    }
+    else if (act === 'analyze') openAnalyze(key);
     else if (act === 'color') openColorPicker(key);
     else if (act === 'note') openNote(key);
     else if (act === 'xref') openCrossRefs(key);
@@ -2327,23 +2399,28 @@ function showEmptyState() {
 
 // ---------- Navigation ----------
 
-async function openBookNav() {
+async function openBookNav(opts = {}) {
   const loaded = new Map(books.map(b => [b.id, b]));
+  const lastPos = await storage.getLastPosition().catch(() => null);
+  const lastBookId = lastPos && lastPos.bookId;
 
   function rowHtml(meta) {
     const b = loaded.get(meta.id);
+    const lastMark = meta.id === lastBookId ? ' · Last read' : '';
     if (b) {
-      return `<li class="book-row loaded" data-book="${meta.id}" data-name="${escapeHtml((b.name || meta.name).toLowerCase())}" data-id="${meta.id}">
+      const sample = bible.isSampleBook(b);
+      const state = sample ? 'Sample' : 'On device';
+      return `<li class="book-row loaded" data-book="${meta.id}" data-name="${escapeHtml((b.name || meta.name).toLowerCase())}" data-id="${meta.id}" data-state="${sample ? 'missing' : 'loaded'}">
         <div class="book-row-main">
           <strong>${escapeHtml(b.name || meta.name)}</strong>
-          <span class="book-meta">${b.chapters.length} ch · Loaded</span>
+          <span class="book-meta">${b.chapters.length} ch · ${state}${lastMark}</span>
         </div>
       </li>`;
     }
-    return `<li class="book-row not-loaded" data-book="${meta.id}" data-name="${escapeHtml(meta.name.toLowerCase())}" data-id="${meta.id}">
+    return `<li class="book-row not-loaded" data-book="${meta.id}" data-name="${escapeHtml(meta.name.toLowerCase())}" data-id="${meta.id}" data-state="missing">
       <div class="book-row-main">
         <strong style="color:var(--text-dim)">${escapeHtml(meta.name)}</strong>
-        <span class="book-meta">Not loaded</span>
+        <span class="book-meta">Missing</span>
       </div>
       <button type="button" class="btn-import-book" data-book="${meta.id}" data-name="${escapeHtml(meta.name)}">Import</button>
     </li>`;
@@ -2358,8 +2435,13 @@ async function openBookNav() {
       <h2>Books</h2>
       <input type="search" id="book-search" placeholder="Search books (e.g. gen, matthew, 1 cor)…"
         style="width:100%;padding:0.7rem 0.85rem;font-size:1.05rem;border-radius:8px;border:1px solid var(--border);
-               background:var(--bg);color:var(--text);margin-bottom:0.75rem;min-height:48px;box-sizing:border-box"
+               background:var(--bg);color:var(--text);margin-bottom:0.5rem;min-height:48px;box-sizing:border-box"
         autocomplete="off" enterkeyhint="search">
+      <div class="book-filter-chips" id="book-filter-chips">
+        <button type="button" class="book-filter is-on" data-filter="all">All</button>
+        <button type="button" class="book-filter" data-filter="loaded">On device</button>
+        <button type="button" class="book-filter" data-filter="missing">Missing</button>
+      </div>
       <p id="book-search-hint" style="font-size:0.88em;color:var(--text-dim);margin-bottom:0.75rem;line-height:1.45">
         Canonical order. Tap a loaded book to open chapters. Use <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong> to load the rest from the bundled KJV. Single-book Import still accepts a file.
       </p>
@@ -2488,6 +2570,8 @@ async function openBookNav() {
     return false;
   }
 
+  let bookFilterMode = 'all';
+
   function applyBookFilter() {
     const q = (searchInput.value || '').trim();
     const rows = $$('#book-list li.book-row', overlay);
@@ -2495,10 +2579,11 @@ async function openBookNav() {
     rows.forEach(li => {
       const name = li.dataset.name || '';
       const id = li.dataset.id || li.dataset.book || '';
-      const match = bookMatches(q, name, id);
+      const state = li.dataset.state || (li.classList.contains('loaded') ? 'loaded' : 'missing');
+      const stateOk = bookFilterMode === 'all' || state === bookFilterMode;
+      const match = stateOk && bookMatches(q, name, id);
       li.style.display = match ? '' : 'none';
       if (match) {
-        // determine testament from parent ul
         const ul = li.closest('ul.nav-list');
         if (ul && ul.dataset.test === 'OT') visibleOT++;
         if (ul && ul.dataset.test === 'NT') visibleNT++;
@@ -2522,6 +2607,15 @@ async function openBookNav() {
     }
   }
 
+  $$('#book-filter-chips .book-filter', overlay).forEach((chip) => {
+    chip.onclick = () => {
+      bookFilterMode = chip.dataset.filter || 'all';
+      $$('#book-filter-chips .book-filter', overlay).forEach((c) => {
+        c.classList.toggle('is-on', c === chip);
+      });
+      applyBookFilter();
+    };
+  });
   searchInput.addEventListener('input', applyBookFilter);
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -2635,7 +2729,7 @@ async function openBookNav() {
     }
   };
 
-  async function startTestamentImport(testament) {
+  async function startTestamentImport(testament, { reopen = true } = {}) {
     pendingTestament = null;
     pendingSingle = null;
     lastFailedTestament = testament;
@@ -2644,7 +2738,7 @@ async function openBookNav() {
     if (!missing.length) {
       setImportStatus('ok', '✓ ' + label + ' already loaded. Nothing more to import.');
       if (retryBtn) retryBtn.hidden = true;
-      return;
+      return true;
     }
     if (otBtn) otBtn.disabled = true;
     if (ntBtn) ntBtn.disabled = true;
@@ -2657,12 +2751,16 @@ async function openBookNav() {
       const need = bible.expectedTestamentCount(testament);
       setImportStatus('ok', '✓ ' + label + ': added ' + result.imported.length + ' book(s). Now ' + (need - still) + ' of ' + need + ' on this device.');
       lastFailedTestament = null;
-      closeOverlay(overlay);
-      openBookNav();
+      if (reopen) {
+        closeOverlay(overlay);
+        openBookNav();
+      }
+      return true;
     } catch (err) {
       console.error(err);
       setImportStatus('fail', 'Not completed. ' + (err.message || err));
       if (retryBtn) retryBtn.hidden = false;
+      return false;
     } finally {
       if (otBtn) otBtn.disabled = false;
       if (ntBtn) ntBtn.disabled = false;
@@ -2676,6 +2774,22 @@ async function openBookNav() {
   if (retryBtn) retryBtn.onclick = () => {
     if (lastFailedTestament) startTestamentImport(lastFailedTestament);
   };
+
+  if (opts.importTestament === 'both') {
+    (async () => {
+      const otOk = await startTestamentImport('OT', { reopen: false });
+      const ntOk = await startTestamentImport('NT', { reopen: false });
+      books = await storage.getAllBooks();
+      if (otOk && ntOk) {
+        showAppStatus('Bundled KJV books are on this device.', 'ok');
+        closeOverlay(overlay);
+        if (currentBookId) renderChapter(currentBookId, currentChapter);
+        else openBookNav();
+      }
+    })();
+  } else if (opts.importTestament === 'OT' || opts.importTestament === 'NT') {
+    startTestamentImport(opts.importTestament);
+  }
 
   $$('#book-list .btn-import-book', overlay).forEach(btn => {
     btn.onclick = (e) => {
@@ -3656,15 +3770,21 @@ async function openCrossRefs(key) {
 }
 
 function parseUserRef(raw) {
-  // Accept "jhn.3.16" or "John 3:16" / "Gen 1:1"
-  let m = raw.match(/^([a-z0-9]+)\.(\d+)\.(\d+)$/i);
+  // Accept "jhn.3.16" or "John 3:16" / "Gen 1:1" / "John 3"
+  const text = String(raw || '').trim();
+  let m = text.match(/^([a-z0-9]+)\.(\d+)\.(\d+)$/i);
   if (m) {
-    return { key: `${m[1].toLowerCase()}.${m[2]}.${m[3]}`, label: raw };
+    return { key: `${m[1].toLowerCase()}.${m[2]}.${m[3]}`, label: text };
   }
-  m = raw.match(/^([1-3]?\s*[A-Za-z]+)\s+(\d+)\s*:\s*(\d+)$/);
+  m = text.match(/^([1-3]?\s*[A-Za-z]+)\s+(\d+)\s*:\s*(\d+)$/);
   if (m) {
     const abbrev = simpleAbbrev(m[1].trim());
-    if (abbrev) return { key: `${abbrev}.${m[2]}.${m[3]}`, label: raw };
+    if (abbrev) return { key: `${abbrev}.${m[2]}.${m[3]}`, label: text };
+  }
+  m = text.match(/^([1-3]?\s*[A-Za-z]+)\s+(\d+)$/);
+  if (m) {
+    const abbrev = simpleAbbrev(m[1].trim());
+    if (abbrev) return { key: `${abbrev}.${m[2]}.1`, label: text, chapterOnly: true };
   }
   return null;
 }
@@ -3745,7 +3865,7 @@ async function jumpToRef(targetKey) {
   const { bookId, chapter, verse } = bible.parseKey(targetKey);
   // If the target book is not loaded, just inform the user
   if (!books.find(b => b.id === bookId)) {
-    alert(`Book “${bookId}” is not loaded yet. Import it first, then the cross-reference will work.`);
+    showAppStatus('Book “' + bookId + '” is not loaded yet. Import it first.', 'fail');
     // undo stack push if we cannot complete the jump
     if (navStack.length) navStack.pop();
     updateNavBackButton();
@@ -3772,7 +3892,7 @@ function openSearch() {
           <h2 class="search-title">Search (loaded books + subjects)</h2>
           <button type="button" class="close search-close" aria-label="Close">×</button>
         </div>
-        <input type="search" class="search-box" id="search-input" placeholder="Word or subject (funeral, pray…)" autocomplete="off" enterkeyhint="search">
+        <input type="search" class="search-box" id="search-input" placeholder="Word, subject, or John 3:16" autocomplete="off" enterkeyhint="search">
       </div>
       <div id="search-results" class="search-body"></div>
     </div>
@@ -3788,6 +3908,7 @@ function openSearch() {
   let timer = null;
   let lastResults = [];   // flat matches from last word search
   let lastSubjects = [];  // pack topics first, then Step A aliases
+  let lastRefHit = null;  // parsed John 3:16 style jump
   let topicsPack = null;
   storage.getTopicsPack().then((p) => { topicsPack = p; }).catch(() => {});
   let viewMode = 'books'; // 'books' | 'verses' | 'subject'
@@ -3868,6 +3989,23 @@ function openSearch() {
     });
   }
 
+  function refJumpHtml() {
+    if (!lastRefHit) return '';
+    const parsed = bible.parseKey(lastRefHit.key);
+    const meta = bible.CANONICAL_BOOKS.find((b) => b.id === parsed.bookId);
+    const name = meta ? meta.name : parsed.bookId;
+    const label = lastRefHit.chapterOnly
+      ? (name + ' ' + parsed.chapter)
+      : (name + ' ' + parsed.chapter + ':' + parsed.verse);
+    const loaded = books.find((b) => b.id === parsed.bookId);
+    const note = loaded ? '' : ' <span class="match-count">not loaded</span>';
+    return `<p class="subject-section-label">Go to reference</p>
+      <div class="search-result search-ref-jump" data-key="${escapeHtml(lastRefHit.key)}" role="button" tabindex="0">
+        <span class="ref">${escapeHtml(label)}</span>
+        Open this verse${note}
+      </div>`;
+  }
+
   function renderBookList() {
     viewMode = 'books';
     selectedBookId = null;
@@ -3875,7 +4013,8 @@ function openSearch() {
     const groups = groupByBook(lastResults);
     const q = input.value.trim();
     const subHtml = subjectBlockHtml();
-    if (!groups.length && !lastSubjects.length) {
+    const refHtml = refJumpHtml();
+    if (!groups.length && !lastSubjects.length && !lastRefHit) {
       resultsEl.innerHTML = q.length >= 2 ? '<p style="color:var(--text-dim);padding:0.5rem 0">No matches.</p>' : '';
       return;
     }
@@ -3890,8 +4029,9 @@ function openSearch() {
     } else if (q.length >= 2 && lastSubjects.length) {
       wordHtml = '<p style="color:var(--text-dim);padding:0.4rem 0 0.8rem;font-size:0.92em">No word matches in loaded books.</p>';
     }
-    resultsEl.innerHTML = wordHtml + subHtml;
+    resultsEl.innerHTML = refHtml + wordHtml + subHtml;
     bindSubjectRows(resultsEl);
+    bindVerseClicks(resultsEl);
     $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
         selectedBookId = row.dataset.bookId;
@@ -3967,6 +4107,7 @@ function openSearch() {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       const q = input.value.trim();
+      lastRefHit = parseUserRef(q);
       if (q.length >= 2) {
         if (!topicsPack) {
           try { topicsPack = await storage.getTopicsPack(); } catch (_) { topicsPack = null; }
@@ -3978,13 +4119,19 @@ function openSearch() {
       } else {
         lastSubjects = [];
       }
-      lastResults = await bible.searchBooks(q, books);
+      if (q.length >= 2 && !lastRefHit) {
+        resultsEl.innerHTML = '<p class="search-scan-status">Scanning loaded KJV…</p>';
+        lastResults = await bible.searchBooks(q, books, (name, n, total) => {
+          resultsEl.innerHTML = '<p class="search-scan-status">Scanning ' + escapeHtml(name) + ' (' + n + ' of ' + total + ')…</p>';
+        });
+      } else {
+        lastResults = [];
+      }
       searchSession.query = q;
       searchSession.viewMode = 'books';
       searchSession.selectedBookId = null;
       searchSession.selectedSubjectId = null;
       persistSearchSession();
-      // Any new search returns to book-list view
       renderBookList();
     }, 220);
   };
@@ -4000,7 +4147,8 @@ function openSearch() {
     const aliasHits = suggestSubjectHeadings(q);
     const seen = new Set(packHits.map((h) => (h.name || '').toLowerCase()));
     lastSubjects = packHits.concat(aliasHits.filter((h) => !seen.has((h.name || '').toLowerCase())));
-    lastResults = await bible.searchBooks(q, books);
+    lastRefHit = parseUserRef(q);
+    lastResults = lastRefHit ? [] : await bible.searchBooks(q, books);
     if (searchSession.viewMode === 'subject' && searchSession.selectedSubjectId) {
       selectedSubjectId = searchSession.selectedSubjectId;
       renderSubjectRefs();
@@ -4385,8 +4533,8 @@ function openMenu() {
   $('#menu-import-lex', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
   $('#menu-import-tsk', overlay).onclick = () => { closeOverlay(overlay); openImportTsk(); };
   $('#menu-import-topics', overlay).onclick = () => { closeOverlay(overlay); openImportTopics(); };
-  $('#menu-import-ot', overlay).onclick = () => { closeOverlay(overlay); openBookNav(); };
-  $('#menu-import-nt', overlay).onclick = () => { closeOverlay(overlay); openBookNav(); };
+  $('#menu-import-ot', overlay).onclick = () => { closeOverlay(overlay); openBookNav({ importTestament: 'OT' }); };
+  $('#menu-import-nt', overlay).onclick = () => { closeOverlay(overlay); openBookNav({ importTestament: 'NT' }); };
   $('#menu-import', overlay).onclick = () => { closeOverlay(overlay); openImport(); };
   $('#menu-settings', overlay).onclick = () => { closeOverlay(overlay); openSettings(); };
   $('#menu-check-update', overlay).onclick = () => { closeOverlay(overlay); checkForAppUpdate(); };
@@ -4734,6 +4882,39 @@ async function loadCrossRefsForBook(bookId, bookName) {
     loadedBooks
   });
   return count;
+}
+
+async function loadCrossRefsForLoadedBooks() {
+  const existing = await storage.getTskPack();
+  let sourceVerses = (existing && existing.verses) ? existing.verses : null;
+  if (!sourceVerses || !Object.keys(sourceVerses).length) {
+    const resp = await fetch('./crossrefs-kjv-tsk.json', { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('Could not reach the cross-reference file.');
+    const json = await resp.json();
+    if (!json || !json.verses) throw new Error('invalid file');
+    sourceVerses = json.verses;
+  }
+  const loadedBooks = (existing && Array.isArray(existing.loadedBooks)) ? existing.loadedBooks.slice() : [];
+  const merged = (existing && existing.verses) ? { ...existing.verses } : {};
+  for (const book of books) {
+    if (!book || !book.id || bible.isSampleBook(book)) continue;
+    const prefix = book.id + '.';
+    let count = 0;
+    for (const [k, v] of Object.entries(sourceVerses)) {
+      if (k.startsWith(prefix)) {
+        merged[k] = v;
+        count++;
+      }
+    }
+    if (count && !loadedBooks.includes(book.id)) loadedBooks.push(book.id);
+  }
+  await storage.saveTskPack({
+    source: (existing && existing.source) || 'CrossReferences.org / TSK',
+    version: (existing && existing.version) || 1,
+    verses: merged,
+    loadedBooks
+  });
+  return loadedBooks.length;
 }
 
 async function openImportTopics() {
@@ -6055,14 +6236,17 @@ function openHelp() {
       </div>
       <div style="line-height:1.65;font-size:1.02em">
         <p style="margin-bottom:1rem"><strong>Which Bible text am I reading?</strong><br>
-        The built-in sample is <strong>public-domain KJV</strong> (Genesis 1–2 only).<br>
-        To use the full free KJV (or any compatible public-domain text): prepare a JSON file of the book(s), then Menu → <strong>Import Book (JSON)</strong>.<br>
-        Highlights and notes are stored by verse reference (e.g. gen.1.1). They stay when you replace or add text for the same book/chapter/verse numbers.</p>
+        The first-run sample is public-domain KJV Genesis 1–2.<br>
+        Full KJV is already in this app folder. Use the banner, Books, or Menu → <strong>Import Old Testament / New Testament</strong> to load every missing book. That does not touch your notes.<br>
+        Per-book <strong>Import Book (JSON)</strong> is only for your own extra file.<br>
+        Highlights and notes stay by verse reference (e.g. gen.1.1) when you replace text for the same numbers.</p>
 
+        <p style="margin-bottom:1rem"><strong>Verse tools</strong><br>
+        Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, and Then-Now. Tap a green/color dot to open that tool directly.</p>
         <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
         1. Long-press the verse and drag to select only the words you want.<br>
         2. Lift your finger (keep the selection visible a moment).<br>
-        3. Tap <strong>Color</strong> → choose color → <strong>Apply Color</strong>.<br>
+        3. Tap <strong>Tools</strong> → <strong>Color</strong> → choose color → <strong>Apply Color</strong>.<br>
         The app remembers the selection even after the blue highlight disappears on phones.</p>
 
         <p style="margin-bottom:1rem"><strong>Shared notes</strong><br>
@@ -6101,9 +6285,8 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
 
-        <p style="margin-bottom:1rem"><strong>Subject search</strong><br>
-        In Search, type a topic or everyday word. Order: exact topic name from the loaded pack, then Step A aliases, then word hits in loaded KJV.
-        Tap a heading for KJV verse references, then tap a reference to open the reader.</p>
+        <p style="margin-bottom:1rem"><strong>Search</strong><br>
+        Type a word, a subject, or a reference such as <strong>John 3:16</strong> or <strong>jhn.3.16</strong>. A reference is offered first. Word hits scan loaded books in canon order (you will see which book is being scanned). Subject headings still come from the topical pack, then aliases.</p>
         <p style="margin-bottom:1rem"><strong>Topical pack (Step B, optional)</strong><br>
         Menu → <strong>Load Topical Pack</strong>. One action. Green when loaded. Red <strong>Not completed</strong> and <strong>Try again</strong> if it fails.
         Place <code>topics-torrey.json</code> in the repo root (same folder as index.html), same pattern as the TSK pack. The app still works if that file is missing.</p>
@@ -6117,7 +6300,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Phrase as a unit</strong><br>
         If you tap a word that belongs to a known phrase (meal offering, burnt offering, holy convocation), the phrase is treated first: one sense, then that phrase in this book, then in the loaded KJV.</p>
         <p style="margin-bottom:1rem"><strong>Then · Kind · Now</strong><br>
-        On a verse tap <strong>Then-Now</strong>. You get Then / Kind / Now questions only. Close returns to the verse. Nothing is saved.</p>
+        On a verse tap <strong>Tools</strong> then <strong>Then-Now</strong>. You get Then / Kind / Now questions only. Close returns to the verse. Nothing is saved.</p>
 
         <p style="margin-bottom:1rem"><strong>Backup</strong><br>
         Menu → Export / Import study data.</p>
@@ -6148,9 +6331,10 @@ function openAbout() {
         Analyze learning data remain on this device only (IndexedDB).
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
-        <strong>Text:</strong> This app is for free public-domain Bible text (KJV).
-        A public-domain KJV Genesis sample is included for testing.
-        Import your own free KJV (or other public-domain) text in the documented JSON format.
+        <strong>Text:</strong> Public-domain KJV. Genesis 1–2 is the first-run sample.
+        Full OT and NT JSON files ship with the app. Use Books or Menu to load missing books.
+        A lock screen password only hides the UI on this device; it is not encryption.
+        Study data stays in this browser profile (IndexedDB). App updates replace files only.
       </p>
       <p style="line-height:1.65;margin-bottom:0.8rem">
         <strong>Context:</strong> Offline book purpose, key themes, chapter outline, and place in the story for the current chapter.<br><br>

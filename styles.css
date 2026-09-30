@@ -2189,3 +2189,106 @@ body.chrome-is-hidden main#main {
   color: #fff;
   border: none;
 }
+
+/* v6.59 reading chrome */
+.app-status-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 8px) + 12px);
+  transform: translateX(-50%);
+  z-index: 80;
+  max-width: calc(100vw - 1.5rem);
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  background: #16213e;
+  color: #e8e8e8;
+  border: 1px solid var(--border, #334);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.app-status-toast.ok { border-color: #2ecc71; }
+.app-status-toast.fail { border-color: #e57373; color: #ffcdd2; }
+.app-status-toast[hidden] { display: none !important; }
+
+.anchor-bar.is-unset #anchor-label {
+  color: var(--text-dim, #b8b8c8);
+  font-weight: 600;
+}
+
+.load-kjv-banner,
+.xref-load-bar {
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.5rem;
+  background: var(--panel, #16213e);
+  border-radius: 10px;
+}
+.load-kjv-banner p { margin: 0 0 0.55rem; line-height: 1.45; }
+.load-kjv-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.load-kjv-actions button,
+.xref-load-bar button {
+  min-height: 48px;
+  padding: 0.55rem 1rem;
+  font-weight: 700;
+}
+.load-kjv-actions button.quiet {
+  background: transparent;
+  font-weight: 600;
+}
+.xref-load-status { font-size: 1.02em; line-height: 1.45; margin-bottom: 0.45rem; color: var(--text-dim); }
+.xref-load-bar.is-loaded .xref-load-status { margin-bottom: 0.25rem; }
+.xref-ok { color: #2ecc71; font-weight: 700; }
+.xref-fail { color: #e57373; font-weight: 700; }
+
+.verse-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+.verse-dots { display: inline-flex; align-items: center; gap: 0.28rem; min-height: 22px; }
+.verse-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.35);
+  padding: 0;
+  min-height: 14px;
+  min-width: 14px;
+}
+.verse-dot.color { background: var(--accent, #e0b84c); }
+.verse-dot.note,
+.verse-dot.xref,
+.verse-dot.chain { background: #2ecc71; }
+.verse-tools-toggle {
+  margin-left: auto;
+  min-height: 36px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 999px;
+}
+.verse-actions.is-collapsed { display: none; }
+
+.book-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.7rem;
+}
+.book-filter {
+  min-height: 36px;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.book-filter.is-on {
+  background: var(--accent, #e0b84c);
+  color: #111;
+  border-color: transparent;
+}
+.search-scan-status {
+  color: var(--text-dim);
+  padding: 0.5rem 0;
+}

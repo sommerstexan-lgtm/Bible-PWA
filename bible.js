@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v6.41.0 */
+/* bible.js – Book loading, navigation helpers, search. v6.59.0 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -187,9 +187,14 @@ export function bundledTestamentUrl(testament) {
   return testament === 'NT' ? './kjv-nt.json' : './kjv-ot.json';
 }
 
+export function isSampleBook(book) {
+  if (!book || book.id !== 'gen' || !Array.isArray(book.chapters)) return false;
+  return book.chapters.length <= 2;
+}
+
 export function isIncompleteBook(book) {
   if (!book || !Array.isArray(book.chapters)) return true;
-  if (book.id === 'gen' && book.chapters.length <= 2 && book.translation !== 'KJV' && book.translation !== 'WEB') return true;
+  if (isSampleBook(book)) return true;
   return book.chapters.length === 0;
 }
 
@@ -240,12 +245,18 @@ function booksInCanonOrder(bookList) {
   });
 }
 
-export async function searchBooks(query, books) {
+export async function searchBooks(query, books, onProgress) {
   if (!query || query.trim().length < 2) return [];
   const q = query.trim();
   const results = [];
+  const ordered = booksInCanonOrder(books);
+  let scanned = 0;
 
-  for (const book of booksInCanonOrder(books)) {
+  for (const book of ordered) {
+    scanned++;
+    if (typeof onProgress === 'function') {
+      onProgress(book && book.name ? book.name : book.id, scanned, ordered.length);
+    }
     if (!book || !Array.isArray(book.chapters)) continue;
     for (const ch of book.chapters) {
       if (!ch || !Array.isArray(ch.verses)) continue;
@@ -262,6 +273,9 @@ export async function searchBooks(query, books) {
           snippet: highlightSnippet(text, q.toLowerCase())
         });
       }
+    }
+    if (scanned % 4 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
   return results;
