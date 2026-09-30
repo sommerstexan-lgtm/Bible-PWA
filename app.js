@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.0';
+const APP_VERSION = '6.60.1';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -2141,8 +2141,9 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     try { return localStorage.getItem('kjv-dismiss-load-banner') === 'yes'; } catch (_) { return false; }
   })();
   const kjvFlags = precision.checkBundledKjv(books);
-  const kjvBanner = kjvFlags.length
-    ? `<div class="kjv-flag-banner">This device’s text for ${escapeHtml(kjvFlags.map((f) => f.label).join(', '))} does not match bundled KJV wording. Color rules and Search still run on the text that is loaded.</div>`
+  const kjvHere = kjvFlags.filter((f) => f.bookId === bookId);
+  const kjvBanner = kjvHere.length
+    ? `<div class="kjv-flag-banner">This book’s wording does not match bundled KJV (${escapeHtml(kjvHere.map((f) => f.label).join(', '))}). Color rules still run on the text that is loaded.</div>`
     : '';
   const loadBanner = (!hideLoadBanner && missingBooks.length)
     ? `<div id="load-kjv-banner" class="load-kjv-banner">
@@ -2274,12 +2275,12 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   if (loadBtn && loadStatus) {
     const remainBtn = document.getElementById('btn-load-remaining-xrefs');
     const bar = document.getElementById('xref-load-bar');
-    const setLoadedUI = (count, remain) => {
+    const setLoadedUI = (count) => {
       loadStatus.innerHTML = `<span class="xref-ok">✓ Cross-references loaded for ${escapeHtml(book.name)}</span>` +
         (count ? ` · ${count} verses` : '');
       loadBtn.hidden = true;
       if (bar) bar.classList.add('is-loaded');
-      if (remainBtn) remainBtn.hidden = !remain;
+      if (remainBtn) remainBtn.hidden = true;
     };
     const setNotLoadedUI = () => {
       loadStatus.textContent = 'Not loaded yet. Tap once to load cross-references for this book. They stay on this device.';
@@ -2300,8 +2301,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
           if (k.startsWith(prefix)) count++;
         }
       }
-      const remain = books.some((b) => b && b.id && !loadedBooks.includes(b.id) && !bible.isSampleBook(b));
-      if (isLoaded) setLoadedUI(count, remain);
+      if (isLoaded) setLoadedUI(count);
       else setNotLoadedUI();
     })();
 
@@ -2310,7 +2310,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       loadStatus.textContent = 'Loading… please wait. Do not leave this page.';
       try {
         const count = await loadCrossRefsForBook(bookId, book.name);
-        setLoadedUI(count, true);
+        setLoadedUI(count);
         setTimeout(() => {
           renderChapter(bookId, chapterNum, { preserveScroll: main.scrollTop });
         }, 700);
@@ -5048,32 +5048,23 @@ async function loadCrossRefsForBook(bookId, bookName) {
 
 async function loadCrossRefsForLoadedBooks() {
   const existing = await storage.getTskPack();
-  let sourceVerses = (existing && existing.verses) ? existing.verses : null;
-  if (!sourceVerses || !Object.keys(sourceVerses).length) {
+  let verses = (existing && existing.verses) ? existing.verses : null;
+  if (!verses || !Object.keys(verses).length) {
     const resp = await fetch('./crossrefs-kjv-tsk.json', { cache: 'force-cache' });
     if (!resp.ok) throw new Error('Could not reach the cross-reference file.');
     const json = await resp.json();
     if (!json || !json.verses) throw new Error('invalid file');
-    sourceVerses = json.verses;
+    verses = json.verses;
   }
   const loadedBooks = (existing && Array.isArray(existing.loadedBooks)) ? existing.loadedBooks.slice() : [];
-  const merged = (existing && existing.verses) ? { ...existing.verses } : {};
   for (const book of books) {
     if (!book || !book.id || bible.isSampleBook(book)) continue;
-    const prefix = book.id + '.';
-    let count = 0;
-    for (const [k, v] of Object.entries(sourceVerses)) {
-      if (k.startsWith(prefix)) {
-        merged[k] = v;
-        count++;
-      }
-    }
-    if (count && !loadedBooks.includes(book.id)) loadedBooks.push(book.id);
+    if (!loadedBooks.includes(book.id)) loadedBooks.push(book.id);
   }
   await storage.saveTskPack({
     source: (existing && existing.source) || 'CrossReferences.org / TSK',
     version: (existing && existing.version) || 1,
-    verses: merged,
+    verses,
     loadedBooks
   });
   return loadedBooks.length;
