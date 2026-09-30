@@ -253,8 +253,11 @@ function paintReason(colorId, quoted, why) {
  * Every span has a reason that quotes this verse. No reason → no span.
  * Does not write highlights.
  */
-export function suggestWordSpans(text) {
+export function suggestWordSpans(text, bookId) {
   if (!text || typeof text !== 'string') return [];
+  const bid = String(bookId || '').toLowerCase();
+  const gospel = bid === 'mat' || bid === 'mrk' || bid === 'luk' || bid === 'jhn';
+  const beastOk = bid === 'rev' || bid === '1jn' || bid === '2th';
   const spans = [];
   const used = new Array(text.length).fill(false);
 
@@ -306,6 +309,7 @@ export function suggestWordSpans(text) {
     { id: 'red', re: /\bjesus\s+(said|answered|replied|spake|spoke|saith)\b/gi, why: 'Jesus-speech frame; not the rest of the line' },
     { id: 'red', re: /\bverily,?\s+verily\b/gi, why: 'Jesus’ speech marker in this wording' },
     { id: 'red', re: /\bverily\s+I\s+say\s+unto\s+you\b/gi, why: 'Jesus’ speech marker in this wording' },
+    ...(gospel ? [{ id: 'red', re: /\bI\s+say\s+unto\s+you\b/gi, why: 'Gospel speech marker; frame only' }] : []),
     { id: 'yellow', re: /\bholy\s+ghost\b/gi, why: 'named Holy Ghost in this verse' },
     { id: 'yellow', re: /\bholy\s+spirit\b/gi, why: 'named Holy Spirit in this verse' },
     { id: 'yellow', re: /\bspirit\s+of\s+(?:god|the\s+lord|the\s+living\s+god)\b/gi, why: 'Spirit named with God / the LORD' },
@@ -320,6 +324,7 @@ export function suggestWordSpans(text) {
     { id: 'pink', re: /\bantichrist\b/gi, why: 'antichrist named here' },
     { id: 'pink', re: /\bman\s+of\s+sin\b/gi, why: 'man of sin named here' },
     { id: 'pink', re: /\bson\s+of\s+perdition\b/gi, why: 'son of perdition named here' },
+    ...(beastOk ? [{ id: 'pink', re: /\bbeast\b/gi, why: 'beast in an apocalyptic book — still a token, not the whole verse' }] : []),
     { id: 'grey', re: /\b(satan|devil|the\s+tempter)\b/gi, why: 'the adversary named here' }
   ];
   for (const rule of named) {

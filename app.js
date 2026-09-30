@@ -11,9 +11,10 @@ import { buildThenKindNow } from './then-kind-now.js';
 import { kjvEnglishSense, phraseUnitAt } from './kjv-english.js';
 import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './subject-aliases.js';
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
+import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.59.0';
+const APP_VERSION = '6.60.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1370,6 +1371,7 @@ async function openSavedChainReader(id) {
       <div class="chain-reader-foot">
         <button type="button" id="chain-copy">Copy for message</button>
         <button type="button" id="chain-edit">Edit</button>
+        <button type="button" id="chain-compare">Compare hops</button>
         <button type="button" id="chain-del">Delete</button>
       </div>
     </div>
@@ -1436,6 +1438,49 @@ async function openSavedChainReader(id) {
     closeOverlay(overlay);
     openChainWorkshop(chain.id);
   };
+  const cmpBtn = $('#chain-compare', overlay);
+  if (cmpBtn) {
+    cmpBtn.onclick = () => {
+      if (nodes.length < 2) {
+        showAppStatus('Need two hops to compare.', 'fail');
+        return;
+      }
+      const opts = nodes.map((n, i) => {
+        const parsed = bible.parseKey(n.key);
+        const meta = bible.CANONICAL_BOOKS.find((b) => b.id === parsed.bookId);
+        const label = (meta ? meta.name : parsed.bookId) + ' ' + parsed.chapter + ':' + parsed.verse;
+        return `<option value="${i}">${i + 1}. ${escapeHtml(label)}</option>`;
+      }).join('');
+      const box = document.createElement('div');
+      box.className = 'chain-compare';
+      box.innerHTML = `<div class="chain-compare-picks">
+          <select id="cmp-a">${opts}</select>
+          <select id="cmp-b">${opts}</select>
+        </div>
+        <div id="cmp-out"></div>`;
+      list.prepend(box);
+      const aSel = $('#cmp-a', box);
+      const bSel = $('#cmp-b', box);
+      if (nodes.length > 1) bSel.value = '1';
+      function paintCompare() {
+        const ia = +aSel.value;
+        const ib = +bSel.value;
+        const a = nodes[ia];
+        const b = nodes[ib];
+        const pa = bible.parseKey(a.key);
+        const pb = bible.parseKey(b.key);
+        const ta = bible.getVerseText(books, pa.bookId, pa.chapter, pa.verse) || '(book not loaded)';
+        const tb = bible.getVerseText(books, pb.bookId, pb.chapter, pb.verse) || '(book not loaded)';
+        $('#cmp-out', box).innerHTML = `<div class="chain-compare-cols">
+          <div><strong>${escapeHtml(aSel.options[aSel.selectedIndex].text)}</strong><p>${escapeHtml(ta)}</p></div>
+          <div><strong>${escapeHtml(bSel.options[bSel.selectedIndex].text)}</strong><p>${escapeHtml(tb)}</p></div>
+        </div>`;
+      }
+      aSel.onchange = paintCompare;
+      bSel.onchange = paintCompare;
+      paintCompare();
+    };
+  }
   $('#chain-del', overlay).onclick = async () => {
     if (!confirm('Delete this saved chain? The verses themselves stay in the Bible.')) return;
     try { await storage.deleteNoteImages(chain.imageIds || []); } catch (_) {}
@@ -2095,6 +2140,10 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const hideLoadBanner = (() => {
     try { return localStorage.getItem('kjv-dismiss-load-banner') === 'yes'; } catch (_) { return false; }
   })();
+  const kjvFlags = precision.checkBundledKjv(books);
+  const kjvBanner = kjvFlags.length
+    ? `<div class="kjv-flag-banner">This device’s text for ${escapeHtml(kjvFlags.map((f) => f.label).join(', '))} does not match bundled KJV wording. Color rules and Search still run on the text that is loaded.</div>`
+    : '';
   const loadBanner = (!hideLoadBanner && missingBooks.length)
     ? `<div id="load-kjv-banner" class="load-kjv-banner">
         <p>Full public-domain KJV is bundled with this app. ${missingBooks.length} book${missingBooks.length === 1 ? '' : 's'} not loaded yet.</p>
@@ -2106,6 +2155,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     : '';
   main.innerHTML = `
     <div class="chapter-header">${book.name} ${chapterNum}</div>
+    ${kjvBanner}
     ${loadBanner}
     <div id="xref-load-bar" class="xref-load-bar">
       <div id="xref-load-status" class="xref-load-status">Checking…</div>
@@ -2134,10 +2184,14 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       !!(pack && pack.verses && pack.verses[k] && pack.verses[k].length);
     xrefMap[k] = hasPersonalXref || hasTsk;
   }
+  const chapterKeySet = new Set(keys);
   for (const n of (sharedNotes || [])) {
-    if (!n || !n.body || !String(n.body).trim()) continue;
-    for (const k of (n.verseKeys || [])) {
-      if (noteMap[k] !== undefined || keys.includes(k)) noteMap[k] = true;
+    if (!n) continue;
+    const sharedText = String(n.text || n.body || n.note || '').trim();
+    const sharedImgs = Array.isArray(n.imageIds) && n.imageIds.length;
+    if (!sharedText && !sharedImgs) continue;
+    for (const k of (n.verseKeys || n.keys || [])) {
+      if (chapterKeySet.has(k)) noteMap[k] = true;
     }
   }
   for (const c of (savedChains || [])) {
@@ -2174,7 +2228,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       const hex = meta ? meta.hex : '#666';
       const subject = meta ? (meta.meaning || meta.label) : c;
       const title = meta ? `${meta.label} — ${meta.meaning}` : c;
-      return `<span class="color-chip-row" title="${escapeHtml(title)}"><span class="color-chip" style="background:${hex}"></span><span class="color-chip-label">${escapeHtml(subject)}</span></span>`;
+      return `<button type="button" class="color-chip-row" data-act="chip" data-key="${key}" data-color="${escapeHtml(c)}" title="${escapeHtml(title)}"><span class="color-chip" style="background:${hex}"></span><span class="color-chip-label">${escapeHtml(subject)}</span></button>`;
     }).join('');
 
     const previewItems = (verseSuggestPreview && verseSuggestPreview.key === key)
@@ -2186,10 +2240,10 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     const chainCls = chainCountMap[key] ? ' has-content' : '';
     const toolsOpen = openVerseToolKeys.has(key);
     const dots = [
-      colors.length ? `<button type="button" class="verse-dot color" data-act="color" data-key="${key}" title="Color"></button>` : '',
-      noteMap[key] ? `<button type="button" class="verse-dot note" data-act="note" data-key="${key}" title="Note"></button>` : '',
-      xrefMap[key] ? `<button type="button" class="verse-dot xref" data-act="xref" data-key="${key}" title="Cross-refs"></button>` : '',
-      chainCountMap[key] ? `<button type="button" class="verse-dot chain" data-act="chains" data-key="${key}" title="Chains"></button>` : ''
+      colors.length ? `<button type="button" class="verse-dot color" data-act="color" data-key="${key}" title="Color">Color</button>` : '',
+      noteMap[key] ? `<button type="button" class="verse-dot note" data-act="note" data-key="${key}" title="Note">Note</button>` : '',
+      xrefMap[key] ? `<button type="button" class="verse-dot xref" data-act="xref" data-key="${key}" title="Cross-refs">X-ref</button>` : '',
+      chainCountMap[key] ? `<button type="button" class="verse-dot chain" data-act="chains" data-key="${key}" title="Chains">Chain</button>` : ''
     ].join('');
 
     verseEl.innerHTML = `
@@ -2351,6 +2405,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       if (box) box.classList.toggle('is-collapsed', !open);
       btn.textContent = open ? 'Hide tools' : 'Tools';
     }
+    else if (act === 'chip') openColorSpanInfo(key, btn.dataset.color);
     else if (act === 'analyze') openAnalyze(key);
     else if (act === 'color') openColorPicker(key);
     else if (act === 'note') openNote(key);
@@ -2960,12 +3015,20 @@ async function openReviewByColor(preselectColor = null) {
       renderBookList();
       return;
     }
-    const verseHtml = group.items.map(r => `
-      <div class="search-result" data-key="${r.key}">
-        <span class="ref">${escapeHtml(r.bookName || group.bookName)} ${r.chapter}:${r.verse}</span>
-        ${escapeHtml((r.text || '').slice(0, 140))}${(r.text || '').length > 140 ? '…' : ''}
-      </div>
-    `).join('');
+    const color = $('#review-color', overlay).value;
+    const verseHtml = group.items.map(r => {
+      const row = lastMatches.find((h) => h.key === r.key);
+      const spans = ((row && row.ranges) || []).filter((x) => x.color === color);
+      const quotes = spans.map((s) => '“' + precision.quoteSpan(r.text, s.start, s.end) + '”').filter(Boolean);
+      return `
+      <div class="search-result review-span-row">
+        <div class="search-result" data-key="${r.key}">
+          <span class="ref">${escapeHtml(r.bookName || group.bookName)} ${r.chapter}:${r.verse}</span>
+          ${escapeHtml(quotes.join(' · ') || (r.text || '').slice(0, 140))}
+        </div>
+        <button type="button" class="review-unpaint" data-key="${r.key}">Unpaint</button>
+      </div>`;
+    }).join('');
     resultsEl.innerHTML = `
       <div class="search-back-row">
         <button type="button" class="search-back-btn" id="review-back">← Back to books</button>
@@ -2975,6 +3038,21 @@ async function openReviewByColor(preselectColor = null) {
     `;
     $('#review-back', resultsEl).onclick = () => renderBookList();
     bindVerseClicks(resultsEl);
+    $$('.review-unpaint', resultsEl).forEach((btn) => {
+      btn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.dataset.key;
+        const colorNow = $('#review-color', overlay).value;
+        const parsed = bible.parseKey(key);
+        const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+        const all = normalizeRanges(await storage.getHighlights(key), text.length);
+        await storage.setHighlights(key, all.filter((r) => r.color !== colorNow));
+        lastMatches = lastMatches.filter((h) => h.key !== key);
+        showAppStatus('Removed ' + colorNow + ' from that verse.', 'ok');
+        renderVerseList();
+      };
+    });
   }
 
   function refresh() {
@@ -3022,7 +3100,7 @@ async function openAnalyze(key) {
           </div>
           <div class="reason">Reason: ${s.reasons.join('; ') || 'pattern match'}</div>
           <div class="actions">
-            <button type="button" data-act="accept" data-color="${s.colorId}">Accept (whole verse)</button>
+            <button type="button" data-act="accept" data-color="${s.colorId}">Accept (frame if speech, else verse)</button>
             <button type="button" data-act="reject" data-color="${s.colorId}">Reject</button>
           </div>
         </div>
@@ -3053,10 +3131,15 @@ async function openAnalyze(key) {
       const reasons = sug ? sug.reasons : [];
 
       if (act === 'accept') {
-        // Apply as whole-verse range
-        const newRanges = [...ranges, { color: colorId, start: 0, end: text.length }];
+        const planned = precision.planColorApply(text, colorId, bookId, null);
+        if (planned.needSense) {
+          showAppStatus(planned.note || 'Pick a sense before painting this word.', 'fail');
+          return;
+        }
+        const newRanges = precision.mergeRanges(ranges, planned.ranges, text.length);
         await storage.setHighlights(key, newRanges);
         await analyze.recordFeedback(colorId, reasons, 'accept');
+        if (planned.note) showAppStatus(planned.note, 'ok');
       } else if (act === 'reject') {
         await analyze.recordFeedback(colorId, reasons, 'reject');
       }
@@ -3072,6 +3155,62 @@ async function openAnalyze(key) {
 
 // ---------- Color picker (manual multi-select) ----------
 
+
+async function openColorSpanInfo(key, colorId) {
+  const parsed = bible.parseKey(key);
+  const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+  const ranges = normalizeRanges(await storage.getHighlights(key), text.length)
+    .filter((r) => !colorId || r.color === colorId);
+  const meta = analyze.getColorMeta(colorId);
+  const rows = ranges.map((r, i) => {
+    const quoted = precision.quoteSpan(text, r.start, r.end);
+    const why = r.reason || (meta ? (meta.meaning + ' on these words') : 'saved range');
+    return `<div class="span-info-row">
+      <p><strong>${escapeHtml(quoted || '(empty)')}</strong></p>
+      <p class="span-info-why">${escapeHtml(why)} · ${r.start}–${r.end}</p>
+      <button type="button" data-unpaint="${i}">Unpaint this span</button>
+    </div>`;
+  }).join('') || '<p style="color:var(--text-dim)">No saved span for this color on this verse.</p>';
+  const overlay = showOverlay(`
+    <div class="panel">
+      <button class="close" type="button">×</button>
+      <h2>${escapeHtml(meta ? meta.label + ' · ' + meta.meaning : 'Color')}</h2>
+      ${rows}
+      <button type="button" id="span-shrink-frames" style="width:100%;margin-top:0.7rem">Shrink speech colors to frames</button>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $$('[data-unpaint]', overlay).forEach((btn) => {
+    btn.onclick = async () => {
+      const idx = +btn.dataset.unpaint;
+      const all = normalizeRanges(await storage.getHighlights(key), text.length);
+      const target = ranges[idx];
+      const next = all.filter((r) => !(r.color === target.color && r.start === target.start && r.end === target.end));
+      await storage.setHighlights(key, next);
+      closeOverlay(overlay);
+      showAppStatus('Span removed.', 'ok');
+      await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
+    };
+  });
+  const shrink = $('#span-shrink-frames', overlay);
+  if (shrink) {
+    shrink.onclick = async () => {
+      const all = normalizeRanges(await storage.getHighlights(key), text.length);
+      const next = [];
+      for (const r of all) {
+        if (r.color !== 'blue' && r.color !== 'red') { next.push(r); continue; }
+        if ((r.end - r.start) < text.length) { next.push(r); continue; }
+        const planned = precision.planColorApply(text, r.color, parsed.bookId, null);
+        if (planned.mode === 'speech-frame') next.push(...planned.ranges);
+        else next.push(r);
+      }
+      await storage.setHighlights(key, next);
+      closeOverlay(overlay);
+      showAppStatus('Speech colors clipped to frames.', 'ok');
+      await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
+    };
+  }
+}
 
 async function openColorPicker(key) {
   const { bookId, chapter, verse } = bible.parseKey(key);
@@ -3241,28 +3380,51 @@ async function openColorPicker(key) {
       }
     }
 
-    if (useSel && useSel.end > useSel.start && (useSel.end - useSel.start) < plain.length) {
-      const punched = [];
-      for (const r of ranges) {
-        if (r.end <= useSel.start || r.start >= useSel.end) {
-          punched.push(r);
-        } else {
-          if (r.start < useSel.start) punched.push({ color: r.color, start: r.start, end: useSel.start });
-          if (r.end > useSel.end) punched.push({ color: r.color, start: useSel.end, end: r.end });
-        }
-      }
-      punched.push({ color: colorId, start: useSel.start, end: useSel.end });
-      ranges = punched;
-    } else if (useSel && useSel.end > useSel.start && (useSel.end - useSel.start) >= plain.length) {
-      ranges = [{ color: colorId, start: 0, end: plain.length }];
-    } else {
-      // No usable partial selection → whole verse
-      ranges = [{ color: colorId, start: 0, end: plain.length }];
+    const planned = precision.planColorApply(plain, colorId, bookId, useSel);
+    if (planned.needSense) {
+      const token = planned.needSense;
+      const choices = precision.senseChoices(token.key);
+      const box = document.createElement('div');
+      box.className = 'sense-lock';
+      box.innerHTML = `<p class="sense-lock-copy">${escapeHtml(planned.note)} “${escapeHtml(token.text)}”</p>` +
+        choices.map((c) => `<button type="button" data-sense="${c.id}" data-color="${c.colorId || ''}">${escapeHtml(c.label)}</button>`).join('');
+      const host = overlay.querySelector('.panel') || overlay;
+      host.appendChild(box);
+      box.querySelectorAll('button[data-sense]').forEach((b) => {
+        b.onclick = async () => {
+          const senseColor = b.dataset.color;
+          if (!senseColor) {
+            showAppStatus('Left unpainted — sense is not a color subject.', 'ok');
+            pendingSelection = null;
+            closeOverlay(overlay);
+            return;
+          }
+          const forced = precision.planColorApply(plain, senseColor, bookId, {
+            start: token.start,
+            end: token.end
+          });
+          const next = precision.mergeRanges(ranges, forced.needSense ? [{ color: senseColor, start: token.start, end: token.end }] : forced.ranges, plain.length);
+          await storage.setHighlights(key, next);
+          pendingSelection = null;
+          closeOverlay(overlay);
+          showAppStatus('Sense saved on that word only.', 'ok');
+          await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
+        };
+      });
+      return;
     }
-
+    ranges = precision.mergeRanges(
+      planned.mode === 'whole-verse' ? [] : ranges,
+      planned.ranges,
+      plain.length
+    );
+    if (planned.mode === 'whole-verse') {
+      ranges = planned.ranges;
+    }
     await storage.setHighlights(key, ranges);
     pendingSelection = null;
     closeOverlay(overlay);
+    if (planned.note) showAppStatus(planned.note, 'ok');
     await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
   };
 }
@@ -5212,6 +5374,12 @@ async function openWordStudy(word, verseKey, startOffset) {
     listsBlock = listsHtml(clean, bible.searchWordOccurrences(clean, books, currentBookId, 24));
   }
 
+  const countWord = (unit && unit.query) ? unit.query : clean;
+  const thisBook = books.find((b) => b.id === currentBookId);
+  const chCount = precision.countWordInChapter(countWord, thisBook, currentChapter);
+  listsBlock = `<p class="word-occ-head">In this chapter
+      <span class="word-occ-count">${chCount.count}</span></p>` + listsBlock;
+
   const pack = await storage.getLexiconPack();
   let strongsBlock = '';
   if (!pack || !pack.entries) {
@@ -5313,7 +5481,7 @@ async function openVerseSuggestions(key) {
   const parsed = bible.parseKey(key);
   const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse);
   if (!text) return;
-  const spans = analyze.suggestWordSpans(text);
+  const spans = analyze.suggestWordSpans(text, parsed.bookId);
 
   document.querySelectorAll('.suggest-empty-note').forEach(n => n.remove());
 
@@ -5668,6 +5836,8 @@ async function openResearch() {
           style="background:var(--bg);color:var(--text)">Theme</button>
         <button type="button" class="research-src" data-id="places"
           style="background:var(--bg);color:var(--text)">Places</button>
+        <button type="button" class="research-src" data-id="people"
+          style="background:var(--bg);color:var(--text)">People</button>
       </div>
       <div id="research-status" class="research-status">Loading…</div>
       <div id="research-body" class="research-body"></div>
@@ -5867,6 +6037,41 @@ async function openResearch() {
     restoreScroll("places");
   }
 
+  async function showPeoplePanel() {
+    if (bodyHasContent && bodyEl && activeSource !== "people") {
+      saveScrollPos(activeSource, bodyEl.scrollTop);
+    }
+    activeSource = "people";
+    try { localStorage.setItem("kjv-research-source", "people"); } catch (_) {}
+    overlay.querySelectorAll(".research-src").forEach(btn => {
+      const active = btn.dataset.id === "people";
+      btn.style.background = active ? "var(--accent)" : "var(--bg)";
+      btn.style.color = active ? "#111" : "var(--text)";
+    });
+    statusEl.textContent = "People · Theographic names in this chapter";
+    bodyEl.innerHTML = '<p class="theme-note">Loading people for this chapter…</p>';
+    bodyHasContent = true;
+    try {
+      const url = THEO_API + '/' + apiBook + '/' + currentChapter + '.json';
+      const data = await theoFetchJson(url);
+      const people = (data && data.chapter && Array.isArray(data.chapter.people)) ? data.chapter.people : [];
+      if (!people.length) {
+        bodyEl.innerHTML = '<p class="theme-note">No named people listed for this chapter in Theographic.</p>';
+        return;
+      }
+      bodyEl.innerHTML = people.map((p) => {
+        const verses = Array.isArray(p.verses) ? p.verses.slice(0, 24).join(', ') : '';
+        return `<div class="search-result people-row">
+          <span class="ref">${escapeHtml(p.name || p.id || 'Person')}</span>
+          ${p.gender ? `<div class="theme-hit-text">${escapeHtml(p.gender)}</div>` : ''}
+          ${verses ? `<div class="theme-hit-text">Verses ${escapeHtml(String(verses))}</div>` : ''}
+        </div>`;
+      }).join('');
+    } catch (err) {
+      bodyEl.innerHTML = `<p class="theme-note">Could not load people (needs internet the first time). ${escapeHtml(String(err.message || err))}</p>`;
+    }
+  }
+
   async function showThemePanel() {
     if (bodyHasContent && bodyEl && activeSource !== "theme") {
       saveScrollPos(activeSource, bodyEl.scrollTop);
@@ -5887,6 +6092,8 @@ async function openResearch() {
       <div class="theme-toolbar">
         <p class="theme-ctx"><strong>Reading from:</strong> ${escapeHtml(ctx)}</p>
         <button type="button" id="theme-clear" class="theme-clear">Clear theme</button>
+        <button type="button" id="theme-save-dossier">Save dossier</button>
+        <button type="button" id="theme-open-dossiers">Open saved</button>
       </div>
       <ol class="theme-recipe">
         <li>Type short theme words in the box.</li>
@@ -6096,6 +6303,62 @@ async function openResearch() {
       qEl.focus();
     };
 
+    function loadDossiers() {
+      try { return JSON.parse(localStorage.getItem('kjv-theme-dossiers') || '[]'); }
+      catch (_) { return []; }
+    }
+    function saveDossiers(list) {
+      try { localStorage.setItem('kjv-theme-dossiers', JSON.stringify(list.slice(0, 40))); } catch (_) {}
+    }
+    const saveDos = $('#theme-save-dossier', overlay);
+    if (saveDos) {
+      saveDos.onclick = () => {
+        persistThemeFields();
+        const title = (qEl.value || '').trim() || 'Untitled theme';
+        const list = loadDossiers();
+        list.unshift({
+          id: 'td_' + Date.now().toString(36),
+          title,
+          question: (qEl.value || '').trim(),
+          prompt: (promptEl.textContent || '').trim(),
+          paste: (pasteEl.value || '').trim(),
+          context: ctx,
+          savedAt: new Date().toISOString()
+        });
+        saveDossiers(list);
+        noteEl.textContent = 'Saved dossier: ' + title;
+        showAppStatus('Theme dossier saved on this device.', 'ok');
+      };
+    }
+    const openDos = $('#theme-open-dossiers', overlay);
+    if (openDos) {
+      openDos.onclick = () => {
+        const list = loadDossiers();
+        if (!list.length) {
+          noteEl.textContent = 'No saved dossiers yet.';
+          return;
+        }
+        hitsBox.innerHTML = list.map((d) =>
+          `<div class="search-result dossier-row" data-id="${escapeHtml(d.id)}">
+            <span class="ref">${escapeHtml(d.title)}</span>
+            <div class="theme-hit-text">${escapeHtml(d.context || '')}</div>
+          </div>`
+        ).join('');
+        $$('.dossier-row', hitsBox).forEach((row) => {
+          row.onclick = () => {
+            const d = list.find((x) => x.id === row.dataset.id);
+            if (!d) return;
+            qEl.value = d.question || '';
+            pasteEl.value = d.paste || '';
+            promptEl.textContent = d.prompt || '';
+            promptEl.hidden = !d.prompt;
+            persistThemeFields();
+            noteEl.textContent = 'Loaded dossier: ' + (d.title || '');
+          };
+        });
+      };
+    }
+
     qEl.addEventListener("blur", persistThemeFields);
     pasteEl.addEventListener("blur", persistThemeFields);
 
@@ -6115,6 +6378,10 @@ async function openResearch() {
     }
     if (sourceId === "places") {
       await showPlacesPanel();
+      return;
+    }
+    if (sourceId === "people") {
+      await showPeoplePanel();
       return;
     }
     // Save previous source position only if we actually had content on screen
@@ -6215,9 +6482,43 @@ async function openResearch() {
         </div>`;
       }
     }
-    bodyEl.innerHTML = html || `<p style="color:var(--text-dim)">No content.</p>`;
+    const pinKey = getNearestVerseKey();
+    const pinVerse = pinKey ? (bible.parseKey(pinKey).verse || currentChapter) : null;
+    bodyEl.innerHTML = `<div class="research-tools">
+        <input type="search" id="research-find" placeholder="Find in this note" autocomplete="off">
+        <span id="research-find-count"></span>
+      </div>` + (html || `<p style="color:var(--text-dim)">No content.</p>`);
     bodyHasContent = true;
-    restoreScroll(sourceId);
+    const findInput = $('#research-find', overlay);
+    if (findInput) {
+      findInput.oninput = () => {
+        const q = (findInput.value || '').trim().toLowerCase();
+        const notes = $$('.research-note, .research-intro', bodyEl);
+        let hits = 0;
+        notes.forEach((el) => {
+          const hay = (el.textContent || '').toLowerCase();
+          const on = q.length >= 2 && hay.includes(q);
+          el.classList.toggle('research-find-hit', on);
+          if (on) hits++;
+        });
+        const countEl = $('#research-find-count', overlay);
+        if (countEl) countEl.textContent = q.length >= 2 ? (hits + ' hit' + (hits === 1 ? '' : 's')) : '';
+      };
+    }
+    if (pinVerse) {
+      const target = bodyEl.querySelector('.research-verse[data-verse="' + pinVerse + '"]');
+      if (target) {
+        statusEl.textContent = (statusEl.textContent || '') + ' · pinned to verse ' + pinVerse;
+        setTimeout(() => {
+          try { target.scrollIntoView({ block: 'start' }); } catch (_) {}
+          target.classList.add('research-pinned');
+        }, 80);
+      } else {
+        restoreScroll(sourceId);
+      }
+    } else {
+      restoreScroll(sourceId);
+    }
   }
 
   overlay.querySelectorAll(".research-src").forEach(btn => {
@@ -6241,6 +6542,8 @@ function openHelp() {
         Per-book <strong>Import Book (JSON)</strong> is only for your own extra file.<br>
         Highlights and notes stay by verse reference (e.g. gen.1.1) when you replace text for the same numbers.</p>
 
+        <p style="margin-bottom:1rem"><strong>Color precision</strong><br>
+        Color and Analyze paint a speech frame (<em>God said</em>, <em>Jesus saith</em>) when that is the subject — not the whole quote. Tap a color chip for the saved span, Unpaint, or Shrink speech colors to frames. Bare <em>spirit / beast / serpent</em> ask for a sense first. Review by color lists the painted words.</p>
         <p style="margin-bottom:1rem"><strong>Verse tools</strong><br>
         Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, and Then-Now. Tap a green/color dot to open that tool directly.</p>
         <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>

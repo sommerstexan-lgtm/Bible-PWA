@@ -1,6 +1,21 @@
-# KJV Study PWA – v6.59.0
+# KJV Study PWA – v6.60.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.0
+**Color / Research / study expansions**
+- Color apply clips speech frames (God said / Jesus saith) instead of washing the whole verse.
+- Dual-sense words (spirit / beast / serpent) ask for a sense before paint.
+- Color chips open the saved span with Unpaint and Shrink-to-frames.
+- Review by color shows the painted words and can unpaint.
+- Non-bundled-KJV wording is flagged. Tap-a-word shows this-chapter counts.
+- Research: find-in-note, pin to the verse on screen, People tab for this chapter.
+- Theme dossiers save/load on device. Chains can compare two hops.
+
+## New in 6.59.1
+**Note indicator**
+- A stored verse note (private or shared) turns the **Note** button green again.
+- Compact markers are labeled Note / X-ref / Chain / Color so a green chip is not mistaken for a missing note button.
 
 ## New in 6.59.0
 **Existing-feature pass (no new study types)**

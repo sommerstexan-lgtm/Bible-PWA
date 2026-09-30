@@ -260,7 +260,7 @@ export async function getChapterVerseMaps(keys) {
   }
   for (const row of notes) {
     if (!row || !keySet.has(row.key)) continue;
-    const hasText = !!(row.text && String(row.text).trim());
+    const hasText = !!(String(row.text || row.body || row.note || '').trim());
     const hasImgs = Array.isArray(row.imageIds) && row.imageIds.length;
     noteMap[row.key] = hasText || hasImgs;
   }
