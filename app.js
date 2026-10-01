@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.3';
+const APP_VERSION = '6.60.4';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1897,11 +1897,20 @@ function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null, 
         const isMarked = marked.has(absStart);
         const markCls = isMarked ? ' marked' : '';
         let preview = null;
+        let dropped = null;
         if (previewItems && previewItems.length) {
           preview = previewItems.find(it => it.keep && absStart >= it.start && absStart < it.end) || null;
+          if (!preview) dropped = previewItems.find(it => !it.keep && absStart >= it.start && absStart < it.end) || null;
         }
-        const previewCls = preview ? ` tap-suggest tap-suggest-${preview.colorId}` : '';
-        const previewTitle = preview ? ` title="${escapeHtml(preview.reason)}"` : '';
+        const selected = !!(preview && colorSession && colorSession.mode === "suggest" && colorSession.selectedStart === preview.start);
+        const previewMeta = preview ? analyze.getColorMeta(preview.colorId) : null;
+        const previewCls = preview
+          ? ` tap-suggest tap-suggest-${preview.colorId}${selected ? " tap-suggest-on" : ""}`
+          : (dropped ? " tap-suggest-off" : "");
+        const previewTitle = preview
+          ? ` title="${escapeHtml(preview.reason)}"`
+          : (dropped ? ' title="Dropped. Tap to bring it back."' : "");
+        const suggestVar = previewMeta && previewMeta.hex ? `;--suggest-bg:${previewMeta.hex}` : "";
         if (col) {
           const meta = analyze.getColorMeta(col);
           const bg = (meta && meta.hex) ? meta.hex : "#666666";
@@ -1910,9 +1919,9 @@ function buildColoredHtml(text, ranges, enableTap = false, markedStarts = null, 
           const outlineStyle = isMarked
             ? `;--tap-outline:${analyze.outlineColorForHighlight(bg)}`
             : '';
-          html += `<span class="hl tap-word${markCls}${previewCls}" data-color="${col}" data-word="${esc}" data-start="${absStart}"${previewTitle} style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}${outlineStyle}">${esc}</span>`;
+          html += `<span class="hl tap-word${markCls}${previewCls}" data-color="${col}" data-word="${esc}" data-start="${absStart}"${previewTitle} style="background-color:${bg};color:${fg};-webkit-text-fill-color:${fg}${outlineStyle}${suggestVar}">${esc}</span>`;
         } else {
-          html += `<span class="tap-word${markCls}${previewCls}" data-word="${esc}" data-start="${absStart}"${previewTitle}>${esc}</span>`;
+          html += `<span class="tap-word${markCls}${previewCls}" data-word="${esc}" data-start="${absStart}"${previewTitle}${suggestVar ? ` style="${suggestVar.slice(1)}"` : ""}>${esc}</span>`;
         }
         last = m.index + word.length;
       }
@@ -3205,19 +3214,42 @@ function lockSelectionForKey(key) {
 function refreshColorTrayLabel() {
   const el = document.getElementById("color-tray-sel");
   if (!el || !colorSession) return;
-  const sel = (pendingSelection && pendingSelection.key === colorSession.key && pendingSelection.end > pendingSelection.start)
-    ? pendingSelection : null;
   if (colorSession.sense) {
     el.textContent = colorSession.sense.note + " \u201c" + colorSession.sense.token.text + "\u201d";
     return;
   }
+  if (colorSession.mode === "suggest" && verseSuggestPreview) {
+    const parsed = bible.parseKey(colorSession.key);
+    const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
+    const item = verseSuggestPreview.items.find((it) => it.keep && it.start === colorSession.selectedStart);
+    if (item) {
+      const words = plain.slice(item.start, item.end);
+      el.textContent = "Not saved. This group: \u201c" + words.slice(0, 70) + "\u201d Tap a color, or tap it again to drop.";
+      return;
+    }
+    el.textContent = "Not saved. Tap a faint group, then a color. Or select words the app missed.";
+    return;
+  }
+  const sel = (pendingSelection && pendingSelection.key === colorSession.key && pendingSelection.end > pendingSelection.start)
+    ? pendingSelection : null;
   el.textContent = sel
     ? "Selected: \u201c" + sel.text.slice(0, 80) + (sel.text.length > 80 ? "\u2026" : "") + "\u201d"
     : "Select words, then tap a color.";
 }
 
 function openColorSession(key) {
-  colorSession = { key, sense: null };
+  if (verseSuggestPreview && verseSuggestPreview.key === key) {
+    colorSession = {
+      key,
+      sense: null,
+      mode: "suggest",
+      selectedStart: colorSession && colorSession.key === key ? colorSession.selectedStart : null
+    };
+    mountColorTray(document.getElementById("main"));
+    return;
+  }
+  if (verseSuggestPreview) verseSuggestPreview = null;
+  colorSession = { key, sense: null, mode: "paint", selectedStart: null };
   captureSelectionFromVerse(key);
   mountColorTray(document.getElementById("main"));
 }
@@ -3229,8 +3261,105 @@ function closeColorSession() {
   if (old) old.remove();
 }
 
+function punchPreview(items, add) {
+  const next = [];
+  for (const it of items) {
+    if (it.end <= add.start || it.start >= add.end) next.push(it);
+    else {
+      if (it.start < add.start) next.push({ ...it, end: add.start });
+      if (it.end > add.end) next.push({ ...it, start: add.end });
+    }
+  }
+  next.push(add);
+  return next;
+}
+
+async function applyPreviewColor(colorId, useSel) {
+  if (!colorSession || !verseSuggestPreview) return;
+  const key = colorSession.key;
+  const parsed = bible.parseKey(key);
+  const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
+  const planned = precision.planColorApply(plain, colorId, parsed.bookId, useSel);
+  if (planned.needSense) {
+    colorSession.sense = {
+      note: planned.note,
+      token: planned.needSense,
+      choices: precision.senseChoices(planned.needSense.key)
+    };
+    mountColorTray(document.getElementById("main"));
+    return;
+  }
+  let items = verseSuggestPreview.items.slice();
+  for (const r of planned.ranges) {
+    items = punchPreview(items, {
+      start: r.start,
+      end: r.end,
+      colorId: r.color || colorId,
+      reason: planned.note || "Added from the selection. Not saved.",
+      keep: true
+    });
+  }
+  verseSuggestPreview.items = items;
+  colorSession.sense = null;
+  colorSession.selectedStart = planned.ranges.length ? planned.ranges[0].start : null;
+  pendingSelection = null;
+  try { window.getSelection().removeAllRanges(); } catch (_) {}
+  if (planned.note) showAppStatus(planned.note + " Not saved.", "ok");
+  const main = document.getElementById("main");
+  const scrollTop = main ? main.scrollTop : 0;
+  pauseChromeHide(600);
+  await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  pauseChromeHide(600);
+}
+
+async function onSuggestColorTap(colorId) {
+  if (!colorSession || !verseSuggestPreview) return;
+  const sel = lockSelectionForKey(colorSession.key);
+  const selected = verseSuggestPreview.items.find((it) => it.keep && it.start === colorSession.selectedStart);
+  if (sel && (!selected || sel.start !== selected.start || sel.end !== selected.end)) {
+    await applyPreviewColor(colorId, { start: sel.start, end: sel.end });
+    return;
+  }
+  if (selected) {
+    await applyPreviewColor(colorId, { start: selected.start, end: selected.end });
+    return;
+  }
+  showAppStatus("Tap a faint group, or select words the app missed.", "ok");
+}
+
+async function keepSuggestPreview() {
+  if (!verseSuggestPreview) return;
+  const key = verseSuggestPreview.key;
+  const parsed = bible.parseKey(key);
+  const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
+  const existing = normalizeRanges(await storage.getHighlights(key), text.length);
+  const incoming = verseSuggestPreview.items
+    .filter((it) => it.keep)
+    .map((it) => ({ color: it.colorId, start: it.start, end: it.end }));
+  await storage.setHighlights(key, precision.mergeRanges(existing, incoming, text.length));
+  verseSuggestPreview = null;
+  closeColorSession();
+  showAppStatus("Saved.", "ok");
+  const main = document.getElementById("main");
+  const scrollTop = main ? main.scrollTop : 0;
+  pauseChromeHide(600);
+  await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  pauseChromeHide(600);
+}
+
+async function clearSuggestPreview() {
+  verseSuggestPreview = null;
+  closeColorSession();
+  const main = document.getElementById("main");
+  const scrollTop = main ? main.scrollTop : 0;
+  pauseChromeHide(600);
+  await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  pauseChromeHide(600);
+}
+
 async function paintSessionSelection(colorId, useSel) {
   if (!colorSession) return;
+  if (colorSession.mode === "suggest") return applyPreviewColor(colorId, useSel);
   const key = colorSession.key;
   const parsed = bible.parseKey(key);
   const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
@@ -3271,6 +3400,7 @@ function mountColorTray(main) {
   const parsed = bible.parseKey(colorSession.key);
   if (parsed.bookId !== currentBookId || parsed.chapter !== currentChapter) {
     colorSession = null;
+    verseSuggestPreview = null;
     return;
   }
   const tray = document.createElement("div");
@@ -3298,16 +3428,18 @@ function mountColorTray(main) {
         <span class="swatch" style="background:${c.hex}"></span>
         <span>${escapeHtml(c.label)}</span>
       </button>`).join("");
+    const suggest = colorSession.mode === "suggest";
     tray.innerHTML = `
       <div class="color-tray-top">
         <p id="color-tray-sel" class="color-tray-sel"></p>
-        <button type="button" id="color-tray-done">Done</button>
+        ${suggest ? "" : '<button type="button" id="color-tray-done">Done</button>'}
       </div>
-      <p class="color-tray-ref">${escapeHtml(ref)} \u00b7 same tray for the next group</p>
+      <p class="color-tray-ref">${escapeHtml(ref)}${suggest ? " \u00b7 not saved" : " \u00b7 same tray for the next group"}</p>
       <div class="color-tray-chips">${chips}</div>
       <div class="color-tray-extra">
-        <button type="button" id="color-tray-clear-sel">Clear selected</button>
-        <button type="button" id="color-tray-clear-all">Clear verse</button>
+        ${suggest
+          ? `<button type="button" id="color-tray-keep" ${verseSuggestPreview && verseSuggestPreview.items.some((it) => it.keep) ? "" : "disabled"}>Keep</button><button type="button" id="color-tray-clear">Clear</button>`
+          : '<button type="button" id="color-tray-clear-sel">Clear selected</button><button type="button" id="color-tray-clear-all">Clear verse</button>'}
       </div>`;
   }
   document.body.appendChild(tray);
@@ -3315,7 +3447,10 @@ function mountColorTray(main) {
   refreshColorTrayLabel();
 
   const done = document.getElementById("color-tray-done");
-  if (done) done.onclick = () => closeColorSession();
+  if (done) done.onclick = () => {
+    if (colorSession && colorSession.mode === "suggest") clearSuggestPreview();
+    else closeColorSession();
+  };
   const senseBack = document.getElementById("color-tray-sense-back");
   if (senseBack) senseBack.onclick = () => {
     colorSession.sense = null;
@@ -3326,6 +3461,10 @@ function mountColorTray(main) {
     btn.onclick = async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (colorSession && colorSession.mode === "suggest") {
+        await onSuggestColorTap(btn.dataset.color);
+        return;
+      }
       const sel = lockSelectionForKey(colorSession.key);
       if (!sel) {
         showAppStatus("Select words, then tap a color.", "ok");
@@ -3397,6 +3536,35 @@ function mountColorTray(main) {
       await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
       pauseChromeHide(600);
     };
+  }
+
+  const keepBtn = document.getElementById("color-tray-keep");
+  if (keepBtn) keepBtn.onclick = () => keepSuggestPreview();
+  const clearPreviewBtn = document.getElementById("color-tray-clear");
+  if (clearPreviewBtn) clearPreviewBtn.onclick = () => clearSuggestPreview();
+
+  if (colorSession.mode === "suggest" && main) {
+    main.querySelectorAll(".tap-suggest, .tap-suggest-off").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!verseSuggestPreview || !colorSession) return;
+        const start = +el.dataset.start;
+        const item = verseSuggestPreview.items.find((it) => start >= it.start && start < it.end);
+        if (!item) return;
+        if (item.keep && colorSession.selectedStart === item.start) {
+          item.keep = false;
+          colorSession.selectedStart = null;
+        } else {
+          item.keep = true;
+          colorSession.selectedStart = item.start;
+        }
+        const scrollTop = main.scrollTop;
+        pauseChromeHide(600);
+        renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+        pauseChromeHide(600);
+      }, true);
+    });
   }
 }
 
@@ -5741,14 +5909,19 @@ async function openVerseSuggestions(key) {
     key,
     items: spans.map(s => ({ ...s, keep: true }))
   };
+  colorSession = { key, sense: null, mode: "suggest", selectedStart: null };
   const main = document.getElementById('main');
   const scrollTop = main ? main.scrollTop : 0;
+  pauseChromeHide(600);
   await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  pauseChromeHide(600);
 }
 
 function mountSuggestBar(main) {
   const old = document.getElementById('suggest-bar');
   if (old) old.remove();
+  // Step 2: suggestions use the color tray. Do not also mount the old bar.
+  if (colorSession && colorSession.mode === "suggest") return;
   if (!verseSuggestPreview || !verseSuggestPreview.key) return;
   const parsed = bible.parseKey(verseSuggestPreview.key);
   if (parsed.bookId !== currentBookId || parsed.chapter !== currentChapter) return;
@@ -6840,7 +7013,7 @@ function openHelp() {
         Use <strong>Mark this word</strong> inside the panel to put a thin outline on that occurrence only.<br>
         <strong>Remove mark</strong> clears it. Long-press + drag still selects text for Color as before.</p>
         <p style="margin-bottom:1rem"><strong>Verse number</strong><br>
-        Tap a verse number for faint word-level color suggestions. Each mark quotes this verse and says why that span is painted. If nothing qualifies, the note quotes the verse and says why it was left alone. Nothing is saved until Keep or Clear. Color chips show the subject next to the color.</p>
+        Tap a verse number. Faint groups open on the same color tray. Nothing is saved. Tap a group, then a color, to recolor it. Tap that group again to drop it. Select words the app missed, then tap a color, to add them. Keep writes the set once. Clear throws the preview away. If nothing qualifies, the note quotes the verse and says why it was left alone.</p>
         <p style="margin-bottom:1rem"><strong>Phrase as a unit</strong><br>
         If you tap a word that belongs to a known phrase (meal offering, burnt offering, holy convocation), the phrase is treated first: one sense, then that phrase in this book, then in the loaded KJV.</p>
         <p style="margin-bottom:1rem"><strong>Then · Kind · Now</strong><br>

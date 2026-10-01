@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.60.3
+# KJV Study PWA – v6.60.4
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.4
+**Verse-number suggestions use the color tray (step 2)**
+- Tap a verse number. Faint groups open on the same tray. Nothing is saved.
+- Tap a group, then a color, to recolor it. Tap that group again to drop it.
+- Select words the app missed, then tap a color, to add them.
+- Keep writes the set once. Clear throws the preview away.
 
 ## New in 6.60.3
 **Color tray stays open (step 1)**
