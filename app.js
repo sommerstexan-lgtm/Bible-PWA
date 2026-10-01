@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.1';
+const APP_VERSION = '6.60.2';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -696,6 +696,17 @@ function renderShell() {
 
 let chromeHidden = false;
 let lastScrollTop = 0;
+let chromeHidePaused = false;
+let chromeHidePauseTimer = null;
+
+function pauseChromeHide(ms) {
+  chromeHidePaused = true;
+  if (chromeHidePauseTimer) clearTimeout(chromeHidePauseTimer);
+  chromeHidePauseTimer = setTimeout(() => {
+    chromeHidePaused = false;
+    chromeHidePauseTimer = null;
+  }, ms);
+}
 
 function showChrome() {
   const chrome = document.getElementById('chrome');
@@ -1760,11 +1771,12 @@ function installChromeAutoHide() {
   main._chromeBound = true;
   lastScrollTop = main.scrollTop || 0;
 
-  // ANY scroll (up or down) hides controls. Only the Controls button shows them.
+  // Reading scroll hides controls. Chapter arrows do not — they pause hide.
   main.addEventListener('scroll', () => {
     const st = main.scrollTop;
     const delta = Math.abs(st - lastScrollTop);
     lastScrollTop = st;
+    if (chromeHidePaused) return;
     if (delta < 4) return; // ignore tiny jitter
     if (!chromeHidden) hideChrome();
   }, { passive: true });
@@ -1793,10 +1805,15 @@ async function changeChapter(dir) {
   if (ch > total) {
     return;
   }
+  // Chapter arrows live in Controls. Keep the panel open so Set Anchor
+  // can be used on the new chapter without reopening Controls.
+  pauseChromeHide(600);
   currentChapter = ch;
   await renderChapter(currentBookId, currentChapter);
   await storage.saveLastPosition({ bookId: currentBookId, chapter: currentChapter });
   updateChapterButtons();
+  showChrome();
+  pauseChromeHide(600);
 }
 
 function updateChapterButtons() {
@@ -6561,7 +6578,7 @@ function openHelp() {
         When controls are hidden, the Anchor chip at the top also returns you.</p>
 
         <p style="margin-bottom:1rem"><strong>Chapters</strong><br>
-        ◀ ▶ move chapters. Dim at first/last. Sample has Gen 1–2.</p>
+        ◀ ▶ move chapters and leave Controls open, so Set Anchor here is still there. Dim at first/last. Sample has Gen 1–2.</p>
 
         <p style="margin-bottom:1rem"><strong>Context (offline)</strong><br>
         Tap <strong>Context</strong> while viewing a chapter for a short overview: book purpose, key themes, simple chapter outline, and where the chapter sits in the larger story. Fully offline.</p>

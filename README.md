@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.60.0
+# KJV Study PWA – v6.60.2
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.2
+**Controls stay open on chapter arrows**
+- ◀ ▶ from Controls advances the chapter and leaves Controls open.
+- Set Anchor here is still on screen for the new chapter. No second open.
 
 ## New in 6.60.0
 **Color / Research / study expansions**
