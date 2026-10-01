@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.2';
+const APP_VERSION = '6.60.3';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1944,6 +1944,7 @@ function uniqueColors(ranges) {
 
 
 let pendingSelection = null; // { key, start, end, text } — never cleared by a failed capture
+let colorSession = null; // { key, sense } — tray stays open across groups. Step 1 only.
 
 
 /**
@@ -2131,11 +2132,12 @@ function installSelectionWatchers(main) {
       node = node.parentNode;
     }
   };
-  main.addEventListener("mouseup", save);
-  main.addEventListener("touchend", save, { passive: true });
+  const saveAndLabel = () => { save(); refreshColorTrayLabel(); };
+  main.addEventListener("mouseup", saveAndLabel);
+  main.addEventListener("touchend", saveAndLabel, { passive: true });
   document.addEventListener("selectionchange", () => {
     clearTimeout(installSelectionWatchers._t);
-    installSelectionWatchers._t = setTimeout(save, 30);
+    installSelectionWatchers._t = setTimeout(saveAndLabel, 30);
   });
 }
 
@@ -2285,6 +2287,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   }
 
   mountSuggestBar(main);
+  mountColorTray(main);
 
   // Wire "Load Cross-References for this book" — clear permanent states only
   const loadBtn = document.getElementById('btn-load-book-xrefs');
@@ -2424,7 +2427,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     }
     else if (act === 'chip') openColorSpanInfo(key, btn.dataset.color);
     else if (act === 'analyze') openAnalyze(key);
-    else if (act === 'color') openColorPicker(key);
+    else if (act === 'color') openColorSession(key);
     else if (act === 'note') openNote(key);
     else if (act === 'xref') openCrossRefs(key);
     else if (act === 'chains') openVerseChains(key);
@@ -3168,6 +3171,233 @@ async function openAnalyze(key) {
       }, 80);
     };
   });
+}
+
+// ---------- Color session tray (step 1: selections stay open) ----------
+function lockSelectionForKey(key) {
+  captureSelectionFromVerse(key);
+  if (!(pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start)) {
+    return null;
+  }
+  const parsed = bible.parseKey(key);
+  const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
+  let sel = {
+    key,
+    start: pendingSelection.start,
+    end: pendingSelection.end,
+    text: pendingSelection.text
+  };
+  if (sel.text && plain) {
+    const selText = stripLeadingVerseNum(String(sel.text)).trim();
+    if (selText && selText.length < plain.length) {
+      let located = locateSelected(plain, selText, sel.start || 0);
+      if (!located && plain.startsWith(selText)) located = { start: 0, end: selText.length };
+      if (!located) located = locateSelected(plain, selText, 0);
+      if (located && (located.end - located.start) < plain.length) {
+        sel = { key, start: located.start, end: located.end, text: plain.slice(located.start, located.end) };
+      }
+    }
+  }
+  if (!(sel.end > sel.start)) return null;
+  return sel;
+}
+
+function refreshColorTrayLabel() {
+  const el = document.getElementById("color-tray-sel");
+  if (!el || !colorSession) return;
+  const sel = (pendingSelection && pendingSelection.key === colorSession.key && pendingSelection.end > pendingSelection.start)
+    ? pendingSelection : null;
+  if (colorSession.sense) {
+    el.textContent = colorSession.sense.note + " \u201c" + colorSession.sense.token.text + "\u201d";
+    return;
+  }
+  el.textContent = sel
+    ? "Selected: \u201c" + sel.text.slice(0, 80) + (sel.text.length > 80 ? "\u2026" : "") + "\u201d"
+    : "Select words, then tap a color.";
+}
+
+function openColorSession(key) {
+  colorSession = { key, sense: null };
+  captureSelectionFromVerse(key);
+  mountColorTray(document.getElementById("main"));
+}
+
+function closeColorSession() {
+  colorSession = null;
+  document.body.classList.remove("color-tray-open");
+  const old = document.getElementById("color-tray");
+  if (old) old.remove();
+}
+
+async function paintSessionSelection(colorId, useSel) {
+  if (!colorSession) return;
+  const key = colorSession.key;
+  const parsed = bible.parseKey(key);
+  const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
+  let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
+  const planned = precision.planColorApply(plain, colorId, parsed.bookId, useSel);
+  if (planned.needSense) {
+    colorSession.sense = {
+      note: planned.note,
+      token: planned.needSense,
+      choices: precision.senseChoices(planned.needSense.key)
+    };
+    mountColorTray(document.getElementById("main"));
+    return;
+  }
+  ranges = precision.mergeRanges(
+    planned.mode === "whole-verse" ? [] : ranges,
+    planned.ranges,
+    plain.length
+  );
+  if (planned.mode === "whole-verse") ranges = planned.ranges;
+  await storage.setHighlights(key, ranges);
+  pendingSelection = null;
+  colorSession.sense = null;
+  try { window.getSelection().removeAllRanges(); } catch (_) {}
+  if (planned.note) showAppStatus(planned.note, "ok");
+  const main = document.getElementById("main");
+  const scrollTop = main ? main.scrollTop : 0;
+  pauseChromeHide(600);
+  await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+  pauseChromeHide(600);
+}
+
+function mountColorTray(main) {
+  const old = document.getElementById("color-tray");
+  if (old) old.remove();
+  document.body.classList.remove("color-tray-open");
+  if (!colorSession || !colorSession.key) return;
+  const parsed = bible.parseKey(colorSession.key);
+  if (parsed.bookId !== currentBookId || parsed.chapter !== currentChapter) {
+    colorSession = null;
+    return;
+  }
+  const tray = document.createElement("div");
+  tray.id = "color-tray";
+  tray.className = "color-tray";
+  tray.setAttribute("role", "region");
+  tray.setAttribute("aria-label", "Color session");
+  const book = books.find((b) => b.id === parsed.bookId);
+  const ref = (book ? book.name : parsed.bookId) + " " + parsed.chapter + ":" + parsed.verse;
+  if (colorSession.sense) {
+    const s = colorSession.sense;
+    tray.innerHTML = `
+      <div class="color-tray-top">
+        <p id="color-tray-sel" class="color-tray-sel"></p>
+        <button type="button" id="color-tray-done">Done</button>
+      </div>
+      <p class="color-tray-ref">${escapeHtml(ref)}</p>
+      <div class="color-tray-sense">
+        ${s.choices.map((c) => `<button type="button" data-sense="${escapeHtml(c.id)}" data-color="${escapeHtml(c.colorId || "")}">${escapeHtml(c.label)}</button>`).join("")}
+        <button type="button" id="color-tray-sense-back">Back to colors</button>
+      </div>`;
+  } else {
+    const chips = analyze.allColors().map((c) => `
+      <button type="button" class="color-tray-chip" data-color="${c.id}" title="${escapeHtml(c.meaning)}">
+        <span class="swatch" style="background:${c.hex}"></span>
+        <span>${escapeHtml(c.label)}</span>
+      </button>`).join("");
+    tray.innerHTML = `
+      <div class="color-tray-top">
+        <p id="color-tray-sel" class="color-tray-sel"></p>
+        <button type="button" id="color-tray-done">Done</button>
+      </div>
+      <p class="color-tray-ref">${escapeHtml(ref)} \u00b7 same tray for the next group</p>
+      <div class="color-tray-chips">${chips}</div>
+      <div class="color-tray-extra">
+        <button type="button" id="color-tray-clear-sel">Clear selected</button>
+        <button type="button" id="color-tray-clear-all">Clear verse</button>
+      </div>`;
+  }
+  document.body.appendChild(tray);
+  document.body.classList.add("color-tray-open");
+  refreshColorTrayLabel();
+
+  const done = document.getElementById("color-tray-done");
+  if (done) done.onclick = () => closeColorSession();
+  const senseBack = document.getElementById("color-tray-sense-back");
+  if (senseBack) senseBack.onclick = () => {
+    colorSession.sense = null;
+    mountColorTray(document.getElementById("main"));
+  };
+
+  tray.querySelectorAll(".color-tray-chip").forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sel = lockSelectionForKey(colorSession.key);
+      if (!sel) {
+        showAppStatus("Select words, then tap a color.", "ok");
+        refreshColorTrayLabel();
+        return;
+      }
+      await paintSessionSelection(btn.dataset.color, { start: sel.start, end: sel.end });
+    };
+  });
+
+  tray.querySelectorAll("button[data-sense]").forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const token = colorSession && colorSession.sense ? colorSession.sense.token : null;
+      if (!token) return;
+      const senseColor = btn.dataset.color;
+      if (!senseColor) {
+        colorSession.sense = null;
+        pendingSelection = null;
+        showAppStatus("Left unpainted \u2014 sense is not a color subject.", "ok");
+        mountColorTray(document.getElementById("main"));
+        return;
+      }
+      colorSession.sense = null;
+      await paintSessionSelection(senseColor, { start: token.start, end: token.end });
+    };
+  });
+
+  const clearSel = document.getElementById("color-tray-clear-sel");
+  if (clearSel) {
+    clearSel.onclick = async () => {
+      const sel = lockSelectionForKey(colorSession.key);
+      if (!sel) {
+        showAppStatus("Select the painted words to clear.", "ok");
+        return;
+      }
+      const key = colorSession.key;
+      const parsedNow = bible.parseKey(key);
+      const plain = bible.getVerseText(books, parsedNow.bookId, parsedNow.chapter, parsedNow.verse) || "";
+      const ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
+      const punched = [];
+      for (const r of ranges) {
+        if (r.end <= sel.start || r.start >= sel.end) punched.push(r);
+        else {
+          if (r.start < sel.start) punched.push({ color: r.color, start: r.start, end: sel.start });
+          if (r.end > sel.end) punched.push({ color: r.color, start: sel.end, end: r.end });
+        }
+      }
+      await storage.setHighlights(key, punched);
+      pendingSelection = null;
+      try { window.getSelection().removeAllRanges(); } catch (_) {}
+      showAppStatus("Cleared color on the selected words.", "ok");
+      const scrollTop = main ? main.scrollTop : 0;
+      pauseChromeHide(600);
+      await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+      pauseChromeHide(600);
+    };
+  }
+
+  const clearAll = document.getElementById("color-tray-clear-all");
+  if (clearAll) {
+    clearAll.onclick = async () => {
+      await storage.setHighlights(colorSession.key, []);
+      pendingSelection = null;
+      showAppStatus("Cleared colors on this verse.", "ok");
+      const scrollTop = main ? main.scrollTop : 0;
+      pauseChromeHide(600);
+      await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+      pauseChromeHide(600);
+    };
+  }
 }
 
 // ---------- Color picker (manual multi-select) ----------
@@ -6549,6 +6779,9 @@ function openHelp() {
         Full KJV is already in this app folder. Use the banner, Books, or Menu → <strong>Import Old Testament / New Testament</strong> to load every missing book. That does not touch your notes.<br>
         Per-book <strong>Import Book (JSON)</strong> is only for your own extra file.<br>
         Highlights and notes stay by verse reference (e.g. gen.1.1) when you replace text for the same numbers.</p>
+
+        <p style="margin-bottom:1rem"><strong>Color tray</strong><br>
+        Color opens a tray and leaves it open. Select words, tap a color, select the next group, tap a color. Same color or a different one. Done closes the tray. A tap with no words selected does not paint the verse.</p>
 
         <p style="margin-bottom:1rem"><strong>Color precision</strong><br>
         Color and Analyze paint a speech frame (<em>God said</em>, <em>Jesus saith</em>) when that is the subject — not the whole quote. Tap a color chip for the saved span, Unpaint, or Shrink speech colors to frames. Bare <em>spirit / beast / serpent</em> ask for a sense first. Review by color lists the painted words.</p>

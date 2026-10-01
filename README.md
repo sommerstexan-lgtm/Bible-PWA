@@ -1,6 +1,13 @@
-# KJV Study PWA – v6.60.2
+# KJV Study PWA – v6.60.3
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.3
+**Color tray stays open (step 1)**
+- Color opens a tray on the verse and leaves it open.
+- Select words, tap a color, select the next group, tap a color. Done closes it.
+- A color tap with nothing selected does not paint the verse.
+- Verse-number suggestions are unchanged.
 
 ## New in 6.60.2
 **Controls stay open on chapter arrows**
