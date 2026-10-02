@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.4';
+const APP_VERSION = '6.60.5';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -670,7 +670,7 @@ function renderShell() {
   $('#btn-context').onclick = () => openContext();
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
-  $('#chrome-reveal').onclick = () => showChrome();
+  bindChromeReveal();
   $('#nav-back').onclick = () => goNavBack();
   const goA = document.getElementById('btn-go-anchor');
   const setA = document.getElementById('btn-set-anchor');
@@ -717,6 +717,20 @@ function showChrome() {
   if (reveal) reveal.hidden = true;
   chromeHidden = false;
   updateAnchorUI();
+}
+
+/** First tap at chapter end was eaten by scroll-stop, or a padding shift re-hid Controls. */
+function bindChromeReveal() {
+  const reveal = document.getElementById('chrome-reveal');
+  if (!reveal || reveal._revealBound) return;
+  reveal._revealBound = true;
+  const open = (e) => {
+    if (e && e.cancelable) e.preventDefault();
+    pauseChromeHide(800);
+    showChrome();
+  };
+  reveal.addEventListener('pointerdown', open);
+  reveal.addEventListener('click', open);
 }
 
 function hideChrome() {
@@ -849,8 +863,7 @@ async function goAnchor() {
   }, 80);
 }
 
-function setAnchorHere() {
-  const seat = currentSeatForAnchor();
+function commitAnchor(seat) {
   if (!seat) return;
   previousAnchor = readingAnchor ? { ...readingAnchor } : null;
   readingAnchor = seat;
@@ -861,6 +874,28 @@ function setAnchorHere() {
     updateAnchorUI();
   }, 8000);
   updateAnchorUI();
+}
+
+function setAnchorHere() {
+  commitAnchor(currentSeatForAnchor());
+}
+
+/** Tools path: this verse, not the verse nearest the top of the screen. */
+function setAnchorFromVerse(key) {
+  const parsed = bible.parseKey(key);
+  if (!parsed || !parsed.bookId) return;
+  const book = books.find((b) => b.id === parsed.bookId);
+  const name = book ? book.name : parsed.bookId;
+  const main = document.getElementById('main');
+  commitAnchor({
+    bookId: parsed.bookId,
+    chapter: parsed.chapter,
+    verse: parsed.verse,
+    verseKey: key,
+    scrollTop: main ? main.scrollTop : 0,
+    label: name + ' ' + parsed.chapter + ':' + parsed.verse
+  });
+  showAppStatus('Anchor set to ' + name + ' ' + parsed.chapter + ':' + parsed.verse, 'ok');
 }
 
 function undoAnchor() {
@@ -2285,6 +2320,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       </div>
       <div class="verse-actions${toolsOpen ? '' : ' is-collapsed'}">
         <button type="button" data-act="analyze" data-key="${key}">Analyze</button>
+        <button type="button" data-act="anchor" data-key="${key}">Set Anchor</button>
         <button type="button" data-act="color" data-key="${key}">Color</button>
         <button type="button" data-act="note" data-key="${key}" class="${noteCls.trim()}">Note</button>
         <button type="button" data-act="xref" data-key="${key}" class="${xrefCls.trim()}">Cross-refs</button>
@@ -2436,6 +2472,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     }
     else if (act === 'chip') openColorSpanInfo(key, btn.dataset.color);
     else if (act === 'analyze') openAnalyze(key);
+    else if (act === 'anchor') setAnchorFromVerse(key);
     else if (act === 'color') openColorSession(key);
     else if (act === 'note') openNote(key);
     else if (act === 'xref') openCrossRefs(key);
@@ -2891,7 +2928,6 @@ function openColorIndex() {
     <li data-color="${c.id}">
       <span class="swatch" style="background:${c.hex}"></span>
       <div class="meaning">
-        <span class="label">${c.label}</span>
         ${c.meaning}
       </div>
       <button type="button" data-show="${c.id}" style="min-width:auto;padding:0.4rem 0.7rem">Show all</button>
@@ -2921,7 +2957,7 @@ async function openReviewByColor(preselectColor = null) {
   const colorFilter = preselectColor;
 
   const colorOptions = analyze.allColors().map(c =>
-    `<option value="${c.id}" ${c.id === colorFilter ? 'selected' : ''}>${c.label} – ${c.meaning}</option>`
+    `<option value="${c.id}" ${c.id === colorFilter ? 'selected' : ''}>${c.meaning}</option>`
   ).join('');
 
   // Reuse the same panel structure / styles as hierarchical Search for consistency
@@ -3424,9 +3460,9 @@ function mountColorTray(main) {
       </div>`;
   } else {
     const chips = analyze.allColors().map((c) => `
-      <button type="button" class="color-tray-chip" data-color="${c.id}" title="${escapeHtml(c.meaning)}">
+      <button type="button" class="color-tray-chip" data-color="${c.id}" title="${escapeHtml(c.label + ' — ' + c.meaning)}">
         <span class="swatch" style="background:${c.hex}"></span>
-        <span>${escapeHtml(c.label)}</span>
+        <span class="color-tray-meaning">${escapeHtml(c.meaning)}</span>
       </button>`).join("");
     const suggest = colorSession.mode === "suggest";
     tray.innerHTML = `
@@ -6979,7 +7015,8 @@ function openHelp() {
 
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
         One reading spot. Books, Search, and hops do not move it.<br>
-        <strong>Set Anchor here</strong> saves the verse on screen.<br>
+        <strong>Set Anchor here</strong> saves the verse at the top of the screen.<br>
+        <strong>Tools → Set Anchor</strong> saves that verse, including the last verse of a chapter.<br>
         <strong>Anchor</strong> returns you there. <strong>Undo</strong> is offered for a few seconds after a set.<br>
         When controls are hidden, the Anchor chip at the top also returns you.</p>
 

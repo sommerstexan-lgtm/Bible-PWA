@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.60.4
+# KJV Study PWA – v6.60.5
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.5
+- Tools → Set Anchor saves that verse. Controls → Set Anchor here is unchanged (verse at the top of the screen).
+- Controls opens on the first tap at the bottom of a chapter.
+- Color tray, Color Index, and Review show what the color means, not the color name.
 
 ## New in 6.60.4
 **Verse-number suggestions use the color tray (step 2)**
