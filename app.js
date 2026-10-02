@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.6';
+const APP_VERSION = '6.60.7';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -620,6 +620,7 @@ function renderShell() {
         <button type="button" id="btn-colors" title="Color Index">Colors</button>
         <button type="button" id="btn-review" title="Review by color">Review</button>
         <button type="button" id="btn-help" title="Help">Help</button>
+        <button type="button" id="btn-summary" title="Chapter summary">Summary</button>
         <button type="button" id="btn-dict" title="Dictionary">Dict</button>
         <button type="button" id="btn-research" title="Commentary / Research">Research</button>
         <button type="button" id="btn-context" title="Book / Chapter Context">Context</button>
@@ -636,6 +637,7 @@ function renderShell() {
       </div>
     </div>
     <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
+    <button type="button" id="summary-chip" class="summary-chip" hidden title="Open minimized summary">Summary</button>
     <button type="button" id="anchor-chip" class="anchor-chip" hidden title="Return to Anchor">Anchor</button>
     <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
     <div id="chain-read-bar" class="chain-read-bar" hidden>
@@ -680,6 +682,10 @@ function renderShell() {
   if (setA) setA.onclick = () => setAnchorHere();
   if (undoA) undoA.onclick = () => undoAnchor();
   if (chipA) chipA.onclick = () => goAnchor();
+  const sumChip = document.getElementById('summary-chip');
+  if (sumChip) sumChip.onclick = () => reopenMinimizedSummary();
+  const sumBtn = document.getElementById('btn-summary');
+  if (sumBtn) sumBtn.onclick = () => openChapterSummary();
   updateAnchorUI();
   const listBtn = document.getElementById('chain-bar-list');
   const nextBtn = document.getElementById('chain-bar-next');
@@ -4920,6 +4926,50 @@ function summaryQuestionsHtml() {
   </div>`;
 }
 
+let minimizedSummary = null;
+
+function updateSummaryChip() {
+  const chip = document.getElementById('summary-chip');
+  if (!chip) return;
+  if (!minimizedSummary) {
+    chip.hidden = true;
+    chip.textContent = 'Summary';
+    return;
+  }
+  chip.hidden = false;
+  chip.textContent = minimizedSummary.title || 'Summary';
+}
+
+function reopenMinimizedSummary() {
+  if (!minimizedSummary) return;
+  const note = minimizedSummary;
+  minimizedSummary = null;
+  updateSummaryChip();
+  openSummaryNoteEditor(note);
+}
+
+function chapterSummaryTitle() {
+  const book = books.find((b) => b.id === currentBookId);
+  if (!book || !currentChapter) return '';
+  return book.name + ' ' + currentChapter;
+}
+
+async function openChapterSummary() {
+  const title = chapterSummaryTitle();
+  if (!title) {
+    showAppStatus('Open a chapter first.', 'fail');
+    return;
+  }
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  const found = list.find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === title.toLowerCase());
+  if (found && minimizedSummary && minimizedSummary.id === found.id) {
+    reopenMinimizedSummary();
+    return;
+  }
+  openSummaryNoteEditor(found || { kind: 'chapter', title, text: '' });
+}
+
 function openSummaryNoteEditor(existing) {
   const isNew = !existing || !existing.id;
   const kind = existing && existing.kind === 'book' ? 'book' : 'chapter';
@@ -4939,7 +4989,8 @@ function openSummaryNoteEditor(existing) {
       <input type="text" id="sn-title" class="search-box" placeholder="Ruth 1  or  Ruth — who needs to read this book, and why" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
       <textarea class="note-input" id="sn-text" placeholder="Answer the questions above. Saved on this device until you delete it.">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
-      <button type="button" id="sn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
+      <button type="button" id="sn-min" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Minimize</button>
+      <button type="button" id="sn-save" style="width:100%;margin-top:0.45rem;min-height:52px">Save</button>
       ${isNew ? '' : '<button type="button" id="sn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
       <button type="button" id="sn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
     </div>
@@ -4947,18 +4998,34 @@ function openSummaryNoteEditor(existing) {
   const close = () => closeOverlay(overlay);
   $('.close', overlay).onclick = close;
   $('#sn-cancel', overlay).onclick = close;
-  $('#sn-save', overlay).onclick = async () => {
+  async function readSummaryFields() {
     const title = ($('#sn-title', overlay).value || '').trim() || 'Untitled summary';
     const text = $('#sn-text', overlay).value || '';
     const picked = ($('#sn-kind', overlay).value || 'chapter') === 'book' ? 'book' : 'chapter';
+    return storage.saveSummaryNote({
+      id: existing && existing.id,
+      kind: picked,
+      title,
+      text,
+      createdAt: existing && existing.createdAt
+    });
+  }
+  $('#sn-min', overlay).onclick = async () => {
     try {
-      await storage.saveSummaryNote({
-        id: existing && existing.id,
-        kind: picked,
-        title,
-        text,
-        createdAt: existing && existing.createdAt
-      });
+      minimizedSummary = await readSummaryFields();
+      updateSummaryChip();
+      close();
+    } catch (_) {
+      alert('Could not save the summary note.');
+    }
+  };
+  $('#sn-save', overlay).onclick = async () => {
+    try {
+      await readSummaryFields();
+      if (minimizedSummary && existing && minimizedSummary.id === existing.id) {
+        minimizedSummary = null;
+        updateSummaryChip();
+      }
       close();
       openSummaryNotesList();
     } catch (_) {
@@ -7171,6 +7238,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
         Menu → <strong>Summary notes</strong>. The four chapter questions stay on that screen.<br>
         A chapter note answers those four. A book note answers who needs to read the book, and why, from the chapter notes.<br>
+        <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return.<br>
         Saved on this device until you delete them. They go out with Export study data. Filter the book name to read the set.</p>
 
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>

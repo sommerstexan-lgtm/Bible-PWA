@@ -2452,3 +2452,26 @@ body.color-tray-open #main {
 .summary-qs p { margin: 0.2rem 0; }
 .summary-qs ol { margin: 0.25rem 0 0.45rem 1.1rem; padding: 0; }
 .summary-qs li { margin: 0.15rem 0; }
+
+.summary-chip {
+  position: fixed;
+  top: max(4px, env(safe-area-inset-top, 0px));
+  left: calc(50% + 4.4rem);
+  z-index: 71;
+  touch-action: manipulation;
+  margin: 0;
+  min-height: 32px;
+  max-width: calc(50vw - 5rem);
+  padding: 0.28rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: #111;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.summary-chip[hidden] { display: none !important; }

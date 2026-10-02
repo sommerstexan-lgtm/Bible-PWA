@@ -1,6 +1,9 @@
-# KJV Study PWA – v6.60.6
+# KJV Study PWA – v6.60.7
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.7
+- Summary in Controls opens this chapter’s summary. Minimize saves it and leaves a chip beside Controls.
 
 ## New in 6.60.6
 - Menu → Summary notes. The four chapter questions stay on that screen. The book question is separate.
