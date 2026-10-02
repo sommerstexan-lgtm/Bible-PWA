@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.7';
+const APP_VERSION = '6.60.8';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4940,6 +4940,46 @@ function updateSummaryChip() {
   chip.textContent = minimizedSummary.title || 'Summary';
 }
 
+function captureSummaryPlace(overlay) {
+  const note = $('#sn-text', overlay);
+  const title = $('#sn-title', overlay);
+  const panel = overlay.querySelector('.panel');
+  const active = document.activeElement;
+  return {
+    field: active === title ? 'title' : 'note',
+    start: note ? note.selectionStart || 0 : 0,
+    end: note ? note.selectionEnd || 0 : 0,
+    titleStart: title ? title.selectionStart || 0 : 0,
+    titleEnd: title ? title.selectionEnd || 0 : 0,
+    noteScroll: note ? note.scrollTop || 0 : 0,
+    panelScroll: panel ? panel.scrollTop || 0 : 0
+  };
+}
+
+function restoreSummaryPlace(overlay, place) {
+  if (!overlay || !place) return;
+  const note = $('#sn-text', overlay);
+  const title = $('#sn-title', overlay);
+  const panel = overlay.querySelector('.panel');
+  if (!note) return;
+  const max = note.value.length;
+  const start = Math.max(0, Math.min(Number(place.start) || 0, max));
+  const end = Math.max(start, Math.min(Number(place.end) || start, max));
+  const useTitle = place.field === 'title' && title;
+  const target = useTitle ? title : note;
+  try { target.focus({ preventScroll: true }); } catch (_) { target.focus(); }
+  if (useTitle) {
+    const tMax = title.value.length;
+    const tStart = Math.max(0, Math.min(Number(place.titleStart) || 0, tMax));
+    const tEnd = Math.max(tStart, Math.min(Number(place.titleEnd) || tStart, tMax));
+    try { title.setSelectionRange(tStart, tEnd); } catch (_) {}
+  } else {
+    try { note.setSelectionRange(start, end); } catch (_) {}
+  }
+  note.scrollTop = Number(place.noteScroll) || 0;
+  if (panel) panel.scrollTop = Number(place.panelScroll) || 0;
+}
+
 function reopenMinimizedSummary() {
   if (!minimizedSummary) return;
   const note = minimizedSummary;
@@ -5010,9 +5050,15 @@ function openSummaryNoteEditor(existing) {
       createdAt: existing && existing.createdAt
     });
   }
-  $('#sn-min', overlay).onclick = async () => {
+  const minBtn = $('#sn-min', overlay);
+  minBtn.addEventListener('pointerdown', () => {
+    minBtn._place = captureSummaryPlace(overlay);
+  }, true);
+  minBtn.onclick = async () => {
     try {
+      const place = minBtn._place || captureSummaryPlace(overlay);
       minimizedSummary = await readSummaryFields();
+      if (minimizedSummary) minimizedSummary._place = place;
       updateSummaryChip();
       close();
     } catch (_) {
@@ -5042,6 +5088,11 @@ function openSummaryNoteEditor(existing) {
     };
   }
   setTimeout(() => {
+    if (existing && existing._place) {
+      restoreSummaryPlace(overlay, existing._place);
+      setTimeout(() => restoreSummaryPlace(overlay, existing._place), 90);
+      return;
+    }
     const t = $('#sn-title', overlay);
     if (t) t.focus();
   }, 60);
@@ -7238,7 +7289,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
         Menu → <strong>Summary notes</strong>. The four chapter questions stay on that screen.<br>
         A chapter note answers those four. A book note answers who needs to read the book, and why, from the chapter notes.<br>
-        <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return.<br>
+        <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same spot in the note.<br>
         Saved on this device until you delete them. They go out with Export study data. Filter the book name to read the set.</p>
 
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
