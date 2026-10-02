@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.8';
+const APP_VERSION = '6.60.9';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4909,10 +4909,10 @@ async function openNotesList() {
 
 
 const SUMMARY_CHAPTER_QS = [
-  'Where does this chapter start?',
-  'What changed?',
-  'What is still unresolved?',
-  'Which verses carry that change? Refs only.'
+  'What is the key verse in this chapter?',
+  'What happened before the key?',
+  'What happened after the key?',
+  'What is still unresolved?'
 ];
 const SUMMARY_BOOK_Q = 'Who needs to read this book, and why?';
 

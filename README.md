@@ -1,6 +1,9 @@
-# KJV Study PWA – v6.60.8
+# KJV Study PWA – v6.60.9
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.9
+- Chapter summary questions are now: key verse, what happened before the key, what happened after the key, what is still unresolved. Book question unchanged.
 
 ## New in 6.60.8
 - Minimize, then the Summary chip, returns the caret and scroll to the same spot in the note.
