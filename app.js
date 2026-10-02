@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.9';
+const APP_VERSION = '6.61.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6021,11 +6021,71 @@ function bindOccClicks(overlay) {
 }
 
 /**
- * Tap-a-word (v6.27.0)
- * 1) KJV 1611 English sense first when the English is the trap
- * 2) this word in this book, then this word in the whole loaded KJV
- * 3) Strong's second (if lexicon imported)
+ * Tap-a-word (v6.61.0)
+ * The Strong's number is the tag under this word in this verse.
+ * Same-number hits follow. The English spelling is never used to pick a number.
  */
+let strongsPackPromise = null;
+function loadStrongsPacks() {
+  if (!strongsPackPromise) {
+    strongsPackPromise = Promise.all([
+      fetch('./strongs-align.json').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('./strongs-gloss.json').then(r => r.ok ? r.json() : null).catch(() => null)
+    ]).then(([align, gloss]) => {
+      const byNum = new Map();
+      const verses = (align && align.verses) || {};
+      for (const [key, spec] of Object.entries(verses)) {
+        if (!spec) continue;
+        for (const part of String(spec).split(',')) {
+          const cut = part.indexOf(':');
+          if (cut < 0) continue;
+          const index = +part.slice(0, cut);
+          for (const id of part.slice(cut + 1).split('+')) {
+            if (!id) continue;
+            if (!byNum.has(id)) byNum.set(id, []);
+            byNum.get(id).push({ key, index });
+          }
+        }
+      }
+      return { verses, byNum, gloss: (gloss && gloss.entries) || {}, ok: !!(align && align.verses) };
+    });
+  }
+  return strongsPackPromise;
+}
+
+function wordIndexAt(text, start) {
+  if (!Number.isFinite(start)) return -1;
+  const re = /[A-Za-z][A-Za-z']*/g;
+  let i = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m.index === start) return i;
+    i++;
+  }
+  return -1;
+}
+
+function wordAtIndex(text, index) {
+  const re = /[A-Za-z][A-Za-z']*/g;
+  let i = 0;
+  let m;
+  while ((m = re.exec(text || ''))) {
+    if (i === index) return m[0];
+    i++;
+  }
+  return '';
+}
+
+function tagsAt(spec, index) {
+  if (!spec || index < 0) return [];
+  for (const part of String(spec).split(',')) {
+    const cut = part.indexOf(':');
+    if (cut < 0) continue;
+    if (+part.slice(0, cut) === index) return part.slice(cut + 1).split('+').filter(Boolean);
+  }
+  return [];
+}
+
 async function openWordStudy(word, verseKey, startOffset) {
   const clean = (word || '').trim();
   if (!clean) return;
@@ -6041,32 +6101,8 @@ async function openWordStudy(word, verseKey, startOffset) {
   const bookMeta = currentBookId ? books.find(b => b.id === currentBookId) : null;
   const bookName = bookMeta ? bookMeta.name : (currentBookId || 'this book');
 
-  function listsHtml(label, occ) {
-    const bookListHtml = occ.bookHits.length
-      ? occButtons(occ.bookHits)
-      : `<p style="font-size:0.9em;color:var(--text-dim)">No hits in ${escapeHtml(bookName)} (loaded text).</p>`;
-    const otherListHtml = occ.otherHits.length
-      ? occButtons(occ.otherHits)
-      : `<p style="font-size:0.9em;color:var(--text-dim)">No other loaded-KJV hits.</p>`;
-    return `
-    <div class="word-occ-block">
-      <p class="word-occ-head">${escapeHtml(label)} in ${escapeHtml(bookName)}
-        <span class="word-occ-count">${occ.bookCount}</span></p>
-      ${bookListHtml}
-      ${occ.bookCount > occ.bookHits.length ? `<p class="word-occ-more">Showing ${occ.bookHits.length} of ${occ.bookCount}</p>` : ''}
-    </div>
-    <div class="word-occ-block">
-      <p class="word-occ-head">${escapeHtml(label)} in the whole KJV (loaded)
-        <span class="word-occ-count">${occ.otherCount}</span></p>
-      ${otherListHtml}
-      ${occ.otherCount > occ.otherHits.length ? `<p class="word-occ-more">Showing ${occ.otherHits.length} of ${occ.otherCount}</p>` : ''}
-    </div>`;
-  }
-
   let englishBlock = '';
-  let listsBlock = '';
   let title = clean;
-
   if (unit) {
     title = unit.phrase;
     englishBlock = `<div class="kjv-english-note">
@@ -6074,72 +6110,97 @@ async function openWordStudy(word, verseKey, startOffset) {
          <div class="kjv-english-word">“${escapeHtml(unit.phrase)}”</div>
          <div class="kjv-english-sense">${escapeHtml(unit.sense)}</div>
        </div>`;
-    const phraseOcc = bible.searchWordOccurrences(unit.query, books, currentBookId, 24);
-    listsBlock = listsHtml(unit.phrase, phraseOcc);
-    const wordOcc = bible.searchWordOccurrences(clean, books, currentBookId, 12);
-    listsBlock += `<p class="word-occ-head" style="margin-top:1rem">This word only: ${escapeHtml(clean)}</p>` + listsHtml(clean, wordOcc);
-  } else {
-    if (eng) {
-      englishBlock = `<div class="kjv-english-note">
+  } else if (eng) {
+    englishBlock = `<div class="kjv-english-note">
          <div class="kjv-english-label">KJV English</div>
          <div class="kjv-english-word">“${escapeHtml(clean)}”</div>
          <div class="kjv-english-sense">${escapeHtml(eng.sense)}</div>
        </div>`;
-    }
-    listsBlock = listsHtml(clean, bible.searchWordOccurrences(clean, books, currentBookId, 24));
   }
 
-  const countWord = (unit && unit.query) ? unit.query : clean;
-  const thisBook = books.find((b) => b.id === currentBookId);
-  const chCount = precision.countWordInChapter(countWord, thisBook, currentChapter);
-  listsBlock = `<p class="word-occ-head">In this chapter
-      <span class="word-occ-count">${chCount.count}</span></p>` + listsBlock;
+  const packs = await loadStrongsPacks();
+  const wordIndex = wordIndexAt(verseText, startOffset);
+  const spec = (packs.verses && verseKey) ? packs.verses[verseKey] : '';
+  const ids = packs.ok ? tagsAt(spec, wordIndex) : [];
+  let dictQuery = ids[0] || '';
 
-  const pack = await storage.getLexiconPack();
+  function sameNumberHtml(id) {
+    const hits = packs.byNum.get(id) || [];
+    const bookHits = [];
+    const otherHits = [];
+    for (const hit of hits) {
+      if (hit.key === verseKey && hit.index === wordIndex) continue;
+      const parsed = bible.parseKey(hit.key);
+      const book = books.find(b => b.id === parsed.bookId);
+      if (!book) continue;
+      const text = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+      const surface = wordAtIndex(text, hit.index) || id;
+      const row = {
+        key: hit.key,
+        bookName: book.name,
+        chapter: parsed.chapter,
+        verse: parsed.verse,
+        snippet: surface
+      };
+      if (parsed.bookId === currentBookId) bookHits.push(row);
+      else otherHits.push(row);
+    }
+    const show = (list) => list.length
+      ? occButtons(list.slice(0, 12))
+      : `<p style="font-size:0.9em;color:var(--text-dim)">No other loaded hits.</p>`;
+    return `
+      <div class="word-occ-block">
+        <p class="word-occ-head">${escapeHtml(id)} in ${escapeHtml(bookName)}
+          <span class="word-occ-count">${bookHits.length}</span></p>
+        ${show(bookHits)}
+        ${bookHits.length > 12 ? `<p class="word-occ-more">Showing 12 of ${bookHits.length}</p>` : ''}
+      </div>
+      <div class="word-occ-block">
+        <p class="word-occ-head">${escapeHtml(id)} in the loaded KJV
+          <span class="word-occ-count">${otherHits.length}</span></p>
+        ${show(otherHits)}
+        ${otherHits.length > 12 ? `<p class="word-occ-more">Showing 12 of ${otherHits.length}</p>` : ''}
+      </div>`;
+  }
+
+  function entryHtml(id) {
+    const e = packs.gloss[id] || {};
+    const lemma = e.lemma ? escapeHtml(e.lemma) : '';
+    const xlit = e.xlit ? escapeHtml(e.xlit) : '';
+    const pron = e.pron ? escapeHtml(e.pron) : '';
+    const outline = e.outline ? escapeHtml(e.outline) : '';
+    const gloss = e.gloss ? escapeHtml(e.gloss) : '';
+    return `
+      <div class="strongs-second">
+        <p style="font-weight:600;margin:0 0 0.35rem">This word in this verse</p>
+        <div style="font-weight:700;font-size:1.15em;color:var(--accent);margin-bottom:0.25rem">${escapeHtml(id)}
+          ${lemma ? `<span style="color:var(--text);font-weight:500"> ${lemma}</span>` : ''}
+        </div>
+        ${xlit || pron ? `<div style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.35rem">${xlit}${pron && xlit ? ' · ' : ''}${pron}${e.pos ? ' · ' + escapeHtml(e.pos) : ''}</div>` : ''}
+        ${outline ? `<div style="line-height:1.5;margin:0 0 0.45rem;white-space:pre-wrap">${outline}</div>` : ''}
+        ${gloss ? `<div style="font-size:0.9em;color:var(--text-dim);line-height:1.45">Strong's one-line gloss: ${gloss}</div>` : ''}
+        <p style="font-size:0.85em;color:var(--text-dim);margin:0.45rem 0 0.2rem">Other verses below are this number, not the English spelling.</p>
+      </div>
+      ${sameNumberHtml(id)}`;
+  }
+
   let strongsBlock = '';
-  if (!pack || !pack.entries) {
+  let listsBlock = '';
+  if (!packs.ok) {
     strongsBlock = `
       <div class="strongs-second">
         <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
-        <p style="font-size:0.9em;color:var(--text-dim);margin:0 0 0.6rem">Not installed. English note and word lists still work offline.</p>
-        <button type="button" id="strong-import-now" style="width:100%;min-height:52px">Import Dictionary</button>
+        <p style="line-height:1.55;margin:0">The verse-tag pack did not load. This spelling was not used to guess a number.</p>
+      </div>`;
+  } else if (!ids.length) {
+    strongsBlock = `
+      <div class="strongs-second">
+        <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
+        <p style="line-height:1.55;margin:0">No Strong's number is tagged under this word in this verse. It is not guessed from the spelling “${escapeHtml(clean)}”.</p>
       </div>`;
   } else {
-    const hits = await storage.searchLexicon(clean);
-    let best = hits[0] || null;
-    if (hits.length > 1) {
-      const lower = clean.toLowerCase();
-      const exact = hits.find(h => {
-        const kjv = (h.kjv || '').toLowerCase();
-        return kjv.split(/[,;/\s]+/).some(w => w === lower);
-      });
-      if (exact) best = exact;
-    }
-    if (!best) {
-      strongsBlock = `
-        <div class="strongs-second">
-          <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
-          <p style="line-height:1.55;margin:0 0 0.6rem">No Strong's entry found for “${escapeHtml(clean)}”.</p>
-          <button type="button" id="strong-open-dict" style="width:100%;min-height:52px">Open Dictionary</button>
-        </div>`;
-    } else {
-      const lemma = best.lemma ? escapeHtml(best.lemma) : '';
-      const xlit = best.xlit ? escapeHtml(best.xlit) : '';
-      const pron = best.pron ? escapeHtml(best.pron) : '';
-      const gloss = best.gloss ? escapeHtml(best.gloss) : '';
-      const kjv = best.kjv ? escapeHtml(best.kjv) : '';
-      strongsBlock = `
-        <div class="strongs-second">
-          <p style="font-weight:600;margin:0 0 0.35rem">Strong’s</p>
-          <div style="font-weight:700;font-size:1.15em;color:var(--accent);margin-bottom:0.25rem">${escapeHtml(best.id)}
-            ${lemma ? `<span style="color:var(--text);font-weight:500"> ${lemma}</span>` : ''}
-          </div>
-          ${xlit || pron ? `<div style="font-size:0.95em;color:var(--text-dim);margin-bottom:0.35rem">${xlit}${pron && xlit ? ' · ' : ''}${pron}</div>` : ''}
-          ${gloss ? `<div style="line-height:1.5;margin-bottom:0.35rem">${gloss}</div>` : ''}
-          ${kjv ? `<div style="font-size:0.9em;color:var(--text-dim)">KJV: ${kjv}</div>` : ''}
-          ${hits.length > 1 ? `<p style="font-size:0.85em;color:var(--text-dim);margin-top:0.4rem">${hits.length} related entries — showing best match.</p>` : ''}
-        </div>`;
-    }
+    strongsBlock = ids.map(entryHtml).join('');
+    listsBlock = '';
   }
 
   const hasStart = Number.isFinite(startOffset) && startOffset >= 0 && verseKey;
@@ -6171,7 +6232,7 @@ async function openWordStudy(word, verseKey, startOffset) {
   const importBtn = $('#strong-import-now', overlay);
   if (importBtn) importBtn.onclick = () => { closeOverlay(overlay); openImportLexicon(); };
   const dictBtn = $('#strong-open-dict', overlay);
-  if (dictBtn) dictBtn.onclick = () => { closeOverlay(overlay); openDictionary(clean); };
+  if (dictBtn) dictBtn.onclick = () => { closeOverlay(overlay); openDictionary(dictQuery || clean); };
 
   const markBtn = $('#strong-mark-btn', overlay);
   if (markBtn && hasStart) {

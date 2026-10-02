@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.60.9
+# KJV Study PWA – v6.61.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.61.0
+- Tap a word and the Strong's number is the tag under that word in that verse. The English spelling is not used to pick a number.
+- Other verses are other uses of that same number, with the KJV word printed. Luke 23:27 and Matthew 11:17 no longer appear for 1 Samuel 7:2 "lamented".
+- The usage outline is shown first (Qal wail versus Niphal "go mourning after"). If a word has no tag, the panel says so and does not guess.
 
 ## New in 6.60.9
 - Chapter summary questions are now: key verse, what happened before the key, what happened after the key, what is still unresolved. Book question unchanged.
