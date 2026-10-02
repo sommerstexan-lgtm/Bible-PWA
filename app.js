@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.60.5';
+const APP_VERSION = '6.60.6';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4901,6 +4901,159 @@ async function openNotesList() {
   setTimeout(() => filterBox && filterBox.focus(), 80);
 }
 
+
+const SUMMARY_CHAPTER_QS = [
+  'Where does this chapter start?',
+  'What changed?',
+  'What is still unresolved?',
+  'Which verses carry that change? Refs only.'
+];
+const SUMMARY_BOOK_Q = 'Who needs to read this book, and why?';
+
+function summaryQuestionsHtml() {
+  const lines = SUMMARY_CHAPTER_QS.map((q, i) => `<li>${escapeHtml(q)}</li>`).join('');
+  return `<div class="summary-qs">
+    <p><strong>Chapter note — these four</strong></p>
+    <ol>${lines}</ol>
+    <p><strong>Book note — this one, after the chapter notes are read</strong></p>
+    <p>${escapeHtml(SUMMARY_BOOK_Q)}</p>
+  </div>`;
+}
+
+function openSummaryNoteEditor(existing) {
+  const isNew = !existing || !existing.id;
+  const kind = existing && existing.kind === 'book' ? 'book' : 'chapter';
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">${isNew ? 'New summary note' : 'Edit summary note'}</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      ${summaryQuestionsHtml()}
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin:0.7rem 0 0.3rem">Kind</label>
+      <select id="sn-kind" style="width:100%;min-height:44px;margin-bottom:0.7rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px">
+        <option value="chapter" ${kind === 'chapter' ? 'selected' : ''}>Chapter summary</option>
+        <option value="book" ${kind === 'book' ? 'selected' : ''}>Book summary</option>
+      </select>
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
+      <input type="text" id="sn-title" class="search-box" placeholder="Ruth 1  or  Ruth — who needs to read this book, and why" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
+      <textarea class="note-input" id="sn-text" placeholder="Answer the questions above. Saved on this device until you delete it.">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+      <button type="button" id="sn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
+      ${isNew ? '' : '<button type="button" id="sn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
+      <button type="button" id="sn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
+    </div>
+  `);
+  const close = () => closeOverlay(overlay);
+  $('.close', overlay).onclick = close;
+  $('#sn-cancel', overlay).onclick = close;
+  $('#sn-save', overlay).onclick = async () => {
+    const title = ($('#sn-title', overlay).value || '').trim() || 'Untitled summary';
+    const text = $('#sn-text', overlay).value || '';
+    const picked = ($('#sn-kind', overlay).value || 'chapter') === 'book' ? 'book' : 'chapter';
+    try {
+      await storage.saveSummaryNote({
+        id: existing && existing.id,
+        kind: picked,
+        title,
+        text,
+        createdAt: existing && existing.createdAt
+      });
+      close();
+      openSummaryNotesList();
+    } catch (_) {
+      alert('Could not save the summary note.');
+    }
+  };
+  const del = $('#sn-delete', overlay);
+  if (del) {
+    del.onclick = async () => {
+      if (!confirm('Delete this summary note?')) return;
+      try { await storage.deleteSummaryNote(existing.id); } catch (_) {}
+      close();
+      openSummaryNotesList();
+    };
+  }
+  setTimeout(() => {
+    const t = $('#sn-title', overlay);
+    if (t) t.focus();
+  }, 60);
+}
+
+async function openSummaryNotesList() {
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+
+  const overlay = showOverlay(`
+    <div class="panel trail-panel">
+      <div class="search-header-top">
+        <h2 class="search-title" style="margin:0">Summary notes</h2>
+        <button type="button" class="close search-close" aria-label="Close">×</button>
+      </div>
+      ${summaryQuestionsHtml()}
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.45rem 0 0.5rem">
+        Saved on this device until you delete them. Export study data includes them. Filter the book name to read the chapter set, then the book note.
+      </p>
+      <input id="sn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.2rem 0 0.4rem">
+      <button type="button" id="sn-new" style="width:100%;margin-bottom:0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New summary note</button>
+      <div id="sn-list"></div>
+    </div>
+  `);
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  $('#sn-new', overlay).onclick = () => {
+    closeOverlay(overlay);
+    openSummaryNoteEditor(null);
+  };
+  const el = $('#sn-list', overlay);
+  const filterBox = $('#sn-filter', overlay);
+
+  function snippet(text) {
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!one) return '';
+    if (one.length <= 140) return one;
+    return one.slice(0, 137) + '…';
+  }
+
+  function matches(note, q) {
+    if (!q) return true;
+    const hay = ((note.title || '') + ' ' + (note.text || '') + ' ' + (note.kind || '')).toLowerCase();
+    return hay.includes(q);
+  }
+
+  function renderList() {
+    const q = ((filterBox && filterBox.value) || '').trim().toLowerCase();
+    const shown = list.filter(n => matches(n, q));
+    if (!list.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">None yet. A chapter note uses the four questions. The book note is written when those are done.</p>';
+      return;
+    }
+    if (!shown.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">No summary matches</p><button type="button" id="sn-filter-clear">Clear</button>';
+      const clr = $('#sn-filter-clear', overlay);
+      if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      return;
+    }
+    el.innerHTML = shown.map(n => `
+      <button type="button" class="xref-item sn-row" data-id="${escapeHtml(n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
+        <strong>${escapeHtml(n.title || 'Untitled summary')}</strong>
+        <div class="trail-src">${n.kind === 'book' ? 'Book summary' : 'Chapter summary'}</div>
+        <div class="trail-src">${escapeHtml(snippet(n.text) || '(empty)')}</div>
+      </button>
+    `).join('');
+    $$('.sn-row', overlay).forEach(btn => {
+      btn.onclick = () => {
+        const rec = list.find(n => n.id === btn.dataset.id);
+        closeOverlay(overlay);
+        openSummaryNoteEditor(rec || { id: btn.dataset.id });
+      };
+    });
+  }
+
+  if (filterBox) filterBox.oninput = renderList;
+  renderList();
+}
+
 // ---------- General notes (titled, not tied to a verse) ----------
 function openGeneralNoteEditor(existing) {
   const isNew = !existing || !existing.id;
@@ -5118,6 +5271,7 @@ function openMenu() {
       </div>
       <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Verse notes</button>
       <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
+      <button type="button" id="menu-summary-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Summary notes</button>
       <button type="button" id="menu-chains" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chains</button>
       <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
@@ -5139,6 +5293,7 @@ function openMenu() {
   $('.close', overlay).onclick = () => closeOverlay(overlay);
   $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
   $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
+  $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
   $('#menu-chains', overlay).onclick = () => { closeOverlay(overlay); openSavedChainsList(); };
   $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
@@ -7012,6 +7167,11 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
         These notes are not tied to a verse. They stay on this device and go out with Export study data.</p>
+
+        <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
+        Menu → <strong>Summary notes</strong>. The four chapter questions stay on that screen.<br>
+        A chapter note answers those four. A book note answers who needs to read the book, and why, from the chapter notes.<br>
+        Saved on this device until you delete them. They go out with Export study data. Filter the book name to read the set.</p>
 
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
         One reading spot. Books, Search, and hops do not move it.<br>

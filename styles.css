@@ -2440,3 +2440,15 @@ body.color-tray-open #main {
   font-weight: 700;
 }
 #color-tray-keep:disabled { opacity: 0.4; }
+
+.summary-qs {
+  margin: 0.4rem 0 0.2rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  font-size: 0.92rem;
+}
+.summary-qs p { margin: 0.2rem 0; }
+.summary-qs ol { margin: 0.25rem 0 0.45rem 1.1rem; padding: 0; }
+.summary-qs li { margin: 0.15rem 0; }

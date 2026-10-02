@@ -1,6 +1,10 @@
-# KJV Study PWA – v6.60.5
+# KJV Study PWA – v6.60.6
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.60.6
+- Menu → Summary notes. The four chapter questions stay on that screen. The book question is separate.
+- Summary notes are saved on this device until deleted, and they export with study data.
 
 ## New in 6.60.5
 - Tools → Set Anchor saves that verse. Controls → Set Anchor here is unchanged (verse at the top of the screen).

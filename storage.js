@@ -3,7 +3,7 @@
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 
 let db = null;
 
@@ -65,6 +65,10 @@ export function openDB() {
       if (!database.objectStoreNames.contains('noteImages')) {
         // Original image blobs for notes and chains (no resize)
         database.createObjectStore('noteImages', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('summaryNotes')) {
+        // Chapter and book summaries. Not tied to a verse.
+        database.createObjectStore('summaryNotes', { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => {
@@ -431,6 +435,55 @@ export async function deleteGeneralNote(id) {
   });
 }
 
+
+/* ----- Summary notes (chapter / book, not tied to a verse) ----- */
+function newSummaryNoteId() {
+  return 'sn_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+export async function getSummaryNote(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('summaryNotes').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getAllSummaryNotes() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('summaryNotes').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function saveSummaryNote(note) {
+  await openDB();
+  const now = new Date().toISOString();
+  if (!note.id) note.id = newSummaryNoteId();
+  if (!note.createdAt) note.createdAt = now;
+  note.updatedAt = now;
+  note.kind = note.kind === 'book' ? 'book' : 'chapter';
+  note.title = (note.title || '').trim();
+  note.text = note.text || '';
+  return new Promise((res, rej) => {
+    const r = tx('summaryNotes', 'readwrite').put(note);
+    r.onsuccess = () => res(note);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function deleteSummaryNote(id) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('summaryNotes', 'readwrite').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
 /** Find shared note that includes this verse key, if any */
 export async function findSharedNoteForVerse(verseKey) {
   const all = await getAllSharedNotes();
@@ -579,7 +632,7 @@ export async function saveCachedCommentary(key, data) {
 /* ----- Export / Import all personal data ----- */
 export async function exportAllData() {
   await openDB();
-  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains, generalNotes, noteImages] = await Promise.all([
+  const [books, highlights, notes, crossrefs, learning, settings, history, sharedNotes, wordMarks, chains, generalNotes, noteImages, summaryNotes] = await Promise.all([
     getAllBooks(),
     getAllHighlights(),
     new Promise((res, rej) => {
@@ -599,7 +652,8 @@ export async function exportAllData() {
     getAllWordMarks(),
     getAllChains(),
     getAllGeneralNotes(),
-    getAllNoteImages()
+    getAllNoteImages(),
+    getAllSummaryNotes()
   ]);
 
   const imagesOut = [];
@@ -622,6 +676,7 @@ export async function exportAllData() {
     wordMarks,
     chains,
     generalNotes,
+    summaryNotes,
     noteImages: imagesOut
   };
 }
@@ -705,6 +760,12 @@ export async function importAllData(data, { replace = true } = {}) {
   if (Array.isArray(data.generalNotes)) {
     for (const note of data.generalNotes) {
       if (note && note.id) await saveGeneralNote(note);
+    }
+  }
+
+  if (Array.isArray(data.summaryNotes)) {
+    for (const note of data.summaryNotes) {
+      if (note && note.id) await saveSummaryNote(note);
     }
   }
 
