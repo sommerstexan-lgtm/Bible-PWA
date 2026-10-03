@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.64.0
+# KJV Study PWA – v6.65.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.65.0
+- Summary notes sort by book, then chapter number. 1 Samuel 10 follows 1 Samuel 2, not 1 Samuel 1.
+- A book note stays after that book's chapter notes. Titles that are not a book name use the same number-aware order.
+- Chapter buttons, color review, search hits, and Strong's other-uses lists use chapter and verse numbers, not text order.
 
 ## New in 6.64.0
 - Chapter picture keeps the map full screen. Notes starts closed.

@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.64.0';
+const APP_VERSION = '6.65.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -121,7 +121,7 @@ function chapterWalkHtml(places) {
   const ordered = (places || []).slice().sort((a, b) => {
     const av = (a.verses && a.verses[0]) || 0;
     const bv = (b.verses && b.verses[0]) || 0;
-    return av - bv || placeDisplayName(a).localeCompare(placeDisplayName(b));
+    return av - bv || naturalCompare(placeDisplayName(a), placeDisplayName(b));
   });
   if (!ordered.length) {
     return '<p class="theme-note">No named places in this chapter’s place file.</p>';
@@ -2980,7 +2980,8 @@ async function openBookNav(opts = {}) {
     if (hintEl) hintEl.style.display = 'none';
     $('#ch-title', overlay).textContent = book.name + ' – Chapters';
     const grid = $('#ch-grid', overlay);
-    grid.innerHTML = book.chapters.map(c =>
+    const chapters = (book.chapters || []).slice().sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
+    grid.innerHTML = chapters.map(c =>
       `<button type="button" data-ch="${c.number}">${c.number}</button>`
     ).join('');
     $$('button[data-ch]', grid).forEach(btn => {
@@ -3241,7 +3242,7 @@ async function openReviewByColor(preselectColor = null) {
       return ia - ib;
     });
     for (const g of groups) {
-      g.items.sort((a, b) => (a.chapter - b.chapter) || (a.verse - b.verse));
+      g.items.sort((a, b) => (Number(a.chapter) - Number(b.chapter)) || (Number(a.verse) - Number(b.verse)));
     }
     return groups;
   }
@@ -4764,11 +4765,14 @@ function openSearch() {
       }
       map.get(r.bookId).matches.push(r);
     }
-    // Sort groups by canonical order; verses already in chapter/verse order from search
+    // Canon book order, then chapter and verse as numbers (10 after 9, not after 1).
     return Array.from(map.values()).sort((a, b) => {
       const ia = canonIndex.has(a.bookId) ? canonIndex.get(a.bookId) : 999;
       const ib = canonIndex.has(b.bookId) ? canonIndex.get(b.bookId) : 999;
       return ia - ib;
+    }).map(g => {
+      g.matches.sort((a, b) => (Number(a.chapter) - Number(b.chapter)) || (Number(a.verse) - Number(b.verse)));
+      return g;
     });
   }
 
@@ -5019,6 +5023,65 @@ function noteCanonRank(key) {
   const idx = bible.CANONICAL_BOOKS.findIndex(b => b.id === parsed.bookId);
   const book = idx < 0 ? 999 : idx;
   return book * 100000 + (Number(parsed.chapter) || 0) * 100 + (Number(parsed.verse) || 0);
+}
+
+// Digit runs compare as numbers, so "1 Samuel 10" follows "1 Samuel 2".
+function naturalCompare(a, b) {
+  const as = String(a || '');
+  const bs = String(b || '');
+  const re = /(\d+)|(\D+)/g;
+  const ap = as.match(re) || [];
+  const bp = bs.match(re) || [];
+  const n = Math.max(ap.length, bp.length);
+  for (let i = 0; i < n; i++) {
+    const x = ap[i] || '';
+    const y = bp[i] || '';
+    if (!x) return -1;
+    if (!y) return 1;
+    const xn = /^\d+$/.test(x);
+    const yn = /^\d+$/.test(y);
+    if (xn && yn) {
+      const d = Number(x) - Number(y);
+      if (d) return d;
+      if (x.length !== y.length) return x.length - y.length;
+    } else {
+      const c = x.toLowerCase().localeCompare(y.toLowerCase());
+      if (c) return c;
+    }
+  }
+  return 0;
+}
+
+function summaryBookMatch(title) {
+  const lower = String(title || '').trim().toLowerCase();
+  let best = null;
+  for (const meta of bible.CANONICAL_BOOKS) {
+    const name = String(meta.name || '').toLowerCase();
+    if (!name) continue;
+    if (lower === name || lower.startsWith(name + ' ')) {
+      if (!best || name.length > best.nameLen) best = { meta, nameLen: name.length };
+    }
+  }
+  return best;
+}
+
+function compareSummaryNotes(a, b) {
+  const ta = String(a && a.title || '').trim();
+  const tb = String(b && b.title || '').trim();
+  const ma = summaryBookMatch(ta);
+  const mb = summaryBookMatch(tb);
+  const ia = ma ? bible.CANONICAL_BOOKS.findIndex(x => x.id === ma.meta.id) : 1000;
+  const ib = mb ? bible.CANONICAL_BOOKS.findIndex(x => x.id === mb.meta.id) : 1000;
+  if (ia !== ib) return ia - ib;
+  const resta = ma ? ta.slice(ma.nameLen).trim() : ta;
+  const restb = mb ? tb.slice(mb.nameLen).trim() : tb;
+  const cha = /^(\d+)/.exec(resta);
+  const chb = /^(\d+)/.exec(restb);
+  const bookA = (a && a.kind === 'book') || !cha;
+  const bookB = (b && b.kind === 'book') || !chb;
+  if (bookA !== bookB) return bookA ? 1 : -1;
+  if (cha && chb && Number(cha[1]) !== Number(chb[1])) return Number(cha[1]) - Number(chb[1]);
+  return naturalCompare(ta, tb);
 }
 
 async function openNotesList() {
@@ -5320,7 +5383,7 @@ function openSummaryNoteEditor(existing) {
 async function openSummaryNotesList() {
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
-  list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+  list.sort(compareSummaryNotes);
 
   const overlay = showOverlay(`
     <div class="panel trail-panel">
@@ -6364,6 +6427,8 @@ async function openWordStudy(word, verseKey, startOffset) {
       if (parsed.bookId === currentBookId) bookHits.push(row);
       else otherHits.push(row);
     }
+    bookHits.sort((a, b) => noteCanonRank(a.key) - noteCanonRank(b.key));
+    otherHits.sort((a, b) => noteCanonRank(a.key) - noteCanonRank(b.key));
     const show = (list) => list.length
       ? occButtons(list.slice(0, 12))
       : `<p style="font-size:0.9em;color:var(--text-dim)">No other loaded hits.</p>`;
