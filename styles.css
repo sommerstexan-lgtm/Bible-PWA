@@ -2479,3 +2479,6 @@ body.color-tray-open #main {
 .places-walk { margin: 0 0 0.8rem; }
 .places-walk-list { margin: 0.2rem 0 0.6rem 1.2rem; padding: 0; }
 .places-walk-list li { margin: 0.15rem 0; }
+
+.pic-tip { background: rgba(10, 14, 24, 0.88); color: #f2f2f2; border: 0; font-size: 12px; }
+.pic-tip::before { display: none; }

@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.62.0
+# KJV Study PWA – v6.63.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.63.0
+- Chapter picture plots the towns, districts, and regions for 1 Samuel 9 on one map.
+- Gold is a usual site. Blue is a proposed district. Rings are regions, not towns.
+- The dashed line is a straight-line picture. It is not a surveyed walk.
 
 ## New in 6.62.0
 - Tools → Places opens this chapter’s place list in verse order.

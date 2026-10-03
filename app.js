@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.62.0';
+const APP_VERSION = '6.63.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -158,6 +158,118 @@ function chapterWalkHtml(places) {
     '<p class="theme-note">Tap a name for the map. Add place still measures two cities only when their coordinates differ.</p></div>';
 }
 
+
+const CHAPTER_PICTURES = {
+  "1sa:9": {
+    title: "1 Samuel 9 · donkey search",
+    note: "Picture only. Gold is a usual site. Blue is a proposed district. Rings are regions, not towns. Shalishah and Shaalim are disputed. The place file puts those names on one point; that point is not used here.",
+    marks: [
+      { name: "Gibeah", kind: "town", role: "Home, named in 1 Samuel 10:26. Usual site: Tell el-Ful.", lat: 31.8233, lon: 35.2311, order: 1, certainty: "usual" },
+      { name: "Mount Ephraim", kind: "region", role: "Hill country they passed through (v. 4). Not a town.", lat: 32.02, lon: 35.12, radius: 16000, certainty: "region" },
+      { name: "Shalishah", kind: "district", role: "Proposed: Khirbet Sirisiya, the Baal-shalishah site about 15 Roman miles north of Lydda.", lat: 32.1105, lon: 35.0126, order: 2, certainty: "proposed" },
+      { name: "Shaalim", kind: "district", role: "Proposed: land of Shual near Ophrah of Benjamin (et-Taiyibeh). Site disputed.", lat: 31.9533, lon: 35.2994, order: 3, certainty: "proposed" },
+      { name: "Land of Benjamin", kind: "region", role: "Tribe district they passed through (v. 4). Not a town.", lat: 31.90, lon: 35.25, radius: 14000, certainty: "region" },
+      { name: "Zuph", kind: "district", role: "District of Ramah. Usual site: er-Ram. Samuel’s city is in this land (v. 5–6).", lat: 31.8500, lon: 35.2317, order: 4, certainty: "usual" }
+    ]
+  }
+};
+
+function chapterPicture() {
+  return CHAPTER_PICTURES[currentBookId + ":" + currentChapter] || null;
+}
+
+function openChapterPicture() {
+  const pic = chapterPicture();
+  if (!pic) return;
+  const overlay = showOverlay(`
+    <div class="places-fs">
+      <div class="places-fs-bar">
+        <h2 class="places-fs-title">${escapeHtml(pic.title)}</h2>
+        <button type="button" class="places-fs-close" id="pic-close">Close</button>
+      </div>
+      <div class="places-fs-map-wrap">
+        <div id="pic-map" class="places-fs-map"></div>
+        <div class="places-compass" aria-hidden="true">
+          <span class="places-compass-n">N</span>
+          <span class="places-compass-e">E</span>
+          <span class="places-compass-s">S</span>
+          <span class="places-compass-w">W</span>
+          <span class="places-compass-needle"></span>
+        </div>
+      </div>
+      <div class="places-fs-dist" id="pic-dist"></div>
+      <div class="places-fs-dock">
+        <button type="button" class="places-fs-close" id="pic-close-2">Close</button>
+      </div>
+    </div>
+  `);
+  const close = () => closeOverlay(overlay);
+  const c1 = $("#pic-close", overlay);
+  const c2 = $("#pic-close-2", overlay);
+  if (c1) c1.onclick = close;
+  if (c2) c2.onclick = close;
+  const distEl = $("#pic-dist", overlay);
+  const stops = pic.marks.filter((m) => m.order).sort((a, b) => a.order - b.order);
+  const legs = [];
+  let total = 0;
+  for (let i = 1; i < stops.length; i++) {
+    const miles = haversineMiles(stops[i - 1], stops[i]);
+    total += miles;
+    legs.push(escapeHtml(stops[i - 1].name) + " → " + escapeHtml(stops[i].name) + ": " + formatMilesKm(miles));
+  }
+  if (distEl) {
+    distEl.innerHTML = legs.map((line) => "<div>" + line + "</div>").join("") +
+      "<div>Straight-line picture: " + formatMilesKm(total) + " · " + walkEstimate(total) + ". Not a road, and not a surveyed walk.</div>" +
+      "<div>" + escapeHtml(pic.note) + "</div>" +
+      pic.marks.map((m) => "<div><strong>" + escapeHtml(m.name) + "</strong> · " + escapeHtml(m.kind) + " · " + escapeHtml(m.role) + "</div>").join("");
+  }
+  ensureLeaflet().then((L) => {
+    const el = $("#pic-map", overlay);
+    if (!el || !L) return;
+    const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([31.95, 35.15], 9);
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+      attribution: "Tiles &copy; Esri"
+    }).addTo(map);
+    const bounds = [];
+    pic.marks.forEach((m) => {
+      bounds.push([m.lat, m.lon]);
+      if (m.kind === "region") {
+        L.circle([m.lat, m.lon], {
+          radius: m.radius || 12000,
+          color: "#e0a100",
+          weight: 1,
+          fillColor: "#e0a100",
+          fillOpacity: 0.08
+        }).addTo(map).bindTooltip(m.name + " · region", { permanent: true, direction: "center", className: "pic-tip" });
+        return;
+      }
+      const proposed = m.certainty === "proposed";
+      L.circleMarker([m.lat, m.lon], {
+        radius: 8,
+        color: "#111",
+        weight: 1,
+        fillColor: proposed ? "#3d8bfd" : "#e0a100",
+        fillOpacity: 0.95
+      }).addTo(map).bindTooltip(m.name + " · " + m.kind, { permanent: true, direction: "top", className: "pic-tip" });
+    });
+    if (stops.length > 1) {
+      L.polyline(stops.map((m) => [m.lat, m.lon]), {
+        color: "#f0c14a",
+        weight: 3,
+        opacity: 0.9,
+        dashArray: "8 6"
+      }).addTo(map);
+    }
+    if (bounds.length) map.fitBounds(bounds, { padding: [36, 36], maxZoom: 11 });
+    setTimeout(() => map.invalidateSize(), 50);
+    setTimeout(() => map.invalidateSize(), 250);
+  }).catch(() => {
+    const el = $("#pic-map", overlay);
+    if (el) el.innerHTML = '<p class="theme-note" style="padding:1rem">Map could not load.</p>';
+  });
+}
+
 function searchTheoPlaces(all, qRaw) {
   const q = String(qRaw || '').trim().toLowerCase();
   if (q.length < 2) return [];
@@ -234,6 +346,7 @@ function openPlaceMapScreen(place) {
       <div class="places-fs-dock">
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
       </div>
       <div class="places-fs-add" id="places-fs-add" hidden>
@@ -284,6 +397,11 @@ function openPlaceMapScreen(place) {
   }
   if (notesBtn) notesBtn.onclick = () => setPanel(notesEl && notesEl.hasAttribute('hidden') ? 'notes' : null);
   if (addBtn) addBtn.onclick = () => setPanel(addEl && addEl.hasAttribute('hidden') ? 'add' : null);
+  const picBtn = $('#places-fs-pic-btn', mapOverlay);
+  if (picBtn) {
+    if (!chapterPicture()) picBtn.setAttribute('hidden', '');
+    else picBtn.onclick = () => openChapterPicture();
+  }
 
   if (!hasCoord) return;
 
@@ -6797,6 +6915,8 @@ async function openResearch() {
       </div>
       <div id="places-results" class="places-results"></div>
       <p class="theme-step">This chapter</p>
+      <button type="button" id="places-picture">Chapter picture</button>
+      <p class="theme-note">Towns, districts, and regions on one map. Gold is a usual site. Blue is proposed. Rings are regions.</p>
       <div id="places-chapter">Loading chapter places…</div>
       <div id="places-detail" class="places-detail" hidden></div>
       <p class="research-note" style="margin-top:1rem">Data: Theographic via bible.helloao.org (CC BY-SA). Map tiles: OpenStreetMap. Uncertain sites: OpenBible.info Geocoding.</p>
@@ -6807,6 +6927,11 @@ async function openResearch() {
     const resultsEl = $("#places-results", overlay);
     const chapterEl = $("#places-chapter", overlay);
     const detailEl = $("#places-detail", overlay);
+    const pictureBtn = $("#places-picture", overlay);
+    if (pictureBtn) {
+      if (!chapterPicture()) pictureBtn.setAttribute("hidden", "");
+      else pictureBtn.onclick = () => openChapterPicture();
+    }
 
     function renderPlaceButtons(list, emptyText) {
       if (!list || !list.length) return `<p class="theme-note">${escapeHtml(emptyText)}</p>`;
@@ -7460,7 +7585,7 @@ function openHelp() {
         <strong>Clear theme</strong> wipes the box, prompt, hits, and pasted list so the next motif starts clean.
         <strong>Scan KJV</strong> lists whole-word hits. Tap a hit to peek. <strong>Open chapter</strong> jumps to the reader; ← Back returns to Theme.</p>
         <p style="margin-bottom:1rem"><strong>Research / Places</strong><br>
-        Tools → <strong>Places</strong> opens this chapter’s place list. Names are in verse order. If they share one map point, the panel says so and does not print 0 miles. Tap a name for a full-screen map. <strong>Add place</strong> draws a line only when the second city has a different point. Close leaves the map.</p>
+        Tools → <strong>Places</strong> opens this chapter’s place list. <strong>Chapter picture</strong> plots towns, districts, and regions on one map. Gold is a usual site. Blue is proposed. Rings are regions. The dashed line is a straight-line picture, not a surveyed walk.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>
