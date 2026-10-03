@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.61.0';
+const APP_VERSION = '6.62.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -81,6 +81,81 @@ function walkEstimate(miles) {
   if (miles < 8) return 'under 1 day on foot';
   const d = Math.max(1, Math.round(miles / 18));
   return '~' + d + (d === 1 ? ' day' : ' days') + ' on foot';
+}
+
+function sameMapPoint(a, b) {
+  return Math.abs(a.lat - b.lat) < 0.01 && Math.abs(a.lon - b.lon) < 0.01;
+}
+
+function placeNameKey(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z]/g, '').replace(/h$/, '');
+}
+
+function chapterRegionPhrases(bookId, chapter) {
+  const re = /\b(?:mount|land of(?: the)?|city of)\s+([A-Za-z][A-Za-z'-]+)/gi;
+  const out = [];
+  const seen = new Set();
+  let empty = 0;
+  for (let v = 1; v <= 90; v++) {
+    const text = bible.getVerseText(books, bookId, chapter, v);
+    if (!text) {
+      empty += 1;
+      if (empty >= 2 && v > 2) break;
+      continue;
+    }
+    empty = 0;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      const label = m[0].replace(/\s+/g, ' ');
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ label, verse: v, name: m[1] });
+    }
+  }
+  return out;
+}
+
+function chapterWalkHtml(places) {
+  const ordered = (places || []).slice().sort((a, b) => {
+    const av = (a.verses && a.verses[0]) || 0;
+    const bv = (b.verses && b.verses[0]) || 0;
+    return av - bv || placeDisplayName(a).localeCompare(placeDisplayName(b));
+  });
+  if (!ordered.length) {
+    return '<p class="theme-note">No named places in this chapter’s place file.</p>';
+  }
+  const rows = ordered.map((p) => {
+    const verses = Array.isArray(p.verses) && p.verses.length ? p.verses.join(', ') : '';
+    const kind = p.featureType ? ' · ' + escapeHtml(p.featureType) : '';
+    const coord = placeCoords(p);
+    return '<li>' + escapeHtml(placeDisplayName(p)) +
+      (verses ? ' · v. ' + escapeHtml(verses) : '') +
+      kind +
+      (coord ? '' : ' · no coordinates') +
+      '</li>';
+  }).join('');
+  const coords = ordered.map(placeCoords).filter(Boolean);
+  let route = '';
+  if (coords.length < 2) {
+    route = '<p class="theme-note">Not enough coordinates to measure a walk.</p>';
+  } else if (coords.every((c) => sameMapPoint(c, coords[0]))) {
+    route = '<p class="theme-note">Not a measured route. These names share one map point, so a line would read 0 miles. That is not how far they walked.</p>';
+  } else {
+    let miles = 0;
+    for (let i = 1; i < coords.length; i++) miles += haversineMiles(coords[i - 1], coords[i]);
+    route = '<p class="theme-note">Straight-line legs in verse order: ' + formatMilesKm(miles) + ' · ' + walkEstimate(miles) + '. Not a road path.</p>';
+  }
+  const keys = new Set(ordered.map((p) => placeNameKey(placeDisplayName(p))));
+  const missing = chapterRegionPhrases(currentBookId, currentChapter).filter((ph) => !keys.has(placeNameKey(ph.name)));
+  const missingHtml = missing.length
+    ? '<p class="theme-note">In the verse, not a separate map point: ' +
+      missing.map((ph) => escapeHtml(ph.label) + ' (v. ' + ph.verse + ')').join('; ') + '.</p>'
+    : '';
+  return '<div class="places-walk"><p class="theme-step">Places in this chapter</p><ol class="places-walk-list">' +
+    rows + '</ol>' + route + missingHtml +
+    '<p class="theme-note">Tap a name for the map. Add place still measures two cities only when their coordinates differ.</p></div>';
 }
 
 function searchTheoPlaces(all, qRaw) {
@@ -462,6 +537,7 @@ let currentChapter = 1;
 let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
 let reopenResearchTheme = false; // after a Theme verse hop, Back reopens Theme
+let reopenResearchPlaces = false; // Tools → Places opens the chapter place list
 /** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
 let searchSession = {
   query: '',
@@ -2332,6 +2408,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <button type="button" data-act="xref" data-key="${key}" class="${xrefCls.trim()}">Cross-refs</button>
         <button type="button" data-act="chains" data-key="${key}" class="${chainCls.trim()}">Chains${chainCountMap[key] ? ' ' + chainCountMap[key] : ''}</button>
         <button type="button" data-act="tkn" data-key="${key}">Then-Now</button>
+        <button type="button" data-act="places" data-key="${key}">Places</button>
       </div>
     `;
     main.appendChild(verseEl);
@@ -2484,6 +2561,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'xref') openCrossRefs(key);
     else if (act === 'chains') openVerseChains(key);
     else if (act === 'tkn') openThenKindNow(key);
+    else if (act === 'places') { reopenResearchPlaces = true; openResearch(); }
   };
 
   installSelectionWatchers(main);
@@ -6577,6 +6655,10 @@ async function openResearch() {
     preferred = "theme";
     reopenResearchTheme = false;
   }
+  if (reopenResearchPlaces) {
+    preferred = "places";
+    reopenResearchPlaces = false;
+  }
 
   function scrollKey(src) {
     return `${src}:${currentBookId}:${currentChapter}`;
@@ -6616,7 +6698,7 @@ async function openResearch() {
         <button type="button" class="research-src" data-id="theme"
           style="background:var(--bg);color:var(--text)">Theme</button>
         <button type="button" class="research-src" data-id="places"
-          style="background:var(--bg);color:var(--text)">Places</button>
+          style="background:${preferred === "places" ? "var(--accent)" : "var(--bg)"};color:${preferred === "places" ? "#111" : "var(--text)"}">Places</button>
         <button type="button" class="research-src" data-id="people"
           style="background:var(--bg);color:var(--text)">People</button>
       </div>
@@ -6805,11 +6887,15 @@ async function openResearch() {
     try {
       const chap = await theoFetchJson(THEO_API + "/" + encodeURIComponent(apiBook) + "/" + currentChapter + ".json");
       const places = (chap.chapter && chap.chapter.places) || [];
-      chapterEl.innerHTML = renderPlaceButtons(places, "No named places in this chapter’s Theographic file.");
+      const coords = places.map(placeCoords).filter(Boolean);
+      const shared = coords.length >= 2 && coords.every((c) => sameMapPoint(c, coords[0]));
+      chapterEl.innerHTML = chapterWalkHtml(places) + renderPlaceButtons(places, "No named places in this chapter’s Theographic file.");
       bindHits(chapterEl);
-      statusEl.textContent = places.length
-        ? ("Places · " + places.length + " in this chapter. Tap one for map and notes.")
-        : "Places · none listed for this chapter. Use Search.";
+      statusEl.textContent = !places.length
+        ? "Places · none listed for this chapter. Use Search."
+        : shared
+          ? ("Places · " + places.length + " in this chapter. Shared map point — no walk distance in the file.")
+          : ("Places · " + places.length + " in this chapter. Tap one for map and notes.");
       loadTheoPlacesIndex().catch(() => {});
     } catch (err) {
       chapterEl.innerHTML = `<p class="theme-note">Could not load chapter places. Internet is required the first time. Then Search still works if the index loaded.</p>`;
@@ -7374,7 +7460,7 @@ function openHelp() {
         <strong>Clear theme</strong> wipes the box, prompt, hits, and pasted list so the next motif starts clean.
         <strong>Scan KJV</strong> lists whole-word hits. Tap a hit to peek. <strong>Open chapter</strong> jumps to the reader; ← Back returns to Theme.</p>
         <p style="margin-bottom:1rem"><strong>Research / Places</strong><br>
-        Same Research button, then <strong>Places</strong>. Tap a name for a full-screen map. The gold marker carries the English name. <strong>Add place</strong> drops a second city, draws a line, and shows miles. Pinch or +/− to zoom. Notes for footnotes. Close leaves the map.</p>
+        Tools → <strong>Places</strong> opens this chapter’s place list. Names are in verse order. If they share one map point, the panel says so and does not print 0 miles. Tap a name for a full-screen map. <strong>Add place</strong> draws a line only when the second city has a different point. Close leaves the map.</p>
 
         <p style="margin-bottom:1rem"><strong>Import a whole testament</strong><br>
         Open Books. Tap <strong>Import missing Old Testament</strong> or <strong>Import missing New Testament</strong>. The app reads the bundled KJV files on this site (<code>kjv-ot.json</code> / <code>kjv-nt.json</code>) and stores only books that are not already loaded. Green when done. Red <strong>Not completed</strong> plus <strong>Try again</strong> if a pack file is missing. Per-book Import still accepts your own JSON.</p>

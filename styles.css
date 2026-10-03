@@ -2475,3 +2475,7 @@ body.color-tray-open #main {
   text-overflow: ellipsis;
 }
 .summary-chip[hidden] { display: none !important; }
+
+.places-walk { margin: 0 0 0.8rem; }
+.places-walk-list { margin: 0.2rem 0 0.6rem 1.2rem; padding: 0; }
+.places-walk-list li { margin: 0.15rem 0; }
