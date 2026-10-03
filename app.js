@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.63.0';
+const APP_VERSION = '6.64.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -181,6 +181,15 @@ function chapterPicture() {
 function openChapterPicture() {
   const pic = chapterPicture();
   if (!pic) return;
+  const stops = pic.marks.filter((m) => m.order).sort((a, b) => a.order - b.order);
+  const legs = [];
+  let total = 0;
+  for (let i = 1; i < stops.length; i++) {
+    const miles = haversineMiles(stops[i - 1], stops[i]);
+    total += miles;
+    legs.push(stops[i - 1].name + " → " + stops[i].name + ": " + formatMilesKm(miles));
+  }
+  const mileLine = "Straight line " + formatMilesKm(total) + " · " + walkEstimate(total) + ". Not a road.";
   const overlay = showOverlay(`
     <div class="places-fs">
       <div class="places-fs-bar">
@@ -189,6 +198,7 @@ function openChapterPicture() {
       </div>
       <div class="places-fs-map-wrap">
         <div id="pic-map" class="places-fs-map"></div>
+        <div class="pic-legend" id="pic-legend"></div>
         <div class="places-compass" aria-hidden="true">
           <span class="places-compass-n">N</span>
           <span class="places-compass-e">E</span>
@@ -197,10 +207,12 @@ function openChapterPicture() {
           <span class="places-compass-needle"></span>
         </div>
       </div>
-      <div class="places-fs-dist" id="pic-dist"></div>
+      <div class="places-fs-dist" id="pic-dist">${escapeHtml(mileLine)}</div>
       <div class="places-fs-dock">
+        <button type="button" class="places-fs-notes-btn" id="pic-notes-btn">Notes</button>
         <button type="button" class="places-fs-close" id="pic-close-2">Close</button>
       </div>
+      <div class="places-fs-notes" id="pic-notes" hidden></div>
     </div>
   `);
   const close = () => closeOverlay(overlay);
@@ -209,19 +221,26 @@ function openChapterPicture() {
   if (c1) c1.onclick = close;
   if (c2) c2.onclick = close;
   const distEl = $("#pic-dist", overlay);
-  const stops = pic.marks.filter((m) => m.order).sort((a, b) => a.order - b.order);
-  const legs = [];
-  let total = 0;
-  for (let i = 1; i < stops.length; i++) {
-    const miles = haversineMiles(stops[i - 1], stops[i]);
-    total += miles;
-    legs.push(escapeHtml(stops[i - 1].name) + " → " + escapeHtml(stops[i].name) + ": " + formatMilesKm(miles));
+  const notesEl = $("#pic-notes", overlay);
+  const notesBtn = $("#pic-notes-btn", overlay);
+  if (notesEl) {
+    notesEl.innerHTML = "<p class=\"theme-note\">" + escapeHtml(pic.note) + "</p>" +
+      legs.map((line) => "<div>" + escapeHtml(line) + "</div>").join("") +
+      "<p class=\"theme-note\">" + escapeHtml(mileLine) + "</p>" +
+      pic.marks.map((m) => "<div><strong>" + escapeHtml(m.order ? (m.order + " " + m.name) : m.name) + "</strong> · " + escapeHtml(m.kind) + " · " + escapeHtml(m.role) + "</div>").join("");
   }
-  if (distEl) {
-    distEl.innerHTML = legs.map((line) => "<div>" + line + "</div>").join("") +
-      "<div>Straight-line picture: " + formatMilesKm(total) + " · " + walkEstimate(total) + ". Not a road, and not a surveyed walk.</div>" +
-      "<div>" + escapeHtml(pic.note) + "</div>" +
-      pic.marks.map((m) => "<div><strong>" + escapeHtml(m.name) + "</strong> · " + escapeHtml(m.kind) + " · " + escapeHtml(m.role) + "</div>").join("");
+  if (notesBtn && notesEl) {
+    notesBtn.onclick = () => {
+      const open = notesEl.hasAttribute("hidden");
+      if (open) notesEl.removeAttribute("hidden");
+      else notesEl.setAttribute("hidden", "");
+      notesBtn.textContent = open ? "Hide notes" : "Notes";
+    };
+  }
+  const legend = $("#pic-legend", overlay);
+  if (legend) {
+    legend.innerHTML = stops.map((m) => "<div><b>" + m.order + "</b> " + escapeHtml(m.name) + "</div>").join("") +
+      "<div class=\"pic-legend-key\">Gold usual · Blue proposed · Ring region</div>";
   }
   ensureLeaflet().then((L) => {
     const el = $("#pic-map", overlay);
@@ -233,25 +252,28 @@ function openChapterPicture() {
     }).addTo(map);
     const bounds = [];
     pic.marks.forEach((m) => {
-      bounds.push([m.lat, m.lon]);
       if (m.kind === "region") {
-        L.circle([m.lat, m.lon], {
+        const circle = L.circle([m.lat, m.lon], {
           radius: m.radius || 12000,
-          color: "#e0a100",
+          color: "#c9a227",
           weight: 1,
-          fillColor: "#e0a100",
-          fillOpacity: 0.08
-        }).addTo(map).bindTooltip(m.name + " · region", { permanent: true, direction: "center", className: "pic-tip" });
+          fillColor: "#c9a227",
+          fillOpacity: 0.06
+        }).addTo(map);
+        circle.on("click", () => { if (distEl) distEl.textContent = m.name + " · region. " + m.role; });
         return;
       }
+      bounds.push([m.lat, m.lon]);
       const proposed = m.certainty === "proposed";
-      L.circleMarker([m.lat, m.lon], {
-        radius: 8,
-        color: "#111",
-        weight: 1,
-        fillColor: proposed ? "#3d8bfd" : "#e0a100",
-        fillOpacity: 0.95
-      }).addTo(map).bindTooltip(m.name + " · " + m.kind, { permanent: true, direction: "top", className: "pic-tip" });
+      const fill = proposed ? "#3d8bfd" : "#e0a100";
+      const icon = L.divIcon({
+        className: "pic-pin-wrap",
+        html: "<span class=\"pic-pin\" style=\"background:" + fill + "\">" + m.order + "</span>",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      });
+      L.marker([m.lat, m.lon], { icon: icon, title: m.name }).addTo(map)
+        .on("click", () => { if (distEl) distEl.textContent = m.order + " " + m.name + " · " + m.kind + ". " + m.role; });
     });
     if (stops.length > 1) {
       L.polyline(stops.map((m) => [m.lat, m.lon]), {
@@ -261,12 +283,13 @@ function openChapterPicture() {
         dashArray: "8 6"
       }).addTo(map);
     }
-    if (bounds.length) map.fitBounds(bounds, { padding: [36, 36], maxZoom: 11 });
-    setTimeout(() => map.invalidateSize(), 50);
-    setTimeout(() => map.invalidateSize(), 250);
+    if (bounds.length) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 10 });
+    const size = () => map.invalidateSize();
+    setTimeout(size, 50);
+    setTimeout(size, 300);
   }).catch(() => {
     const el = $("#pic-map", overlay);
-    if (el) el.innerHTML = '<p class="theme-note" style="padding:1rem">Map could not load.</p>';
+    if (el) el.innerHTML = "<p class=\"theme-note\" style=\"padding:1rem\">Map could not load.</p>";
   });
 }
 
@@ -6916,7 +6939,6 @@ async function openResearch() {
       <div id="places-results" class="places-results"></div>
       <p class="theme-step">This chapter</p>
       <button type="button" id="places-picture">Chapter picture</button>
-      <p class="theme-note">Towns, districts, and regions on one map. Gold is a usual site. Blue is proposed. Rings are regions.</p>
       <div id="places-chapter">Loading chapter places…</div>
       <div id="places-detail" class="places-detail" hidden></div>
       <p class="research-note" style="margin-top:1rem">Data: Theographic via bible.helloao.org (CC BY-SA). Map tiles: OpenStreetMap. Uncertain sites: OpenBible.info Geocoding.</p>

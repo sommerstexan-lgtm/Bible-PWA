@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.63.0
+# KJV Study PWA – v6.64.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.64.0
+- Chapter picture keeps the map full screen. Notes starts closed.
+- Stops are numbered on the map. The write-up is behind Notes and scrolls on its own.
+- Places panel fills the screen on a wide window so the chapter list can scroll.
 
 ## New in 6.63.0
 - Chapter picture plots the towns, districts, and regions for 1 Samuel 9 on one map.
