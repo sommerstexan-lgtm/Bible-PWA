@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.65.0
+# KJV Study PWA – v6.66.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.66.0
+- Holy Spirit, Antichrist figure, and Satan choices paint that word. They no longer reopen the same question.
+- Spirit of God, God's Spirit, Holy Ghost, and Spirit of the LORD are already Holy Spirit and do not ask.
+- Human / other, animal, and snake still leave the word unpainted.
 
 ## New in 6.65.0
 - Summary notes sort by book, then chapter number. 1 Samuel 10 follows 1 Samuel 2, not 1 Samuel 1.

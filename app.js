@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.65.0';
+const APP_VERSION = '6.66.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3424,7 +3424,43 @@ async function openAnalyze(key) {
       if (act === 'accept') {
         const planned = precision.planColorApply(text, colorId, bookId, null);
         if (planned.needSense) {
-          showAppStatus(planned.note || 'Pick a sense before painting this word.', 'fail');
+          const token = planned.needSense;
+          const choices = precision.senseChoices(token.key);
+          const box = document.createElement('div');
+          box.className = 'sense-lock';
+          box.innerHTML = `<p class="sense-lock-copy">${escapeHtml(planned.note)} “${escapeHtml(token.text)}”</p>` +
+            choices.map((c) => `<button type="button" data-sense="${c.id}" data-color="${c.colorId || ''}">${escapeHtml(c.label)}</button>`).join('');
+          const host = overlay.querySelector('.panel') || overlay;
+          const oldBox = host.querySelector('.sense-lock');
+          if (oldBox) oldBox.remove();
+          host.appendChild(box);
+          box.querySelectorAll('button[data-sense]').forEach((b) => {
+            b.onclick = async () => {
+              const senseColor = b.dataset.color;
+              if (!senseColor) {
+                showAppStatus('Left unpainted — sense is not a color subject.', 'ok');
+                closeOverlay(overlay);
+                return;
+              }
+              const choice = choices.find((c) => c.id === b.dataset.sense);
+              const span = precision.identifySpan(text, token, b.dataset.sense) || token;
+              const reason = (choice && choice.reason) || 'Sense kept';
+              const forced = precision.planColorApply(text, senseColor, bookId, {
+                start: span.start,
+                end: span.end
+              }, { senseResolved: true, reason });
+              const next = precision.mergeRanges(ranges, forced.ranges, text.length);
+              await storage.setHighlights(key, next);
+              await analyze.recordFeedback(senseColor, reasons, 'accept');
+              closeOverlay(overlay);
+              showAppStatus(reason + ' marked on that word.', 'ok');
+              await renderChapter(currentBookId, currentChapter);
+              setTimeout(() => {
+                const t = document.getElementById('v-' + key.replace(/\./g, '-'));
+                if (t) t.scrollIntoView({ block: 'center' });
+              }, 80);
+            };
+          });
           return;
         }
         const newRanges = precision.mergeRanges(ranges, planned.ranges, text.length);
@@ -3536,12 +3572,12 @@ function punchPreview(items, add) {
   return next;
 }
 
-async function applyPreviewColor(colorId, useSel) {
+async function applyPreviewColor(colorId, useSel, opts) {
   if (!colorSession || !verseSuggestPreview) return;
   const key = colorSession.key;
   const parsed = bible.parseKey(key);
   const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
-  const planned = precision.planColorApply(plain, colorId, parsed.bookId, useSel);
+  const planned = precision.planColorApply(plain, colorId, parsed.bookId, useSel, opts);
   if (planned.needSense) {
     colorSession.sense = {
       note: planned.note,
@@ -3619,14 +3655,14 @@ async function clearSuggestPreview() {
   pauseChromeHide(600);
 }
 
-async function paintSessionSelection(colorId, useSel) {
+async function paintSessionSelection(colorId, useSel, opts) {
   if (!colorSession) return;
-  if (colorSession.mode === "suggest") return applyPreviewColor(colorId, useSel);
+  if (colorSession.mode === "suggest") return applyPreviewColor(colorId, useSel, opts);
   const key = colorSession.key;
   const parsed = bible.parseKey(key);
   const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
   let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
-  const planned = precision.planColorApply(plain, colorId, parsed.bookId, useSel);
+  const planned = precision.planColorApply(plain, colorId, parsed.bookId, useSel, opts);
   if (planned.needSense) {
     colorSession.sense = {
       note: planned.note,
@@ -3751,8 +3787,16 @@ function mountColorTray(main) {
         mountColorTray(document.getElementById("main"));
         return;
       }
+      const choice = (colorSession.sense.choices || []).find((c) => c.id === btn.dataset.sense);
+      const parsed = bible.parseKey(colorSession.key);
+      const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || "";
+      const span = precision.identifySpan(plain, token, btn.dataset.sense) || token;
+      const reason = (choice && choice.reason) || "Sense kept";
       colorSession.sense = null;
-      await paintSessionSelection(senseColor, { start: token.start, end: token.end });
+      await paintSessionSelection(senseColor, { start: span.start, end: span.end }, {
+        senseResolved: true,
+        reason
+      });
     };
   });
 
@@ -4076,15 +4120,18 @@ async function openColorPicker(key) {
             closeOverlay(overlay);
             return;
           }
+          const choice = choices.find((c) => c.id === b.dataset.sense);
+          const span = precision.identifySpan(plain, token, b.dataset.sense) || token;
+          const reason = (choice && choice.reason) || 'Sense kept';
           const forced = precision.planColorApply(plain, senseColor, bookId, {
-            start: token.start,
-            end: token.end
-          });
-          const next = precision.mergeRanges(ranges, forced.needSense ? [{ color: senseColor, start: token.start, end: token.end }] : forced.ranges, plain.length);
+            start: span.start,
+            end: span.end
+          }, { senseResolved: true, reason });
+          const next = precision.mergeRanges(ranges, forced.ranges, plain.length);
           await storage.setHighlights(key, next);
           pendingSelection = null;
           closeOverlay(overlay);
-          showAppStatus('Sense saved on that word only.', 'ok');
+          showAppStatus(reason + ' marked on that word.', 'ok');
           await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
         };
       });
@@ -7625,7 +7672,7 @@ function openHelp() {
         Color opens a tray and leaves it open. Select words, tap a color, select the next group, tap a color. Same color or a different one. Done closes the tray. A tap with no words selected does not paint the verse.</p>
 
         <p style="margin-bottom:1rem"><strong>Color precision</strong><br>
-        Color and Analyze paint a speech frame (<em>God said</em>, <em>Jesus saith</em>) when that is the subject — not the whole quote. Tap a color chip for the saved span, Unpaint, or Shrink speech colors to frames. Bare <em>spirit / beast / serpent</em> ask for a sense first. Review by color lists the painted words.</p>
+        Color and Analyze paint a speech frame (<em>God said</em>, <em>Jesus saith</em>) when that is the subject — not the whole quote. Tap a color chip for the saved span, Unpaint, or Shrink speech colors to frames. Bare <em>spirit / beast / serpent</em> ask for a sense first. Holy Spirit paints yellow, Antichrist figure paints pink, and Satan paints grey. The other choice leaves the word unpainted. Review by color lists the painted words.</p>
         <p style="margin-bottom:1rem"><strong>Verse tools</strong><br>
         Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, and Then-Now. Tap a green/color dot to open that tool directly.</p>
         <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>

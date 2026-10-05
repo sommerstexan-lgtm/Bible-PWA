@@ -1,4 +1,4 @@
-/* precision.js – Color apply policy, KJV probes, word counts. v6.60.0
+/* precision.js – Color apply policy, KJV probes, word counts. v6.66.0
    Pure helpers. No DOM. No IndexedDB.
 */
 
@@ -80,15 +80,20 @@ export function isTorah(bookId) {
   return TORAH.has(String(bookId || '').toLowerCase());
 }
 
+function isNamedHolySpirit(text, hit) {
+  const win = text.slice(Math.max(0, hit.start - 24), Math.min(text.length, hit.end + 32));
+  return /\bholy\s+spirit\b/i.test(win)
+    || /\bholy\s+ghost\b/i.test(win)
+    || /\bspirit\s+of\s+(god|christ|jesus|his\s+son|the\s+lord|the\s+living\s+god)\b/i.test(win)
+    || /\bgod['’]s\s+spirit\b/i.test(win);
+}
+
 export function ambiguousTokens(text, bookId) {
   const out = [];
   if (!text) return out;
   const id = String(bookId || '').toLowerCase();
   for (const hit of findAll(text, /\bspirit\b/gi)) {
-    const win = text.slice(Math.max(0, hit.start - 18), Math.min(text.length, hit.end + 18));
-    if (/\bholy\s+spirit\b/i.test(win) || /\bholy\s+ghost\b/i.test(win) || /\bspirit\s+of\s+(god|the\s+lord)\b/i.test(win)) {
-      continue;
-    }
+    if (isNamedHolySpirit(text, hit)) continue;
     out.push({ key: 'spirit', ...hit });
   }
   for (const hit of findAll(text, /\bbeast\b/gi)) {
@@ -106,50 +111,78 @@ export function ambiguousTokens(text, bookId) {
 export function senseChoices(tokenKey) {
   if (tokenKey === 'spirit') {
     return [
-      { id: 'holy', label: 'Holy Spirit', colorId: 'yellow' },
+      { id: 'holy', label: 'Holy Spirit', colorId: 'yellow', reason: 'Holy Spirit' },
       { id: 'human', label: 'Human / other spirit — do not paint' }
     ];
   }
   if (tokenKey === 'beast') {
     return [
-      { id: 'antichrist', label: 'Antichrist figure', colorId: 'pink' },
+      { id: 'antichrist', label: 'Antichrist figure', colorId: 'pink', reason: 'Antichrist figure' },
       { id: 'animal', label: 'Animal / other — do not paint' }
     ];
   }
   if (tokenKey === 'serpent') {
     return [
-      { id: 'satan', label: 'Satan / adversary', colorId: 'grey' },
+      { id: 'satan', label: 'Satan / adversary', colorId: 'grey', reason: 'Satan / adversary' },
       { id: 'animal', label: 'Snake / other — do not paint' }
     ];
   }
   return [];
 }
 
+/** Span to paint after the reader picks a sense. Expands Spirit of God / God's Spirit. */
+export function identifySpan(text, token, senseId) {
+  if (!token) return null;
+  const patterns = [];
+  if (senseId === 'holy') {
+    patterns.push(
+      /\bholy\s+spirit\b/gi,
+      /\bholy\s+ghost\b/gi,
+      /\bgod['’]s\s+spirit\b/gi,
+      /\bspirit\s+of\s+(?:god|christ|jesus|his\s+son|the\s+lord|the\s+living\s+god)\b/gi
+    );
+  } else if (senseId === 'antichrist') {
+    patterns.push(/\b(?:the\s+)?beast\b/gi);
+  } else if (senseId === 'satan') {
+    patterns.push(/\bserpent\b/gi);
+  }
+  for (const re of patterns) {
+    for (const hit of findAll(text, re)) {
+      if (hit.start < token.end && hit.end > token.start) return hit;
+    }
+  }
+  return { start: token.start, end: token.end, text: token.text };
+}
+
 /**
  * Decide highlight ranges for a color apply.
  * Never silently wash a speech payload when a frame exists.
  */
-export function planColorApply(text, colorId, bookId, selection) {
+export function planColorApply(text, colorId, bookId, selection, opts) {
   const len = (text || '').length;
   const result = { ranges: [], mode: 'none', needSense: null, note: '' };
   if (!len || !colorId) return result;
+  const resolved = !!(opts && opts.senseResolved);
+  const reason = (opts && opts.reason) || '';
 
   const sel = selection && selection.end > selection.start
     ? { start: Math.max(0, selection.start), end: Math.min(len, selection.end) }
     : null;
   const selWhole = !sel || (sel.start === 0 && sel.end >= len);
 
-  const amb = ambiguousTokens(text, bookId).filter((t) => {
-    if (t.key === 'spirit' && colorId === 'yellow') return true;
-    if (t.key === 'beast' && colorId === 'pink') return true;
-    if (t.key === 'serpent' && colorId === 'grey') return true;
-    return false;
-  });
-  if (amb.length) {
-    result.needSense = amb[0];
-    result.mode = 'sense-lock';
-    result.note = 'This word has more than one sense. Pick one before paint.';
-    return result;
+  if (!resolved) {
+    const amb = ambiguousTokens(text, bookId).filter((t) => {
+      if (t.key === 'spirit' && colorId === 'yellow') return true;
+      if (t.key === 'beast' && colorId === 'pink') return true;
+      if (t.key === 'serpent' && colorId === 'grey') return true;
+      return false;
+    }).filter((t) => !sel || selWhole || (t.start < sel.end && t.end > sel.start));
+    if (amb.length) {
+      result.needSense = amb[0];
+      result.mode = 'sense-lock';
+      result.note = 'This word has more than one sense. Pick one before paint.';
+      return result;
+    }
   }
 
   const frames = speechFrames(text, bookId, colorId === 'red' ? 'red' : colorId === 'blue' ? 'blue' : '');
@@ -175,9 +208,9 @@ export function planColorApply(text, colorId, bookId, selection) {
   }
 
   if (sel && !selWhole) {
-    result.ranges = [{ color: colorId, start: sel.start, end: sel.end }];
+    result.ranges = [{ color: colorId, start: sel.start, end: sel.end, reason }];
     result.mode = 'selection';
-    result.note = 'Applied to the selected words only.';
+    result.note = reason || 'Applied to the selected words only.';
     return result;
   }
 
