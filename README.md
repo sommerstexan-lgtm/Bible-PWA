@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.66.0
+# KJV Study PWA – v6.67.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.67.0
+- A chapter summary locks the four questions. Each line includes the chapter reference and has its own answer box.
+- A book summary locks its one question the same way. Question lines cannot be edited.
+- Answer boxes have no length limit. An older single-box note stays one box.
 
 ## New in 6.66.0
 - Holy Spirit, Antichrist figure, and Satan choices paint that word. They no longer reopen the same question.

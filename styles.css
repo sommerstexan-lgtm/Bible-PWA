@@ -2453,6 +2453,22 @@ body.color-tray-open #main {
 .summary-qs ol { margin: 0.25rem 0 0.45rem 1.1rem; padding: 0; }
 .summary-qs li { margin: 0.15rem 0; }
 
+.sn-q-label {
+  margin: 0.85rem 0 0.3rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+textarea.sn-answer {
+  min-height: 96px;
+  margin-bottom: 0.35rem;
+}
+.sn-legacy-label {
+  display: block;
+  margin: 0.7rem 0 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.9em;
+}
+
 .summary-chip {
   position: fixed;
   top: max(4px, env(safe-area-inset-top, 0px));

@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.66.0';
+const APP_VERSION = '6.67.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -5269,43 +5269,128 @@ function updateSummaryChip() {
   chip.textContent = minimizedSummary.title || 'Summary';
 }
 
+function summaryRefFromTitle(title, kind) {
+  const t = String(title || '').trim();
+  if (!t) return '';
+  if (kind === 'book') {
+    const m = summaryBookMatch(t);
+    if (m && m.meta && m.meta.name) return m.meta.name;
+    return t.replace(/\s+\d+$/, '').trim() || t;
+  }
+  return t;
+}
+
+function summaryQuestionLines(kind, ref) {
+  const qs = kind === 'book' ? [SUMMARY_BOOK_Q] : SUMMARY_CHAPTER_QS.slice();
+  const r = String(ref || '').trim();
+  return qs.map(q => (r ? (r + ' — ' + q) : q));
+}
+
+function summaryAnswersFromNote(note, kind) {
+  const n = kind === 'book' ? 1 : SUMMARY_CHAPTER_QS.length;
+  const src = note && Array.isArray(note.answers) ? note.answers : [];
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(src[i] == null ? '' : String(src[i]));
+  return out;
+}
+
+function joinSummaryText(lines, answers) {
+  const parts = [];
+  for (let i = 0; i < lines.length; i++) {
+    const a = String(answers[i] || '').replace(/\s+$/g, '');
+    parts.push(a ? (lines[i] + '\n' + a) : lines[i]);
+  }
+  return parts.join('\n\n');
+}
+
+function growSummaryBox(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  const next = Math.max(96, el.scrollHeight || 0);
+  el.style.height = next + 'px';
+}
+
+function readSummaryAnswerBoxes(overlay, n) {
+  const boxes = overlay.querySelectorAll('textarea.sn-answer');
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(boxes[i] ? (boxes[i].value || '') : '');
+  return out;
+}
+
+function renderSummaryAnswerBoxes(overlay, kind, ref, answers) {
+  const host = $('#sn-answers', overlay);
+  if (!host) return;
+  const lines = summaryQuestionLines(kind, ref);
+  host.innerHTML = lines.map((line, i) => `
+    <p class="sn-q-label">${escapeHtml(line)}</p>
+    <textarea class="note-input sn-answer" data-idx="${i}" placeholder="Answer. No length limit.">${escapeHtml(answers[i] || '')}</textarea>
+  `).join('');
+  host.querySelectorAll('textarea.sn-answer').forEach(el => {
+    el.addEventListener('input', () => growSummaryBox(el));
+    growSummaryBox(el);
+  });
+}
+
+function refreshSummaryLabels(overlay) {
+  const title = ($('#sn-title', overlay).value || '').trim();
+  const kind = ($('#sn-kind', overlay).value || 'chapter') === 'book' ? 'book' : 'chapter';
+  const lines = summaryQuestionLines(kind, summaryRefFromTitle(title, kind));
+  overlay.querySelectorAll('.sn-q-label').forEach((el, i) => {
+    if (lines[i]) el.textContent = lines[i];
+  });
+}
+
 function captureSummaryPlace(overlay) {
-  const note = $('#sn-text', overlay);
   const title = $('#sn-title', overlay);
   const panel = overlay.querySelector('.panel');
   const active = document.activeElement;
-  return {
-    field: active === title ? 'title' : 'note',
-    start: note ? note.selectionStart || 0 : 0,
-    end: note ? note.selectionEnd || 0 : 0,
+  const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
+  const place = {
+    field: 'answer',
+    box: 0,
+    start: 0,
+    end: 0,
+    scroll: 0,
     titleStart: title ? title.selectionStart || 0 : 0,
     titleEnd: title ? title.selectionEnd || 0 : 0,
-    noteScroll: note ? note.scrollTop || 0 : 0,
     panelScroll: panel ? panel.scrollTop || 0 : 0
   };
+  if (active === title) {
+    place.field = 'title';
+    return place;
+  }
+  const idx = boxes.indexOf(active);
+  if (idx >= 0) {
+    place.field = 'answer';
+    place.box = idx;
+    place.start = active.selectionStart || 0;
+    place.end = active.selectionEnd || 0;
+    place.scroll = active.scrollTop || 0;
+  }
+  return place;
 }
 
 function restoreSummaryPlace(overlay, place) {
   if (!overlay || !place) return;
-  const note = $('#sn-text', overlay);
   const title = $('#sn-title', overlay);
   const panel = overlay.querySelector('.panel');
-  if (!note) return;
-  const max = note.value.length;
-  const start = Math.max(0, Math.min(Number(place.start) || 0, max));
-  const end = Math.max(start, Math.min(Number(place.end) || start, max));
-  const useTitle = place.field === 'title' && title;
-  const target = useTitle ? title : note;
-  try { target.focus({ preventScroll: true }); } catch (_) { target.focus(); }
-  if (useTitle) {
+  const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
+  if (place.field === 'title' && title) {
+    try { title.focus({ preventScroll: true }); } catch (_) { title.focus(); }
     const tMax = title.value.length;
     const tStart = Math.max(0, Math.min(Number(place.titleStart) || 0, tMax));
     const tEnd = Math.max(tStart, Math.min(Number(place.titleEnd) || tStart, tMax));
     try { title.setSelectionRange(tStart, tEnd); } catch (_) {}
-  } else {
+  } else if (boxes.length) {
+    const idx = Math.max(0, Math.min(Number(place.box) || 0, boxes.length - 1));
+    const note = boxes[idx];
+    try { note.focus({ preventScroll: true }); } catch (_) { note.focus(); }
+    const max = note.value.length;
+    const start = Math.max(0, Math.min(Number(place.start) || 0, max));
+    const end = Math.max(start, Math.min(Number(place.end) || start, max));
     try { note.setSelectionRange(start, end); } catch (_) {}
+    note.scrollTop = Number(place.scroll) || 0;
   }
-  note.scrollTop = Number(place.noteScroll) || 0;
   if (panel) panel.scrollTop = Number(place.panelScroll) || 0;
 }
 
@@ -5342,22 +5427,28 @@ async function openChapterSummary() {
 function openSummaryNoteEditor(existing) {
   const isNew = !existing || !existing.id;
   const kind = existing && existing.kind === 'book' ? 'book' : 'chapter';
+  const titleValue = existing && existing.title ? existing.title : (chapterSummaryTitle() || '');
+  const legacyText = (!isNew && !Array.isArray(existing.answers))
+    ? String(existing.text || '')
+    : String((existing && existing.legacyText) || '');
+  const showLegacy = !!String(legacyText).trim();
   const overlay = showOverlay(`
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
         <h2 style="margin:0;border:none;padding:0">${isNew ? 'New summary note' : 'Edit summary note'}</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      ${summaryQuestionsHtml()}
-      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin:0.7rem 0 0.3rem">Kind</label>
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin:0.2rem 0 0.3rem">Kind</label>
       <select id="sn-kind" style="width:100%;min-height:44px;margin-bottom:0.7rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px">
         <option value="chapter" ${kind === 'chapter' ? 'selected' : ''}>Chapter summary</option>
         <option value="book" ${kind === 'book' ? 'selected' : ''}>Book summary</option>
       </select>
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
-      <input type="text" id="sn-title" class="search-box" placeholder="Ruth 1  or  Ruth — who needs to read this book, and why" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
-      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
-      <textarea class="note-input" id="sn-text" placeholder="Answer the questions above. Saved on this device until you delete it.">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+      <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
+      <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
+      ${showLegacy ? `<label class="sn-legacy-label" for="sn-legacy">Earlier single note — left as one box</label>
+      <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
+      <div id="sn-answers"></div>
       <button type="button" id="sn-min" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Minimize</button>
       <button type="button" id="sn-save" style="width:100%;margin-top:0.45rem;min-height:52px">Save</button>
       ${isNew ? '' : '<button type="button" id="sn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
@@ -5367,14 +5458,45 @@ function openSummaryNoteEditor(existing) {
   const close = () => closeOverlay(overlay);
   $('.close', overlay).onclick = close;
   $('#sn-cancel', overlay).onclick = close;
+  const answerCache = {
+    chapter: summaryAnswersFromNote(existing, 'chapter'),
+    book: summaryAnswersFromNote(existing, 'book')
+  };
+  let paintedKind = kind;
+  function currentKind() {
+    return ($('#sn-kind', overlay).value || 'chapter') === 'book' ? 'book' : 'chapter';
+  }
+  function paintAnswers() {
+    const k = currentKind();
+    const title = ($('#sn-title', overlay).value || '').trim();
+    renderSummaryAnswerBoxes(overlay, k, summaryRefFromTitle(title, k), answerCache[k] || []);
+    paintedKind = k;
+  }
+  $('#sn-kind', overlay).onchange = () => {
+    answerCache[paintedKind] = readSummaryAnswerBoxes(overlay, paintedKind === 'book' ? 1 : SUMMARY_CHAPTER_QS.length);
+    paintAnswers();
+  };
+  $('#sn-title', overlay).oninput = () => refreshSummaryLabels(overlay);
+  paintAnswers();
   async function readSummaryFields() {
     const title = ($('#sn-title', overlay).value || '').trim() || 'Untitled summary';
-    const text = $('#sn-text', overlay).value || '';
-    const picked = ($('#sn-kind', overlay).value || 'chapter') === 'book' ? 'book' : 'chapter';
+    const picked = currentKind();
+    const ref = summaryRefFromTitle(title, picked);
+    const lines = summaryQuestionLines(picked, ref);
+    const answers = readSummaryAnswerBoxes(overlay, lines.length);
+    const legacyEl = $('#sn-legacy', overlay);
+    const keptLegacy = legacyEl ? (legacyEl.value || '') : legacyText;
+    const joined = joinSummaryText(lines, answers);
+    const text = String(keptLegacy || '').trim()
+      ? (String(keptLegacy).replace(/\s+$/g, '') + '\n\n' + joined)
+      : joined;
     return storage.saveSummaryNote({
       id: existing && existing.id,
       kind: picked,
       title,
+      ref,
+      answers,
+      legacyText: keptLegacy,
       text,
       createdAt: existing && existing.createdAt
     });
@@ -5422,8 +5544,13 @@ function openSummaryNoteEditor(existing) {
       setTimeout(() => restoreSummaryPlace(overlay, existing._place), 90);
       return;
     }
-    const t = $('#sn-title', overlay);
-    if (t) t.focus();
+    const first = overlay.querySelector('textarea.sn-answer');
+    const title = $('#sn-title', overlay);
+    if (title && !String(title.value || '').trim()) {
+      title.focus();
+      return;
+    }
+    if (first) first.focus();
   }, 60);
 }
 
@@ -5440,7 +5567,7 @@ async function openSummaryNotesList() {
       </div>
       ${summaryQuestionsHtml()}
       <p style="color:var(--text-dim);font-size:0.92em;margin:0.45rem 0 0.5rem">
-        Saved on this device until you delete them. Export study data includes them. Filter the book name to read the chapter set, then the book note.
+        Each note locks these questions and gives each one its own answer box, with the chapter or book reference on the line. No length limit. Saved on this device until you delete them.
       </p>
       <input id="sn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.2rem 0 0.4rem">
       <button type="button" id="sn-new" style="width:100%;margin-bottom:0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New summary note</button>
@@ -5450,7 +5577,8 @@ async function openSummaryNotesList() {
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
   $('#sn-new', overlay).onclick = () => {
     closeOverlay(overlay);
-    openSummaryNoteEditor(null);
+    const title = chapterSummaryTitle();
+    openSummaryNoteEditor(title ? { kind: 'chapter', title, text: '' } : null);
   };
   const el = $('#sn-list', overlay);
   const filterBox = $('#sn-filter', overlay);
@@ -7693,10 +7821,10 @@ function openHelp() {
         These notes are not tied to a verse. They stay on this device and go out with Export study data.</p>
 
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
-        Menu → <strong>Summary notes</strong>. The four chapter questions stay on that screen.<br>
-        A chapter note answers those four. A book note answers who needs to read the book, and why, from the chapter notes.<br>
-        <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same spot in the note.<br>
-        Saved on this device until you delete them. They go out with Export study data. Filter the book name to read the set.</p>
+        Menu → <strong>Summary notes</strong>. A chapter note locks the four questions, each with this chapter’s reference, and each has its own answer box. The question lines do not change.<br>
+        A book note locks the one book question the same way.<br>
+        <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same answer box.<br>
+        No length limit. Saved on this device until you delete them. They go out with Export study data.</p>
 
         <p style="margin-bottom:1rem"><strong>Anchor</strong><br>
         One reading spot. Books, Search, and hops do not move it.<br>

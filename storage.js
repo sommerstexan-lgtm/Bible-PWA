@@ -468,6 +468,11 @@ export async function saveSummaryNote(note) {
   note.kind = note.kind === 'book' ? 'book' : 'chapter';
   note.title = (note.title || '').trim();
   note.text = note.text || '';
+  if (note.ref != null) note.ref = String(note.ref);
+  if (note.legacyText != null) note.legacyText = String(note.legacyText);
+  if (Array.isArray(note.answers)) {
+    note.answers = note.answers.map(a => (a == null ? '' : String(a)));
+  }
   return new Promise((res, rej) => {
     const r = tx('summaryNotes', 'readwrite').put(note);
     r.onsuccess = () => res(note);
