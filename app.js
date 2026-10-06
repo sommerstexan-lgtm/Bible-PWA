@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.68.0';
+const APP_VERSION = '6.69.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1467,6 +1467,299 @@ async function copyText(text) {
     return false;
   }
 }
+
+
+function blobToPrintUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
+async function printImageUrls(ids) {
+  const urls = [];
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  for (const id of list) {
+    try {
+      const rec = await storage.getNoteImage(id);
+      if (rec && rec.blob) urls.push(await blobToPrintUrl(rec.blob));
+      else if (rec && rec.dataUrl) urls.push(rec.dataUrl);
+    } catch (_) {}
+  }
+  return urls;
+}
+
+function studyPagePlain(page) {
+  const lines = [page.title || '', page.kind || ''];
+  (page.blocks || []).forEach((b) => {
+    if (b.heading) lines.push('', b.heading);
+    if (b.body) lines.push(b.body);
+    if (b.images && b.images.length) lines.push('(Image is on the printed page.)');
+  });
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function studyPageHtml(page) {
+  const blocks = (page.blocks || []).map((b) => {
+    const head = b.verse
+      ? `<p><strong>${escapeHtml(b.heading)}</strong> ${escapeHtml(b.body || '')}</p>`
+      : `${b.heading ? `<h2>${escapeHtml(b.heading)}</h2>` : ''}${b.body ? `<p>${escapeHtml(b.body)}</p>` : ''}`;
+    const imgs = (b.images || []).map((src) => `<img src="${src}" alt="">`).join('');
+    return head + imgs;
+  }).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(page.title || '')}</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; color: #111; margin: 0.7in; }
+  h1 { font-size: 18pt; font-weight: 700; margin: 0 0 0.12in; }
+  .kind { font-size: 11pt; font-weight: 400; margin: 0 0 0.28in; }
+  h2 { font-size: 13pt; font-weight: 700; margin: 0.26in 0 0.06in; }
+  p { font-size: 13pt; font-weight: 400; line-height: 1.45; margin: 0 0 0.12in; white-space: pre-wrap; }
+  img { display: block; max-width: 100%; margin: 0.12in 0 0.2in; }
+</style></head><body>
+<h1>${escapeHtml(page.title || '')}</h1>
+<p class="kind">${escapeHtml(page.kind || '')}</p>
+${blocks}
+</body></html>`;
+}
+
+function printStudyPage(page) {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.position = 'fixed';
+  frame.style.right = '0';
+  frame.style.bottom = '0';
+  frame.style.width = '0';
+  frame.style.height = '0';
+  frame.style.border = '0';
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument || frame.contentWindow.document;
+  doc.open();
+  doc.write(studyPageHtml(page));
+  doc.close();
+  const win = frame.contentWindow;
+  const done = () => {
+    try { win.focus(); win.print(); } catch (_) {}
+    setTimeout(() => { try { frame.remove(); } catch (_) {} }, 1200);
+  };
+  const imgs = Array.from(doc.images || []);
+  if (!imgs.length) {
+    setTimeout(done, 200);
+    return;
+  }
+  let left = imgs.length;
+  const tick = () => { left -= 1; if (left <= 0) done(); };
+  imgs.forEach((img) => {
+    if (img.complete) tick();
+    else { img.onload = tick; img.onerror = tick; }
+  });
+  setTimeout(done, 1500);
+}
+
+async function copyStudyPage(page) {
+  const ok = await copyText(studyPagePlain(page));
+  const extra = (page.blocks || []).some((b) => b.images && b.images.length) ? ' Image stays on the print page.' : '';
+  showAppStatus(ok ? ('Copied.' + extra) : 'Could not copy.', ok ? 'ok' : 'fail');
+}
+
+function summaryBlocksFromAnswers(ref, questions, answers, legacyText) {
+  const blocks = [];
+  if (String(legacyText || '').trim()) blocks.push({ heading: 'Earlier single note', body: legacyText });
+  questions.forEach((q, i) => {
+    blocks.push({ heading: (ref ? ref + ' — ' : '') + q, body: answers[i] || '' });
+  });
+  return blocks;
+}
+
+function openChapterBook() {
+  const book = books.find((b) => b.id === currentBookId);
+  if (!book || !currentChapter) return null;
+  return book;
+}
+
+async function pageChapterText() {
+  const book = openChapterBook();
+  if (!book) return null;
+  const ch = (book.chapters || []).find((c) => Number(c.number) === Number(currentChapter));
+  if (!ch) return null;
+  const title = book.name + ' ' + currentChapter;
+  return {
+    title,
+    kind: 'Chapter text',
+    blocks: (ch.verses || []).map((v) => ({ heading: String(v.number), body: v.text || '', verse: true }))
+  };
+}
+
+async function pageChapterNotes() {
+  const book = openChapterBook();
+  if (!book) return null;
+  const title = book.name + ' ' + currentChapter;
+  const notes = await storage.getAllNotes();
+  const shared = await storage.getAllSharedNotes();
+  const ch = (book.chapters || []).find((c) => Number(c.number) === Number(currentChapter));
+  const verses = ch && ch.verses ? ch.verses : [];
+  const blocks = [];
+  const used = new Set();
+  for (const v of verses) {
+    const key = bible.verseKey(book.id, currentChapter, v.number);
+    const priv = (notes || []).find((n) => n && n.key === key);
+    if (priv && (String(priv.text || '').trim() || (priv.imageIds || []).length)) {
+      blocks.push({
+        heading: title + ':' + v.number,
+        body: priv.text || '',
+        images: await printImageUrls(priv.imageIds)
+      });
+    }
+    const sh = (shared || []).find((n) => n && Array.isArray(n.verseKeys) && n.verseKeys.includes(key));
+    if (sh && sh.id && !used.has(sh.id)) {
+      used.add(sh.id);
+      const refs = sh.verseKeys.map((k) => {
+        const p = bible.parseKey(k);
+        const meta = bible.CANONICAL_BOOKS.find((b) => b.id === p.bookId);
+        return (meta ? meta.name : p.bookId) + ' ' + p.chapter + ':' + p.verse;
+      });
+      blocks.push({
+        heading: 'Shared note — ' + refs.join(', '),
+        body: sh.text || '',
+        images: await printImageUrls(sh.imageIds)
+      });
+    }
+  }
+  if (!blocks.length) blocks.push({ heading: '', body: 'No notes in this chapter.' });
+  return { title, kind: 'Chapter notes', blocks };
+}
+
+async function pageChapterSummary(live) {
+  const book = openChapterBook();
+  const title = live && live.title ? live.title : (book ? (book.name + ' ' + currentChapter) : '');
+  if (!title) return null;
+  let answers = live && live.answers;
+  let legacy = live && live.legacyText;
+  if (!answers) {
+    let list = [];
+    try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+    const found = list.find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === title.toLowerCase());
+    answers = found && Array.isArray(found.answers) ? found.answers : [];
+    legacy = found && !Array.isArray(found.answers) ? found.text : (found && found.legacyText);
+    if (!found) answers = [];
+  }
+  return {
+    title,
+    kind: 'Chapter summary',
+    blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, legacy)
+  };
+}
+
+async function pageBookChapterSummaries(bookName) {
+  const name = bookName || (openChapterBook() && openChapterBook().name) || '';
+  if (!name) return null;
+  const book = books.find((b) => b.name === name) || openChapterBook();
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  const by = chapterNotesForBook(list, name);
+  let numbers = book ? chapterNumbersForBook(book) : [];
+  if (!numbers.length) numbers = Array.from(by.keys()).sort((a, b) => a - b);
+  const blocks = [];
+  numbers.forEach((n) => {
+    const ref = name + ' ' + n;
+    const note = by.get(n);
+    blocks.push({ heading: ref, body: note ? '' : 'Not written.' });
+    if (note && Array.isArray(note.answers)) {
+      SUMMARY_CHAPTER_QS.forEach((q, i) => {
+        blocks.push({ heading: ref + ' — ' + q, body: note.answers[i] || '' });
+      });
+    } else if (note && String(note.text || '').trim()) {
+      blocks.push({ heading: ref + ' — Earlier single note', body: note.text });
+    }
+  });
+  if (!blocks.length) blocks.push({ heading: '', body: 'No chapter summaries for this book.' });
+  return { title: name, kind: 'Chapter summaries', blocks };
+}
+
+async function pageBookSummary(live) {
+  const book = openChapterBook();
+  const name = (live && live.title) || (book && book.name) || '';
+  if (!name) return null;
+  let answers = live && live.answers;
+  let key = live && live.keyChapter;
+  if (!answers) {
+    let list = [];
+    try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+    const found = list.find((n) => n && n.kind === 'book' && summaryBookMatch(n.title) && summaryBookMatch(n.title).meta.name === name);
+    answers = found ? bookAnswersFromNote(found) : ['', '', '', '', ''];
+    key = found && found.keyChapter;
+  }
+  const blocks = [];
+  if (key) blocks.push({ heading: 'Key chapter', body: name + ' ' + key });
+  SUMMARY_BOOK_QS.forEach((q, i) => {
+    blocks.push({ heading: name + ' — ' + q, body: (answers && answers[i]) || '' });
+  });
+  return { title: name, kind: 'Book summary', blocks };
+}
+
+async function pageGeneralNote(live) {
+  const title = (live && live.title) || 'Untitled note';
+  const images = await printImageUrls(live && live.imageIds);
+  return {
+    title,
+    kind: 'General note',
+    blocks: [{ heading: '', body: (live && live.text) || '', images }]
+  };
+}
+
+function printCopyRow(printId, copyId) {
+  return `<button type="button" id="${printId}" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
+      <button type="button" id="${copyId}" style="width:100%;margin-top:0.45rem;min-height:52px">Copy</button>`;
+}
+
+async function runPrint(pagePromise) {
+  const page = await pagePromise;
+  if (!page) { showAppStatus('Open a chapter first.', 'fail'); return; }
+  printStudyPage(page);
+}
+
+async function runCopy(pagePromise) {
+  const page = await pagePromise;
+  if (!page) { showAppStatus('Open a chapter first.', 'fail'); return; }
+  await copyStudyPage(page);
+}
+
+function openPrintCopyMenu() {
+  const book = openChapterBook();
+  const label = book ? (book.name + ' ' + currentChapter) : 'No chapter open';
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Print or copy</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p style="color:var(--text-dim);margin-top:0">Title, size, and bold are already set. This chapter: ${escapeHtml(label)}.</p>
+      <button type="button" id="pc-text-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print this chapter’s text</button>
+      <button type="button" id="pc-text-copy" style="width:100%;margin-bottom:0.7rem;min-height:48px">Copy this chapter’s text</button>
+      <button type="button" id="pc-notes-print" style="width:100%;min-height:52px">Print this chapter’s notes</button>
+      <button type="button" id="pc-notes-copy" style="width:100%;margin-bottom:0.7rem;min-height:48px">Copy this chapter’s notes</button>
+      <button type="button" id="pc-ch-print" style="width:100%;min-height:52px">Print this chapter’s summary</button>
+      <button type="button" id="pc-ch-copy" style="width:100%;margin-bottom:0.7rem;min-height:48px">Copy this chapter’s summary</button>
+      <button type="button" id="pc-set-print" style="width:100%;min-height:52px">Print this book’s chapter summaries</button>
+      <button type="button" id="pc-set-copy" style="width:100%;margin-bottom:0.7rem;min-height:48px">Copy this book’s chapter summaries</button>
+      <button type="button" id="pc-book-print" style="width:100%;min-height:52px">Print this book’s summary</button>
+      <button type="button" id="pc-book-copy" style="width:100%;min-height:48px">Copy this book’s summary</button>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  $('#pc-text-print', overlay).onclick = () => runPrint(pageChapterText());
+  $('#pc-text-copy', overlay).onclick = () => runCopy(pageChapterText());
+  $('#pc-notes-print', overlay).onclick = () => runPrint(pageChapterNotes());
+  $('#pc-notes-copy', overlay).onclick = () => runCopy(pageChapterNotes());
+  $('#pc-ch-print', overlay).onclick = () => runPrint(pageChapterSummary());
+  $('#pc-ch-copy', overlay).onclick = () => runCopy(pageChapterSummary());
+  $('#pc-set-print', overlay).onclick = () => runPrint(pageBookChapterSummaries());
+  $('#pc-set-copy', overlay).onclick = () => runCopy(pageBookChapterSummaries());
+  $('#pc-book-print', overlay).onclick = () => runPrint(pageBookSummary());
+  $('#pc-book-copy', overlay).onclick = () => runCopy(pageBookSummary());
+}
+
 
 function openSaveChainDialog(existing) {
   const isUpdate = !!(existing && existing.id);
@@ -4323,6 +4616,8 @@ async function openNote(key) {
       </div>
 
       <button type="button" id="save-note" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save Note</button>
+      <button type="button" id="note-print-chapter" style="width:100%;margin-top:0.45rem;min-height:52px">Print this chapter’s notes</button>
+      <button type="button" id="note-copy-chapter" style="width:100%;margin-top:0.45rem;min-height:52px">Copy this chapter’s notes</button>
       ${shared ? `<button type="button" id="unlink-this" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Unlink this verse from shared note</button>
       <button type="button" id="delete-shared" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete shared note entirely</button>` : ''}
       <button type="button" id="cancel-note" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
@@ -4331,6 +4626,8 @@ async function openNote(key) {
 
   const noteImgs = mountNoteImages(overlay, workingImageIds);
   const close = () => closeOverlay(overlay);
+  $('#note-print-chapter', overlay).onclick = () => runPrint(pageChapterNotes());
+  $('#note-copy-chapter', overlay).onclick = () => runCopy(pageChapterNotes());
   $('.close', overlay).onclick = close;
   $('#cancel-note', overlay).onclick = close;
 
@@ -5459,6 +5756,8 @@ function openSummaryNoteEditor(existing) {
       <div id="sn-answers"></div>
       <button type="button" id="sn-min" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Minimize</button>
       <button type="button" id="sn-save" style="width:100%;margin-top:0.45rem;min-height:52px">Save</button>
+      <button type="button" id="sn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
+      <button type="button" id="sn-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy</button>
       ${isNew ? '' : '<button type="button" id="sn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
       <button type="button" id="sn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
     </div>
@@ -5482,6 +5781,18 @@ function openSummaryNoteEditor(existing) {
   }
   $('#sn-title', overlay).oninput = () => refreshSummaryLabels(overlay);
   paintAnswers();
+  function liveChapterPage() {
+    const title = ($('#sn-title', overlay).value || '').trim() || chapterSummaryTitle() || 'Chapter summary';
+    const answers = readSummaryAnswerBoxes(overlay, SUMMARY_CHAPTER_QS.length);
+    const legacyEl = $('#sn-legacy', overlay);
+    return {
+      title,
+      kind: 'Chapter summary',
+      blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, legacyEl ? legacyEl.value : legacyText)
+    };
+  }
+  $('#sn-print', overlay).onclick = () => printStudyPage(liveChapterPage());
+  $('#sn-copy', overlay).onclick = () => copyStudyPage(liveChapterPage());
   async function readSummaryFields() {
     const title = ($('#sn-title', overlay).value || '').trim() || 'Untitled summary';
     const picked = currentKind();
@@ -5676,6 +5987,10 @@ function openBookSummaryEditor(book, existing, allNotes) {
       <div id="sn-answers"></div>
       <button type="button" id="sn-min" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Minimize</button>
       <button type="button" id="sn-save" style="width:100%;margin-top:0.45rem;min-height:52px">Save</button>
+      <button type="button" id="bs-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print book summary</button>
+      <button type="button" id="bs-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy book summary</button>
+      <button type="button" id="bs-set-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print chapter summaries</button>
+      <button type="button" id="bs-set-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy chapter summaries</button>
       ${isNew ? '' : '<button type="button" id="sn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
       <button type="button" id="sn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
     </div>
@@ -5725,6 +6040,17 @@ function openBookSummaryEditor(book, existing, allNotes) {
   paintKey();
   paintSource();
   renderSummaryAnswerBoxes(overlay, 'book', bookName, answers);
+  function liveBookPage() {
+    const boxed = readSummaryAnswerBoxes(overlay, SUMMARY_BOOK_QS.length);
+    const blocks = [];
+    if (keyChapter) blocks.push({ heading: 'Key chapter', body: bookName + ' ' + keyChapter });
+    SUMMARY_BOOK_QS.forEach((q, i) => blocks.push({ heading: bookName + ' — ' + q, body: boxed[i] || '' }));
+    return { title: bookName, kind: 'Book summary', blocks };
+  }
+  $('#bs-print', overlay).onclick = () => printStudyPage(liveBookPage());
+  $('#bs-copy', overlay).onclick = () => copyStudyPage(liveBookPage());
+  $('#bs-set-print', overlay).onclick = () => runPrint(pageBookChapterSummaries(bookName));
+  $('#bs-set-copy', overlay).onclick = () => runCopy(pageBookChapterSummaries(bookName));
   async function readBookFields() {
     const lines = summaryQuestionLines('book', bookName);
     const boxed = readSummaryAnswerBoxes(overlay, lines.length);
@@ -5879,12 +6205,23 @@ function openGeneralNoteEditor(existing) {
       <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
       ${noteImagesMarkup()}
       <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
+      <button type="button" id="gn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
+      <button type="button" id="gn-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy</button>
       ${isNew ? '' : '<button type="button" id="gn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
       <button type="button" id="gn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
     </div>
   `);
   const gnImgs = mountNoteImages(overlay, existing && existing.imageIds);
   const close = () => closeOverlay(overlay);
+  async function liveGeneralPage() {
+    return pageGeneralNote({
+      title: ($('#gn-title', overlay).value || '').trim() || 'Untitled note',
+      text: $('#gn-text', overlay).value || '',
+      imageIds: gnImgs.getIds()
+    });
+  }
+  $('#gn-print', overlay).onclick = async () => printStudyPage(await liveGeneralPage());
+  $('#gn-copy', overlay).onclick = async () => copyStudyPage(await liveGeneralPage());
   $('.close', overlay).onclick = close;
   $('#gn-cancel', overlay).onclick = close;
   $('#gn-save', overlay).onclick = async () => {
@@ -6083,6 +6420,7 @@ function openMenu() {
       <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
       <button type="button" id="menu-summary-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Summary notes</button>
       <button type="button" id="menu-book-summary" style="width:100%;margin-bottom:0.5rem;min-height:52px">Book summary</button>
+      <button type="button" id="menu-print-copy" style="width:100%;margin-bottom:0.5rem;min-height:52px">Print or copy</button>
       <button type="button" id="menu-chains" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chains</button>
       <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
@@ -6106,6 +6444,7 @@ function openMenu() {
   $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
   $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
   $('#menu-book-summary', overlay).onclick = () => { closeOverlay(overlay); openBookSummary(); };
+  $('#menu-print-copy', overlay).onclick = () => { closeOverlay(overlay); openPrintCopyMenu(); };
   $('#menu-chains', overlay).onclick = () => { closeOverlay(overlay); openSavedChainsList(); };
   $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
@@ -8060,6 +8399,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
         Menu → <strong>Summary notes</strong>. A chapter note locks the four questions, each with this chapter’s reference, and each has its own answer box. The question lines do not change.<br>
         Menu → <strong>Book summary</strong> opens this book. The five questions use the same locked lines and answer boxes. Chapter summaries stay on that screen, in order. A missing chapter stays marked not written.<br>
+        Menu → <strong>Print or copy</strong>. Title, size, and bold are already set. Chapter notes print as one document. A general note prints alone, with its image. A chapter summary, a book’s chapter summaries, and the book summary each have their own page.<br>
         <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same answer box.<br>
         No length limit. Saved on this device until you delete them. They go out with Export study data.</p>
 

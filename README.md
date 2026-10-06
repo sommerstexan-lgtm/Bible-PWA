@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.68.0
+# KJV Study PWA – v6.69.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.69.0
+- Menu → Print or copy. Title, type size, and bold are already set.
+- This chapter’s notes print as one document. A general note prints alone, with its image.
+- A chapter summary, this book’s chapter summaries, and the book summary each print or copy on their own.
 
 ## New in 6.68.0
 - Menu → Book summary opens the book now on screen.
