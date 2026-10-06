@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.69.0';
+const APP_VERSION = '6.71.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -5354,6 +5354,52 @@ function openSearch() {
 
 
 // ---------- Verse notes list + filter ----------
+
+function notesReadingPlain(blocks) {
+  return (blocks || []).map((b) => {
+    const heading = String(b && b.heading || 'Note').trim() || 'Note';
+    const body = String(b && b.body || '').replace(/\s+$/g, '');
+    return body ? (heading + '\n' + body) : heading;
+  }).join('\n\n').trim() + '\n';
+}
+
+function notesReadingHtml(blocks) {
+  if (!blocks || !blocks.length) return '<p style="color:var(--text-dim)">No notes to read.</p>';
+  return blocks.map((b) => {
+    const heading = String(b && b.heading || 'Note').trim() || 'Note';
+    const body = String(b && b.body || '').replace(/\s+$/g, '');
+    return `<article class="note-read"><h3>${escapeHtml(heading)}</h3><p>${escapeHtml(body)}</p></article>`;
+  }).join('');
+}
+
+function summaryNoteBody(note) {
+  if (!note) return '';
+  const kind = note.kind === 'book' ? 'book' : 'chapter';
+  const title = String(note.title || '').trim() || 'Untitled summary';
+  const ref = note.ref ? String(note.ref) : summaryRefFromTitle(title, kind);
+  let body = '';
+  if (Array.isArray(note.answers)) {
+    const answers = kind === 'book' ? bookAnswersFromNote(note) : summaryAnswersFromNote(note, kind);
+    const joined = joinSummaryText(summaryQuestionLines(kind, ref), answers);
+    const legacy = String(note.legacyText || '').replace(/\s+$/g, '');
+    body = legacy ? (legacy + '\n\n' + joined) : joined;
+  } else {
+    body = String(note.text || '').replace(/\s+$/g, '');
+  }
+  if (kind === 'book' && note.keyChapter) {
+    const key = 'Key chapter: ' + ref + ' ' + note.keyChapter;
+    body = body ? (key + '\n\n' + body) : key;
+  }
+  return body;
+}
+
+function summaryNoteBlocks(notes) {
+  return (notes || []).map((n) => ({
+    heading: String(n && n.title || 'Untitled summary').trim() || 'Untitled summary',
+    body: summaryNoteBody(n)
+  }));
+}
+
 function formatNoteRefLabel(key) {
   const parsed = bible.parseKey(key);
   if (!parsed || !parsed.bookId) return key || '';
@@ -5473,9 +5519,13 @@ async function openNotesList() {
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
       <input id="note-filter" class="search-box" type="search" placeholder="Filter notes" autocomplete="off" style="margin:0.5rem 0 0.4rem">
-      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.7rem">
+      <p id="notes-hint" style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.55rem">
         Tap a row to open that verse and its note. Filter matches the note text and the reference.
+        Read, Copy, and Print use the notes on screen, in verse order, with a blank line between notes.
       </p>
+      <button type="button" id="notes-read" style="width:100%;min-height:52px">Read these notes</button>
+      <button type="button" id="notes-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print these notes</button>
+      <button type="button" id="notes-copy" style="width:100%;margin:0.45rem 0 0.7rem;min-height:52px">Copy these notes</button>
       <div id="notes-list"></div>
     </div>
   `);
@@ -5503,6 +5553,8 @@ async function openNotesList() {
     setTimeout(() => openNote(key), 120);
   }
 
+  let reading = false;
+
   function renderList() {
     const q = ((filterBox && filterBox.value) || '').trim().toLowerCase();
     const shown = items.filter(it => matches(it, q));
@@ -5514,6 +5566,13 @@ async function openNotesList() {
       el.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="note-filter-clear">Clear</button>';
       const clr = $('#note-filter-clear', overlay);
       if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      return;
+    }
+    if (reading) {
+      el.innerHTML = notesReadingHtml(shown.map((it) => ({
+        heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
+        body: String(it.text || '').replace(/\s+$/g, '')
+      })));
       return;
     }
     el.innerHTML = shown.map((it, i) => `
@@ -5528,6 +5587,76 @@ async function openNotesList() {
     });
   }
 
+  function shownNotes() {
+    const q = ((filterBox && filterBox.value) || '').trim().toLowerCase();
+    return items.filter(it => matches(it, q));
+  }
+
+  function notesPlain(shown) {
+    return notesReadingPlain(shown.map((it) => ({
+      heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
+      body: String(it.text || '').replace(/\s+$/g, '')
+    })));
+  }
+
+  function notesTitle(shown) {
+    const chapters = [];
+    shown.forEach((it) => {
+      (it.keys || []).forEach((k) => {
+        const parsed = bible.parseKey(k) || {};
+        const meta = bible.CANONICAL_BOOKS.find(b => b.id === parsed.bookId);
+        const name = meta ? meta.name : (parsed.bookId || '');
+        const label = name && parsed.chapter ? (name + ' ' + parsed.chapter) : '';
+        if (label && chapters.indexOf(label) < 0) chapters.push(label);
+      });
+    });
+    if (chapters.length === 1) return chapters[0];
+    const q = ((filterBox && filterBox.value) || '').trim();
+    return q || 'Verse notes';
+  }
+
+  async function copyShown() {
+    const shown = shownNotes();
+    if (!shown.length) {
+      showAppStatus('No notes to copy.', 'fail');
+      return;
+    }
+    const ok = await copyText(notesPlain(shown));
+    showAppStatus(ok ? ('Copied ' + shown.length + (shown.length === 1 ? ' note.' : ' notes.')) : 'Could not copy.', ok ? 'ok' : 'fail');
+  }
+
+  function printShown() {
+    const shown = shownNotes();
+    if (!shown.length) {
+      showAppStatus('No notes to print.', 'fail');
+      return;
+    }
+    printStudyPage({
+      title: notesTitle(shown),
+      kind: 'Verse notes',
+      blocks: shown.map((it) => ({
+        heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
+        body: String(it.text || '').replace(/\s+$/g, '')
+      }))
+    });
+  }
+
+  const readBtn = $('#notes-read', overlay);
+  const printBtn = $('#notes-print', overlay);
+  const copyBtn = $('#notes-copy', overlay);
+  const hint = $('#notes-hint', overlay);
+  if (readBtn) readBtn.onclick = () => {
+    reading = !reading;
+    readBtn.textContent = reading ? 'Back to list' : 'Read these notes';
+    if (hint) {
+      hint.textContent = reading
+        ? 'Reading the notes on screen, in verse order. A blank line separates each note. Back to list opens a verse.'
+        : 'Tap a row to open that verse and its note. Filter matches the note text and the reference. Read, Copy, and Print use the notes on screen, in verse order, with a blank line between notes.';
+    }
+    renderList();
+  };
+  if (printBtn) printBtn.onclick = printShown;
+  if (copyBtn) copyBtn.onclick = copyShown;
   if (filterBox) filterBox.oninput = renderList;
   renderList();
   setTimeout(() => filterBox && filterBox.focus(), 80);
@@ -6130,7 +6259,13 @@ async function openSummaryNotesList() {
         Chapter notes lock the four questions, each with its own answer box. Book summary is Menu → Book summary. No length limit. Saved on this device until you delete them.
       </p>
       <input id="sn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.2rem 0 0.4rem">
-      <button type="button" id="sn-new" style="width:100%;margin-bottom:0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New summary note</button>
+      <p id="sn-hint" style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.55rem">
+        Read, Copy, and Print use the notes on screen, in order, with a blank line between notes.
+      </p>
+      <button type="button" id="sn-read" style="width:100%;min-height:52px">Read these notes</button>
+      <button type="button" id="sn-print-shown" style="width:100%;margin-top:0.45rem;min-height:52px">Print these notes</button>
+      <button type="button" id="sn-copy-shown" style="width:100%;margin-top:0.45rem;min-height:52px">Copy these notes</button>
+      <button type="button" id="sn-new" style="width:100%;margin:0.45rem 0 0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New summary note</button>
       <div id="sn-list"></div>
     </div>
   `);
@@ -6152,13 +6287,19 @@ async function openSummaryNotesList() {
 
   function matches(note, q) {
     if (!q) return true;
-    const hay = ((note.title || '') + ' ' + (note.text || '') + ' ' + (note.kind || '')).toLowerCase();
+    const hay = ((note.title || '') + ' ' + summaryNoteBody(note) + ' ' + (note.kind || '')).toLowerCase();
     return hay.includes(q);
   }
 
-  function renderList() {
+  function shownNotes() {
     const q = ((filterBox && filterBox.value) || '').trim().toLowerCase();
-    const shown = list.filter(n => matches(n, q));
+    return list.filter(n => matches(n, q));
+  }
+
+  let reading = false;
+
+  function renderList() {
+    const shown = shownNotes();
     if (!list.length) {
       el.innerHTML = '<p style="color:var(--text-dim)">None yet. A chapter note uses the four questions. The book note is written when those are done.</p>';
       return;
@@ -6167,6 +6308,10 @@ async function openSummaryNotesList() {
       el.innerHTML = '<p style="color:var(--text-dim)">No summary matches</p><button type="button" id="sn-filter-clear">Clear</button>';
       const clr = $('#sn-filter-clear', overlay);
       if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      return;
+    }
+    if (reading) {
+      el.innerHTML = notesReadingHtml(summaryNoteBlocks(shown));
       return;
     }
     el.innerHTML = shown.map(n => `
@@ -6186,6 +6331,51 @@ async function openSummaryNotesList() {
     });
   }
 
+  function summaryTitle(shown) {
+    if (shown.length === 1) return String(shown[0].title || 'Summary notes').trim() || 'Summary notes';
+    const q = ((filterBox && filterBox.value) || '').trim();
+    return q || 'Summary notes';
+  }
+
+  async function copyShown() {
+    const shown = shownNotes();
+    if (!shown.length) {
+      showAppStatus('No notes to copy.', 'fail');
+      return;
+    }
+    const ok = await copyText(notesReadingPlain(summaryNoteBlocks(shown)));
+    showAppStatus(ok ? ('Copied ' + shown.length + (shown.length === 1 ? ' note.' : ' notes.')) : 'Could not copy.', ok ? 'ok' : 'fail');
+  }
+
+  function printShown() {
+    const shown = shownNotes();
+    if (!shown.length) {
+      showAppStatus('No notes to print.', 'fail');
+      return;
+    }
+    printStudyPage({
+      title: summaryTitle(shown),
+      kind: 'Summary notes',
+      blocks: summaryNoteBlocks(shown)
+    });
+  }
+
+  const readBtn = $('#sn-read', overlay);
+  const hint = $('#sn-hint', overlay);
+  if (readBtn) readBtn.onclick = () => {
+    reading = !reading;
+    readBtn.textContent = reading ? 'Back to list' : 'Read these notes';
+    if (hint) {
+      hint.textContent = reading
+        ? 'Reading the notes on screen, in order. A blank line separates each note. Back to list opens a note.'
+        : 'Read, Copy, and Print use the notes on screen, in order, with a blank line between notes.';
+    }
+    renderList();
+  };
+  const printBtn = $('#sn-print-shown', overlay);
+  const copyBtn = $('#sn-copy-shown', overlay);
+  if (printBtn) printBtn.onclick = printShown;
+  if (copyBtn) copyBtn.onclick = copyShown;
   if (filterBox) filterBox.oninput = renderList;
   renderList();
 }
@@ -8390,7 +8580,8 @@ function openHelp() {
 
         <p style="margin-bottom:1rem"><strong>Find your verse notes</strong><br>
         Menu → <strong>Verse notes</strong>. Filter matches the note text and the verse reference.
-        Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.</p>
+        Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.<br>
+        <strong>Read these notes</strong> shows that same page on screen. <strong>Copy these notes</strong> and <strong>Print these notes</strong> use it too. Each note keeps its verse number, then the note as written, with a blank line between notes.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
@@ -8398,6 +8589,7 @@ function openHelp() {
 
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
         Menu → <strong>Summary notes</strong>. A chapter note locks the four questions, each with this chapter’s reference, and each has its own answer box. The question lines do not change.<br>
+        <strong>Read these notes</strong>, <strong>Copy these notes</strong>, and <strong>Print these notes</strong> use the notes on screen, in order. Each note keeps its title, then the note as written, with a blank line between notes.<br>
         Menu → <strong>Book summary</strong> opens this book. The five questions use the same locked lines and answer boxes. Chapter summaries stay on that screen, in order. A missing chapter stays marked not written.<br>
         Menu → <strong>Print or copy</strong>. Title, size, and bold are already set. Chapter notes print as one document. A general note prints alone, with its image. A chapter summary, a book’s chapter summaries, and the book summary each have their own page.<br>
         <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same answer box.<br>

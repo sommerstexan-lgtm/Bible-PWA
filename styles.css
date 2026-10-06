@@ -2563,3 +2563,7 @@ textarea.sn-answer {
 .book-src-row.key .book-src-key { font-weight: 700; }
 .book-src-body { padding: 0.2rem 0.3rem 0.5rem; }
 .book-src-answer { margin: 0.15rem 0 0.55rem; white-space: pre-wrap; }
+
+.note-read { margin: 0 0 1.6rem; }
+.note-read h3 { margin: 0 0 0.35rem; font-size: 1.2rem; line-height: 1.35; }
+.note-read p { margin: 0; white-space: pre-wrap; font-size: var(--font-size); line-height: 1.55; }

@@ -1,6 +1,14 @@
-# KJV Study PWA – v6.69.0
+# KJV Study PWA – v6.71.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.71.0
+- Verse notes → Read these notes shows the filtered notes on screen. Verse number, note as written, blank line between notes. Copy and Print use that same page.
+- Summary notes uses the same Read, Copy, and Print. Title, then the note as written, blank line between notes.
+
+## New in 6.70.0
+- Verse notes → Copy these notes and Print these notes use the filter on screen.
+- Notes stay in verse order. Each note shows the verse number, then the note as written, with a blank line between notes.
 
 ## New in 6.69.0
 - Menu → Print or copy. Title, type size, and bold are already set.
