@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.67.0';
+const APP_VERSION = '6.68.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -5243,15 +5243,23 @@ const SUMMARY_CHAPTER_QS = [
   'What happened after the key?',
   'What is still unresolved?'
 ];
-const SUMMARY_BOOK_Q = 'Who needs to read this book, and why?';
+const SUMMARY_BOOK_QS = [
+  'Which chapter is the key chapter, and why?',
+  'What do the chapter summaries before it say?',
+  'What do the chapter summaries after it say?',
+  'What is the message of this book, stated from those summaries?',
+  'Who needs to read this book, and why?'
+];
+const SUMMARY_BOOK_Q = SUMMARY_BOOK_QS[4];
 
 function summaryQuestionsHtml() {
   const lines = SUMMARY_CHAPTER_QS.map((q, i) => `<li>${escapeHtml(q)}</li>`).join('');
+  const bookLines = SUMMARY_BOOK_QS.map((q) => `<li>${escapeHtml(q)}</li>`).join('');
   return `<div class="summary-qs">
     <p><strong>Chapter note — these four</strong></p>
     <ol>${lines}</ol>
-    <p><strong>Book note — this one, after the chapter notes are read</strong></p>
-    <p>${escapeHtml(SUMMARY_BOOK_Q)}</p>
+    <p><strong>Book summary — Menu → Book summary. These five, after the chapter summaries are read in order</strong></p>
+    <ol>${bookLines}</ol>
   </div>`;
 }
 
@@ -5281,13 +5289,13 @@ function summaryRefFromTitle(title, kind) {
 }
 
 function summaryQuestionLines(kind, ref) {
-  const qs = kind === 'book' ? [SUMMARY_BOOK_Q] : SUMMARY_CHAPTER_QS.slice();
+  const qs = kind === 'book' ? SUMMARY_BOOK_QS.slice() : SUMMARY_CHAPTER_QS.slice();
   const r = String(ref || '').trim();
   return qs.map(q => (r ? (r + ' — ' + q) : q));
 }
 
 function summaryAnswersFromNote(note, kind) {
-  const n = kind === 'book' ? 1 : SUMMARY_CHAPTER_QS.length;
+  const n = kind === 'book' ? SUMMARY_BOOK_QS.length : SUMMARY_CHAPTER_QS.length;
   const src = note && Array.isArray(note.answers) ? note.answers : [];
   const out = [];
   for (let i = 0; i < n; i++) out.push(src[i] == null ? '' : String(src[i]));
@@ -5399,7 +5407,8 @@ function reopenMinimizedSummary() {
   const note = minimizedSummary;
   minimizedSummary = null;
   updateSummaryChip();
-  openSummaryNoteEditor(note);
+  if (note.kind === 'book') openBookSummary(note);
+  else openSummaryNoteEditor(note);
 }
 
 function chapterSummaryTitle() {
@@ -5425,8 +5434,12 @@ async function openChapterSummary() {
 }
 
 function openSummaryNoteEditor(existing) {
+  if (existing && existing.kind === 'book') {
+    openBookSummary(existing);
+    return;
+  }
   const isNew = !existing || !existing.id;
-  const kind = existing && existing.kind === 'book' ? 'book' : 'chapter';
+  const kind = 'chapter';
   const titleValue = existing && existing.title ? existing.title : (chapterSummaryTitle() || '');
   const legacyText = (!isNew && !Array.isArray(existing.answers))
     ? String(existing.text || '')
@@ -5438,11 +5451,6 @@ function openSummaryNoteEditor(existing) {
         <h2 style="margin:0;border:none;padding:0">${isNew ? 'New summary note' : 'Edit summary note'}</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin:0.2rem 0 0.3rem">Kind</label>
-      <select id="sn-kind" style="width:100%;min-height:44px;margin-bottom:0.7rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px">
-        <option value="chapter" ${kind === 'chapter' ? 'selected' : ''}>Chapter summary</option>
-        <option value="book" ${kind === 'book' ? 'selected' : ''}>Book summary</option>
-      </select>
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
       <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
       <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
@@ -5464,7 +5472,7 @@ function openSummaryNoteEditor(existing) {
   };
   let paintedKind = kind;
   function currentKind() {
-    return ($('#sn-kind', overlay).value || 'chapter') === 'book' ? 'book' : 'chapter';
+    return 'chapter';
   }
   function paintAnswers() {
     const k = currentKind();
@@ -5472,10 +5480,6 @@ function openSummaryNoteEditor(existing) {
     renderSummaryAnswerBoxes(overlay, k, summaryRefFromTitle(title, k), answerCache[k] || []);
     paintedKind = k;
   }
-  $('#sn-kind', overlay).onchange = () => {
-    answerCache[paintedKind] = readSummaryAnswerBoxes(overlay, paintedKind === 'book' ? 1 : SUMMARY_CHAPTER_QS.length);
-    paintAnswers();
-  };
   $('#sn-title', overlay).oninput = () => refreshSummaryLabels(overlay);
   paintAnswers();
   async function readSummaryFields() {
@@ -5554,6 +5558,236 @@ function openSummaryNoteEditor(existing) {
   }, 60);
 }
 
+
+function bookAnswersFromNote(note) {
+  const out = summaryAnswersFromNote(note, 'book');
+  if (note && Array.isArray(note.answers) && note.answers.length === 1 && !note.keyChapter) {
+    out[4] = String(note.answers[0] || '');
+    out[0] = '';
+  }
+  return out;
+}
+
+function chapterNotesForBook(notes, bookName) {
+  const map = new Map();
+  (notes || []).forEach((n) => {
+    if (!n || n.kind === 'book') return;
+    const title = String(n.title || '').trim();
+    const m = summaryBookMatch(title);
+    if (!m || !m.meta || m.meta.name !== bookName) return;
+    const rest = title.slice(m.nameLen).trim();
+    const ch = /^(\d+)/.exec(rest);
+    if (ch) map.set(Number(ch[1]), n);
+  });
+  return map;
+}
+
+function chapterNumbersForBook(book) {
+  const nums = (book && book.chapters || []).map((c) => Number(c.number)).filter((n) => n > 0);
+  nums.sort((a, b) => a - b);
+  return nums;
+}
+
+function formatChapterSummaryBlock(note, ref) {
+  if (!note) return '<p class="trail-src">Not written.</p>';
+  if (Array.isArray(note.answers)) {
+    return SUMMARY_CHAPTER_QS.map((q, i) => {
+      const a = String(note.answers[i] || '').trim();
+      return `<p class="sn-q-label">${escapeHtml(ref + ' — ' + q)}</p><p class="book-src-answer">${escapeHtml(a || '—')}</p>`;
+    }).join('');
+  }
+  const text = String(note.text || '').trim();
+  return `<p class="book-src-answer">${escapeHtml(text || '—')}</p>`;
+}
+
+async function openBookSummary(existing) {
+  let book = null;
+  if (existing && existing.title) {
+    const m = summaryBookMatch(existing.title);
+    if (m && m.meta) book = books.find((b) => b.id === m.meta.id) || { id: m.meta.id, name: m.meta.name, chapters: [] };
+  }
+  if (!book && currentBookId) book = books.find((b) => b.id === currentBookId) || null;
+  if (!book) {
+    openBookSummaryPicker();
+    return;
+  }
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  let found = (existing && existing.id)
+    ? (list.find((n) => n && n.id === existing.id) || existing)
+    : list.find((n) => n && n.kind === 'book' && summaryBookMatch(n.title) && summaryBookMatch(n.title).meta.id === book.id);
+  if (found && existing && existing._place) found = Object.assign({}, found, { _place: existing._place });
+  if (found && minimizedSummary && minimizedSummary.id === found.id && !(existing && existing._place)) {
+    reopenMinimizedSummary();
+    return;
+  }
+  openBookSummaryEditor(book, found || null, list);
+}
+
+function openBookSummaryPicker() {
+  const loaded = (books || []).slice();
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Book summary</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p style="color:var(--text-dim)">Open a book first, or choose a loaded book.</p>
+      <div id="bs-pick"></div>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+  const host = $('#bs-pick', overlay);
+  if (!loaded.length) {
+    host.innerHTML = '<p>No book is loaded.</p>';
+    return;
+  }
+  host.innerHTML = loaded.map((b) => `<button type="button" class="xref-item bs-pick" data-id="${escapeHtml(b.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">${escapeHtml(b.name)}</button>`).join('');
+  $$('.bs-pick', overlay).forEach((btn) => {
+    btn.onclick = () => {
+      const chosen = loaded.find((b) => b.id === btn.dataset.id);
+      closeOverlay(overlay);
+      if (chosen) openBookSummary({ kind: 'book', title: chosen.name });
+    };
+  });
+}
+
+function openBookSummaryEditor(book, existing, allNotes) {
+  const bookName = book.name;
+  const isNew = !existing || !existing.id;
+  const byChapter = chapterNotesForBook(allNotes, bookName);
+  const numbers = chapterNumbersForBook(book);
+  if (!numbers.length) {
+    byChapter.forEach((_, n) => { if (!numbers.includes(n)) numbers.push(n); });
+    numbers.sort((a, b) => a - b);
+  }
+  const answers = bookAnswersFromNote(existing);
+  let keyChapter = existing && existing.keyChapter ? Number(existing.keyChapter) : 0;
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Book summary</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p class="sn-q-label" style="margin-top:0">${escapeHtml(bookName)}</p>
+      <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Read the chapter summaries in order. Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
+      <p id="bs-key" class="book-key-line"></p>
+      <div class="book-src" id="bs-src"></div>
+      <div id="sn-answers"></div>
+      <button type="button" id="sn-min" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Minimize</button>
+      <button type="button" id="sn-save" style="width:100%;margin-top:0.45rem;min-height:52px">Save</button>
+      ${isNew ? '' : '<button type="button" id="sn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
+      <button type="button" id="sn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
+    </div>
+  `);
+  const close = () => closeOverlay(overlay);
+  $('.close', overlay).onclick = close;
+  $('#sn-cancel', overlay).onclick = close;
+  function paintKey() {
+    const el = $('#bs-key', overlay);
+    if (!el) return;
+    el.textContent = keyChapter ? ('Key chapter: ' + bookName + ' ' + keyChapter) : 'Key chapter: not chosen';
+  }
+  function paintSource() {
+    const host = $('#bs-src', overlay);
+    if (!host) return;
+    const openCh = new Set(Array.from(host.querySelectorAll('.book-src-body:not([hidden])')).map((el) => el.dataset.ch));
+    const rows = numbers.length ? numbers : [];
+    if (!rows.length) {
+      host.innerHTML = '<p class="trail-src">No chapters loaded for this book.</p>';
+      return;
+    }
+    host.innerHTML = rows.map((n) => {
+      const note = byChapter.get(n) || null;
+      const ref = bookName + ' ' + n;
+      const state = note ? 'Summary written' : 'Not written';
+      const marked = keyChapter === n ? ' key' : '';
+      return `<section class="book-src-row${marked}">
+        <button type="button" class="book-src-open" data-ch="${n}">${escapeHtml(ref)} — ${state}</button>
+        <button type="button" class="book-src-key" data-ch="${n}">${keyChapter === n ? 'Key chapter' : 'Use as key chapter'}</button>
+        <div class="book-src-body" data-ch="${n}" ${openCh.has(String(n)) ? "" : "hidden"}>${formatChapterSummaryBlock(note, ref)}</div>
+      </section>`;
+    }).join('');
+    $$('.book-src-open', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        const body = overlay.querySelector('.book-src-body[data-ch="' + btn.dataset.ch + '"]');
+        if (body) body.hidden = !body.hidden;
+      };
+    });
+    $$('.book-src-key', overlay).forEach((btn) => {
+      btn.onclick = () => {
+        keyChapter = Number(btn.dataset.ch) || 0;
+        paintKey();
+        paintSource();
+      };
+    });
+  }
+  paintKey();
+  paintSource();
+  renderSummaryAnswerBoxes(overlay, 'book', bookName, answers);
+  async function readBookFields() {
+    const lines = summaryQuestionLines('book', bookName);
+    const boxed = readSummaryAnswerBoxes(overlay, lines.length);
+    const joined = joinSummaryText(lines, boxed);
+    return storage.saveSummaryNote({
+      id: existing && existing.id,
+      kind: 'book',
+      title: bookName,
+      ref: bookName,
+      keyChapter: keyChapter || '',
+      answers: boxed,
+      text: joined,
+      createdAt: existing && existing.createdAt
+    });
+  }
+  const minBtn = $('#sn-min', overlay);
+  minBtn.addEventListener('pointerdown', () => {
+    minBtn._place = captureSummaryPlace(overlay);
+  }, true);
+  minBtn.onclick = async () => {
+    try {
+      const place = minBtn._place || captureSummaryPlace(overlay);
+      minimizedSummary = await readBookFields();
+      if (minimizedSummary) minimizedSummary._place = place;
+      updateSummaryChip();
+      close();
+    } catch (_) {
+      alert('Could not save the book summary.');
+    }
+  };
+  $('#sn-save', overlay).onclick = async () => {
+    try {
+      await readBookFields();
+      if (minimizedSummary && existing && minimizedSummary.id === existing.id) {
+        minimizedSummary = null;
+        updateSummaryChip();
+      }
+      close();
+      openSummaryNotesList();
+    } catch (_) {
+      alert('Could not save the book summary.');
+    }
+  };
+  const del = $('#sn-delete', overlay);
+  if (del) {
+    del.onclick = async () => {
+      if (!confirm('Delete this book summary?')) return;
+      try { await storage.deleteSummaryNote(existing.id); } catch (_) {}
+      close();
+      openSummaryNotesList();
+    };
+  }
+  setTimeout(() => {
+    if (existing && existing._place) {
+      restoreSummaryPlace(overlay, existing._place);
+      setTimeout(() => restoreSummaryPlace(overlay, existing._place), 90);
+      return;
+    }
+    const first = overlay.querySelector('textarea.sn-answer');
+    if (first) first.focus();
+  }, 60);
+}
+
 async function openSummaryNotesList() {
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
@@ -5567,7 +5801,7 @@ async function openSummaryNotesList() {
       </div>
       ${summaryQuestionsHtml()}
       <p style="color:var(--text-dim);font-size:0.92em;margin:0.45rem 0 0.5rem">
-        Each note locks these questions and gives each one its own answer box, with the chapter or book reference on the line. No length limit. Saved on this device until you delete them.
+        Chapter notes lock the four questions, each with its own answer box. Book summary is Menu → Book summary. No length limit. Saved on this device until you delete them.
       </p>
       <input id="sn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.2rem 0 0.4rem">
       <button type="button" id="sn-new" style="width:100%;margin-bottom:0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New summary note</button>
@@ -5620,7 +5854,8 @@ async function openSummaryNotesList() {
       btn.onclick = () => {
         const rec = list.find(n => n.id === btn.dataset.id);
         closeOverlay(overlay);
-        openSummaryNoteEditor(rec || { id: btn.dataset.id });
+        if (rec && rec.kind === 'book') openBookSummary(rec);
+        else openSummaryNoteEditor(rec || { id: btn.dataset.id });
       };
     });
   }
@@ -5847,6 +6082,7 @@ function openMenu() {
       <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Verse notes</button>
       <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
       <button type="button" id="menu-summary-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Summary notes</button>
+      <button type="button" id="menu-book-summary" style="width:100%;margin-bottom:0.5rem;min-height:52px">Book summary</button>
       <button type="button" id="menu-chains" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chains</button>
       <button type="button" id="menu-help" style="width:100%;margin-bottom:0.5rem;min-height:52px">Help / How to use</button>
       <button type="button" id="menu-export" style="width:100%;margin-bottom:0.5rem;min-height:52px">Export study data</button>
@@ -5869,6 +6105,7 @@ function openMenu() {
   $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
   $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
   $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
+  $('#menu-book-summary', overlay).onclick = () => { closeOverlay(overlay); openBookSummary(); };
   $('#menu-chains', overlay).onclick = () => { closeOverlay(overlay); openSavedChainsList(); };
   $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
   $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
@@ -7822,7 +8059,7 @@ function openHelp() {
 
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
         Menu → <strong>Summary notes</strong>. A chapter note locks the four questions, each with this chapter’s reference, and each has its own answer box. The question lines do not change.<br>
-        A book note locks the one book question the same way.<br>
+        Menu → <strong>Book summary</strong> opens this book. The five questions use the same locked lines and answer boxes. Chapter summaries stay on that screen, in order. A missing chapter stays marked not written.<br>
         <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same answer box.<br>
         No length limit. Saved on this device until you delete them. They go out with Export study data.</p>
 

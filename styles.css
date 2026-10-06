@@ -2542,3 +2542,24 @@ textarea.sn-answer {
   font-size: 14px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.45);
 }
+
+.book-src {
+  max-height: 42vh;
+  overflow: auto;
+  margin: 0.3rem 0 0.8rem;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+.book-key-line { margin: 0.2rem 0 0.45rem; font-weight: 700; }
+.book-src-row { margin: 0 0 0.45rem; }
+.book-src-open, .book-src-key {
+  width: 100%;
+  text-align: left;
+  min-height: 44px;
+  margin-bottom: 0.25rem;
+}
+.book-src-row.key .book-src-key { font-weight: 700; }
+.book-src-body { padding: 0.2rem 0.3rem 0.5rem; }
+.book-src-answer { margin: 0.15rem 0 0.55rem; white-space: pre-wrap; }

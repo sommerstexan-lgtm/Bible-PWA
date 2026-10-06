@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.67.0
+# KJV Study PWA – v6.68.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.68.0
+- Menu → Book summary opens the book now on screen.
+- Five locked questions, each with its own answer box, in the same pattern as a chapter summary.
+- Chapter summaries stay on that screen in order. A chapter with no summary is marked not written.
+- The key chapter is chosen from that list, not typed as a verse.
 
 ## New in 6.67.0
 - A chapter summary locks the four questions. Each line includes the chapter reference and has its own answer box.
