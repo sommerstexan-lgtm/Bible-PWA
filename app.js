@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.74.0';
+const APP_VERSION = '6.75.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4576,7 +4576,7 @@ function mountNoteImages(root, imageIds) {
   return { getIds: () => ids.slice() };
 }
 
-async function openNote(key) {
+async function openNote(key, place) {
   const { bookId, chapter, verse } = bible.parseKey(key);
   const refLabel = `${bookId.toUpperCase()} ${chapter}:${verse}`;
 
@@ -4615,6 +4615,7 @@ async function openNote(key) {
           ? 'Shared note — edits apply to all linked verses.'
           : 'Private note for this verse only. Link more verses to share one note.'}
       </p>
+      <button type="button" id="note-chapter-summary" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
       <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
       ${noteImagesMarkup()}
 
@@ -4640,6 +4641,48 @@ async function openNote(key) {
 
   const noteImgs = mountNoteImages(overlay, workingImageIds);
   const close = () => closeOverlay(overlay);
+  const chapterTitle = chapterTitleFromKey(key);
+  const summaryBtn = $('#note-chapter-summary', overlay);
+  if (summaryBtn) {
+    const hopHere = summaryHop && chapterTitle && String(summaryHop.title || '').toLowerCase() === chapterTitle.toLowerCase() && summaryHop.summaryPlace;
+    summaryBtn.textContent = hopHere
+      ? ('Back to chapter summary · ' + chapterTitle)
+      : ('Chapter summary · ' + (chapterTitle || 'this chapter'));
+    summaryBtn.onclick = () => openSummaryFromVerseNote();
+  }
+  async function saveOpenNote() {
+    const body = $('#note-text', overlay).value || '';
+    const imgs = noteImgs.getIds();
+    if (shared) {
+      shared.text = body;
+      shared.imageIds = imgs;
+      if (!shared.verseKeys.includes(key)) shared.verseKeys.push(key);
+      await storage.saveSharedNote(shared);
+      await storage.setNote(key, '', []);
+    } else {
+      await storage.setNote(key, body, imgs);
+    }
+  }
+  async function openSummaryFromVerseNote() {
+    if (!chapterTitle) {
+      showAppStatus('This verse has no chapter.', 'fail');
+      return;
+    }
+    const versePlace = captureVerseNotePlace(overlay, key);
+    try { await saveOpenNote(); }
+    catch (_) { alert('Could not save the note.'); return; }
+    const same = summaryHop && String(summaryHop.title || '').toLowerCase() === chapterTitle.toLowerCase();
+    summaryHop = {
+      title: chapterTitle,
+      from: 'verse',
+      versePlace,
+      notesPlace: same ? summaryHop.notesPlace : null,
+      summaryPlace: same ? summaryHop.summaryPlace : null,
+      summaryId: same ? summaryHop.summaryId : null
+    };
+    closeOverlay(overlay);
+    await openChapterSummaryAt(chapterTitle, summaryHop.summaryPlace);
+  }
   $('#note-print-chapter', overlay).onclick = () => runPrint(pageChapterNotes());
   $('#note-copy-chapter', overlay).onclick = () => runCopy(pageChapterNotes());
   $('.close', overlay).onclick = close;
@@ -4727,18 +4770,8 @@ async function openNote(key) {
   };
 
   $('#save-note', overlay).onclick = async () => {
-    const body = $('#note-text', overlay).value || '';
-    const imgs = noteImgs.getIds();
-    if (shared) {
-      shared.text = body;
-      shared.imageIds = imgs;
-      if (!shared.verseKeys.includes(key)) shared.verseKeys.push(key);
-      await storage.saveSharedNote(shared);
-      // keep private empty when shared
-      await storage.setNote(key, '', []);
-    } else {
-      await storage.setNote(key, body, imgs);
-    }
+    try { await saveOpenNote(); }
+    catch (_) { alert('Could not save the note.'); return; }
     closeOverlay(overlay);
     if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
   };
@@ -4773,7 +4806,18 @@ async function openNote(key) {
     };
   }
 
-  setTimeout(() => $('#note-text', overlay).focus(), 100);
+  function landVerseNote() {
+    if (place && place.key === key) restoreVerseNotePlace(overlay, place);
+    else {
+      const box = $('#note-text', overlay);
+      if (box) box.focus();
+    }
+  }
+  setTimeout(landVerseNote, 60);
+  if (place && place.key === key) {
+    setTimeout(landVerseNote, 180);
+    setTimeout(landVerseNote, 320);
+  }
 }
 
 
@@ -5998,6 +6042,40 @@ function refreshSummaryLabels(overlay) {
   });
 }
 
+function chapterTitleFromKey(key) {
+  const parsed = bible.parseKey(key) || {};
+  const meta = bible.CANONICAL_BOOKS.find((b) => b.id === parsed.bookId);
+  const name = meta ? meta.name : '';
+  return name && parsed.chapter ? (name + ' ' + parsed.chapter) : '';
+}
+
+function captureVerseNotePlace(overlay, key) {
+  const box = $('#note-text', overlay);
+  const panel = overlay.querySelector('.panel');
+  return {
+    key,
+    label: formatNoteRefLabel(key),
+    start: box ? box.selectionStart || 0 : 0,
+    end: box ? box.selectionEnd || 0 : 0,
+    scroll: box ? box.scrollTop || 0 : 0,
+    panelScroll: panel ? panel.scrollTop || 0 : 0
+  };
+}
+
+function restoreVerseNotePlace(overlay, place) {
+  if (!overlay || !place) return;
+  const box = $('#note-text', overlay);
+  const panel = overlay.querySelector('.panel');
+  if (!box) return;
+  try { box.focus({ preventScroll: true }); } catch (_) { box.focus(); }
+  const max = box.value.length;
+  const start = Math.max(0, Math.min(Number(place.start) || 0, max));
+  const end = Math.max(start, Math.min(Number(place.end) || start, max));
+  try { box.setSelectionRange(start, end); } catch (_) {}
+  box.scrollTop = Number(place.scroll) || 0;
+  if (panel) panel.scrollTop = Number(place.panelScroll) || 0;
+}
+
 function captureSummaryPlace(overlay) {
   const title = $('#sn-title', overlay);
   const panel = overlay.querySelector('.panel');
@@ -6121,7 +6199,7 @@ function openSummaryNoteEditor(existing) {
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
       <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
       <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
-      ${existing && existing._fromNotes ? '<button type="button" id="sn-back-notes" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Back to verse notes</button>' : ''}
+      ${existing && existing._fromNotes ? `<button type="button" id="sn-back-notes" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">${escapeHtml((summaryHop && summaryHop.from === 'verse' && summaryHop.versePlace && summaryHop.versePlace.label) ? ('Back to ' + summaryHop.versePlace.label) : 'Back to verse notes')}</button>` : ''}
       ${showLegacy ? `<label class="sn-legacy-label" for="sn-legacy">Earlier single note — left as one box</label>
       <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
       <div id="sn-answers"></div>
@@ -6200,14 +6278,20 @@ function openSummaryNoteEditor(existing) {
     try { saved = await readSummaryFields(); }
     catch (_) { alert('Could not save the summary note.'); return; }
     const title = (saved && saved.title) || (summaryHop && summaryHop.title) || '';
+    const fromVerse = summaryHop && summaryHop.from === 'verse' && summaryHop.versePlace && summaryHop.versePlace.key;
+    const versePlace = fromVerse ? summaryHop.versePlace : null;
+    const notesPlace = summaryHop && summaryHop.notesPlace;
     summaryHop = {
       title,
-      notesPlace: (summaryHop && summaryHop.notesPlace) || null,
+      from: fromVerse ? 'verse' : 'list',
+      versePlace,
+      notesPlace: notesPlace || null,
       summaryPlace: place,
       summaryId: saved && saved.id
     };
     closeOverlay(overlay);
-    if (summaryHop.notesPlace) await openNotesList(summaryHop.notesPlace);
+    if (versePlace) await openNote(versePlace.key, versePlace);
+    else if (notesPlace) await openNotesList(notesPlace);
     else openNotesList();
   };
   const minBtn = $('#sn-min', overlay);
@@ -8882,7 +8966,8 @@ function openHelp() {
         Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.<br>
         <strong>Read these notes</strong> shows that same page on screen. <strong>Copy these notes</strong> and <strong>Print these notes</strong> use it too. Each note keeps its verse number, then the note as written, with a blank line between notes.<br>
         <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.<br>
-        <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.</p>
+        <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.<br>
+        On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
