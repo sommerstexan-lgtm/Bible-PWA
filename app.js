@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.76.0';
+const APP_VERSION = '6.77.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4615,7 +4615,7 @@ async function openNote(key, place) {
           ? 'Shared note — edits apply to all linked verses.'
           : 'Private note for this verse only. Link more verses to share one note.'}
       </p>
-      <button type="button" id="note-chapter-summary" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
+      <button type="button" id="note-chapter-summary" class="hop-gold" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
       <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
       ${noteImagesMarkup()}
 
@@ -5643,7 +5643,7 @@ async function openNotesList(resume) {
       <button type="button" id="notes-read" style="width:100%;min-height:52px">Read these notes</button>
       <button type="button" id="notes-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print these notes</button>
       <button type="button" id="notes-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy these notes</button>
-      <button type="button" id="notes-summary" style="width:100%;margin:0.45rem 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
+      <button type="button" id="notes-summary" class="hop-gold" style="width:100%;margin:0.45rem 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
       <div id="notes-list"></div>
     </div>
   `);
@@ -5784,8 +5784,9 @@ async function openNotesList(resume) {
     let focusId = '';
     let focusKey = '';
     if (panel && arts.length) {
-      const edge = panel.getBoundingClientRect().top + 12;
-      const visible = arts.find((el) => el.getBoundingClientRect().bottom > edge + 24) || arts[0];
+      const sticky = overlay.querySelector('.hop-gold');
+      const edge = sticky ? sticky.getBoundingClientRect().bottom : (panel.getBoundingClientRect().top + 12);
+      const visible = arts.find((el) => el.getBoundingClientRect().bottom > edge + 8) || arts[0];
       focusId = visible.getAttribute('data-focus') || '';
       const keyBtn = visible.querySelector('[data-key]');
       focusKey = keyBtn ? (keyBtn.getAttribute('data-key') || '') : '';
@@ -5822,7 +5823,7 @@ async function openNotesList(resume) {
       showAppStatus('Filter to one chapter first.', 'fail');
       return;
     }
-    const notesPlace = captureNotesPlace();
+    const notesPlace = (summaryBtn && summaryBtn._place) || captureNotesPlace();
     const same = summaryHop && String(summaryHop.title || '').toLowerCase() === title.toLowerCase();
     const listReturn = same && summaryHop.listReturn ? summaryHop.listReturn : null;
     const summaryPlace = same ? summaryHop.summaryPlace : null;
@@ -5935,7 +5936,12 @@ async function openNotesList(resume) {
   } else {
     setTimeout(() => filterBox && filterBox.focus(), 80);
   }
-  if (summaryBtn) summaryBtn.onclick = () => openSummaryFromNotes();
+  if (summaryBtn) {
+    summaryBtn.addEventListener('pointerdown', () => {
+      summaryBtn._place = captureNotesPlace();
+    }, true);
+    summaryBtn.onclick = () => openSummaryFromNotes();
+  }
   paintSummaryButton();
 }
 
@@ -6086,14 +6092,25 @@ function restoreVerseNotePlace(overlay, place) {
   if (panel) panel.scrollTop = Number(place.panelScroll) || 0;
 }
 
+function visibleSummaryBox(overlay) {
+  const panel = overlay && overlay.querySelector('.panel');
+  const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
+  if (!panel || !boxes.length) return 0;
+  const sticky = overlay.querySelector('.hop-gold');
+  const edge = sticky ? sticky.getBoundingClientRect().bottom : panel.getBoundingClientRect().top;
+  const hit = boxes.find((el) => el.getBoundingClientRect().bottom > edge + 8);
+  return hit ? boxes.indexOf(hit) : 0;
+}
+
 function captureSummaryPlace(overlay) {
   const title = $('#sn-title', overlay);
   const panel = overlay.querySelector('.panel');
   const active = document.activeElement;
   const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
+  const seen = visibleSummaryBox(overlay);
   const place = {
     field: 'answer',
-    box: 0,
+    box: seen,
     start: 0,
     end: 0,
     scroll: 0,
@@ -6112,6 +6129,10 @@ function captureSummaryPlace(overlay) {
     place.start = active.selectionStart || 0;
     place.end = active.selectionEnd || 0;
     place.scroll = active.scrollTop || 0;
+  } else if (overlay._summaryCursor && overlay._summaryCursor.box === seen) {
+    place.start = overlay._summaryCursor.start || 0;
+    place.end = overlay._summaryCursor.end || 0;
+    place.scroll = overlay._summaryCursor.scroll || 0;
   }
   return place;
 }
@@ -6121,12 +6142,14 @@ function restoreSummaryPlace(overlay, place) {
   const title = $('#sn-title', overlay);
   const panel = overlay.querySelector('.panel');
   const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
+  overlay.querySelectorAll('.sn-return-here').forEach((el) => el.classList.remove('sn-return-here'));
   if (place.field === 'title' && title) {
     try { title.focus({ preventScroll: true }); } catch (_) { title.focus(); }
     const tMax = title.value.length;
     const tStart = Math.max(0, Math.min(Number(place.titleStart) || 0, tMax));
     const tEnd = Math.max(tStart, Math.min(Number(place.titleEnd) || tStart, tMax));
     try { title.setSelectionRange(tStart, tEnd); } catch (_) {}
+    title.classList.add('sn-return-here');
   } else if (boxes.length) {
     const idx = Math.max(0, Math.min(Number(place.box) || 0, boxes.length - 1));
     const note = boxes[idx];
@@ -6136,6 +6159,17 @@ function restoreSummaryPlace(overlay, place) {
     const end = Math.max(start, Math.min(Number(place.end) || start, max));
     try { note.setSelectionRange(start, end); } catch (_) {}
     note.scrollTop = Number(place.scroll) || 0;
+    note.classList.add('sn-return-here');
+    const label = overlay.querySelectorAll('.sn-q-label')[idx];
+    if (label) label.classList.add('sn-return-here');
+    if (panel) {
+      const sticky = overlay.querySelector('.hop-gold');
+      const gap = sticky ? (sticky.getBoundingClientRect().height + 12) : 12;
+      const panelRect = panel.getBoundingClientRect();
+      const noteRect = note.getBoundingClientRect();
+      panel.scrollTop += noteRect.top - panelRect.top - gap;
+    }
+    return;
   }
   if (panel) panel.scrollTop = Number(place.panelScroll) || 0;
 }
@@ -6209,8 +6243,8 @@ function openSummaryNoteEditor(existing) {
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
       <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
       <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
-      <button type="button" id="sn-verse-notes" style="width:100%;margin:0 0 0.45rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Verse notes · ${escapeHtml(titleValue || 'this chapter')}</button>
-      ${existing && existing._fromNotes ? `<button type="button" id="sn-back-notes" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">${escapeHtml((summaryHop && summaryHop.from === 'verse' && summaryHop.versePlace && summaryHop.versePlace.label) ? ('Back to ' + summaryHop.versePlace.label) : 'Back to verse notes')}</button>` : ''}
+      <button type="button" id="sn-verse-notes" class="hop-gold" style="width:100%;margin:0 0 0.45rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Verse notes · ${escapeHtml(titleValue || 'this chapter')}</button>
+      ${existing && existing._fromNotes ? `<button type="button" id="sn-back-notes" class="hop-gold" style="width:100%;margin:0 0 0.45rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">${escapeHtml((summaryHop && summaryHop.from === 'verse' && summaryHop.versePlace && summaryHop.versePlace.label) ? ('Back to ' + summaryHop.versePlace.label) : 'Back to verse notes')}</button>` : ''}
       ${showLegacy ? `<label class="sn-legacy-label" for="sn-legacy">Earlier single note — left as one box</label>
       <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
       <div id="sn-answers"></div>
@@ -6247,6 +6281,19 @@ function openSummaryNoteEditor(existing) {
   }
   $('#sn-title', overlay).oninput = () => refreshSummaryLabels(overlay);
   paintAnswers();
+  function rememberSummaryCursor(el) {
+    if (!el || !el.classList || !el.classList.contains('sn-answer')) return;
+    const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
+    overlay._summaryCursor = {
+      box: boxes.indexOf(el),
+      start: el.selectionStart || 0,
+      end: el.selectionEnd || 0,
+      scroll: el.scrollTop || 0
+    };
+  }
+  overlay.addEventListener('focusin', (ev) => rememberSummaryCursor(ev.target));
+  overlay.addEventListener('keyup', (ev) => rememberSummaryCursor(ev.target));
+  overlay.addEventListener('pointerup', (ev) => rememberSummaryCursor(ev.target));
   function liveChapterPage() {
     const title = ($('#sn-title', overlay).value || '').trim() || chapterSummaryTitle() || 'Chapter summary';
     const answers = readSummaryAnswerBoxes(overlay, SUMMARY_CHAPTER_QS.length);
@@ -6283,28 +6330,41 @@ function openSummaryNoteEditor(existing) {
     });
   }
   const verseNotesBtn = $('#sn-verse-notes', overlay);
-  if (verseNotesBtn) verseNotesBtn.onclick = async () => {
-    const place = captureSummaryPlace(overlay);
-    let saved = null;
-    try { saved = await readSummaryFields(); }
-    catch (_) { alert('Could not save the summary note.'); return; }
-    const title = (saved && saved.title) || ($('#sn-title', overlay).value || '').trim();
-    if (!title) {
-      showAppStatus('Add a chapter title first.', 'fail');
-      return;
-    }
-    summaryHop = {
-      title,
-      from: 'summary',
-      summaryPlace: place,
-      notesPlace: null,
-      versePlace: null,
-      listReturn: null,
-      summaryId: saved && saved.id
+  if (verseNotesBtn) {
+    verseNotesBtn.addEventListener('pointerdown', () => {
+      verseNotesBtn._place = captureSummaryPlace(overlay);
+    }, true);
+    verseNotesBtn.onclick = async () => {
+      const place = verseNotesBtn._place || captureSummaryPlace(overlay);
+      let saved = null;
+      try { saved = await readSummaryFields(); }
+      catch (_) { alert('Could not save the summary note.'); return; }
+      const title = (saved && saved.title) || ($('#sn-title', overlay).value || '').trim();
+      if (!title) {
+        showAppStatus('Add a chapter title first.', 'fail');
+        return;
+      }
+      const same = summaryHop && String(summaryHop.title || '').toLowerCase() === title.toLowerCase();
+      const priorNotes = same ? summaryHop.notesPlace : null;
+      summaryHop = {
+        title,
+        from: 'summary',
+        summaryPlace: place,
+        notesPlace: priorNotes,
+        versePlace: same ? summaryHop.versePlace : null,
+        listReturn: null,
+        summaryId: saved && saved.id
+      };
+      closeOverlay(overlay);
+      await openNotesList({
+        filter: title,
+        reading: true,
+        focusId: priorNotes && priorNotes.focusId,
+        focusKey: priorNotes && priorNotes.focusKey,
+        scrollTop: priorNotes ? priorNotes.scrollTop : undefined
+      });
     };
-    closeOverlay(overlay);
-    await openNotesList({ filter: title, reading: true });
-  };
+  }
   const backNotes = $('#sn-back-notes', overlay);
   if (backNotes) backNotes.onclick = async () => {
     const place = captureSummaryPlace(overlay);
@@ -9026,7 +9086,7 @@ function openHelp() {
         <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.<br>
         <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.<br>
         On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.<br>
-        On a chapter summary, <strong>Verse notes</strong> opens that chapter’s notes. <strong>Back to chapter summary</strong> returns to the same answer box.</p>
+        On a chapter summary, the gold <strong>Verse notes</strong> button stays on screen. It opens that chapter’s notes and returns to the same answer. On verse notes, the gold <strong>Back to chapter summary</strong> button stays on screen and returns to the verse that was on screen.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.

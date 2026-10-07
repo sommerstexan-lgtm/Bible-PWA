@@ -2621,8 +2621,15 @@ body.notes-return-open { padding-bottom: 84px; }
   color: #111;
   border: 2px solid #f4c430;
 }
-.note-return-here {
+.note-return-here,
+.sn-return-here {
   outline: 3px solid #f4c430;
   border-radius: 8px;
   padding: 0.35rem;
+}
+.hop-gold {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
 }
