@@ -189,18 +189,13 @@ export async function setNote(key, text, imageIds) {
   return new Promise((res, rej) => {
     const emptyText = !text || !String(text).trim();
     const emptyImgs = !ids || !ids.length;
-    if (emptyText && emptyImgs) {
-      const r = tx('notes', 'readwrite').delete(key);
-      r.onsuccess = () => res();
-      r.onerror = () => rej(r.error);
-    } else {
-      const rec = { key, text: text || '' };
-      if (ids) rec.imageIds = ids;
-      else rec.imageIds = [];
-      const r = tx('notes', 'readwrite').put(rec);
-      r.onsuccess = () => res();
-      r.onerror = () => rej(r.error);
-    }
+    const transaction = db.transaction('notes', 'readwrite');
+    transaction.oncomplete = () => res();
+    transaction.onerror = () => rej(transaction.error);
+    transaction.onabort = () => rej(transaction.error || new Error('Note save did not finish'));
+    const store = transaction.objectStore('notes');
+    if (emptyText && emptyImgs) store.delete(key);
+    else store.put({ key, text: text || '', imageIds: ids || [] });
   });
 }
 
@@ -373,18 +368,22 @@ export async function saveSharedNote(note) {
   if (!note.id) note.id = newSharedId();
   if (!Array.isArray(note.verseKeys)) note.verseKeys = [];
   return new Promise((res, rej) => {
-    const r = tx('sharedNotes', 'readwrite').put(note);
-    r.onsuccess = () => res(note);
-    r.onerror = () => rej(r.error);
+    const transaction = db.transaction('sharedNotes', 'readwrite');
+    transaction.oncomplete = () => res(note);
+    transaction.onerror = () => rej(transaction.error);
+    transaction.onabort = () => rej(transaction.error || new Error('Shared note save did not finish'));
+    transaction.objectStore('sharedNotes').put(note);
   });
 }
 
 export async function deleteSharedNote(id) {
   await openDB();
   return new Promise((res, rej) => {
-    const r = tx('sharedNotes', 'readwrite').delete(id);
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
+    const transaction = db.transaction('sharedNotes', 'readwrite');
+    transaction.oncomplete = () => res();
+    transaction.onerror = () => rej(transaction.error);
+    transaction.onabort = () => rej(transaction.error || new Error('Shared note delete did not finish'));
+    transaction.objectStore('sharedNotes').delete(id);
   });
 }
 

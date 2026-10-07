@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.77.0
+# KJV Study PWA – v6.77.1
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.77.1
+- Saving a verse note turns the Note button green again and shows the Note marker.
+- Chapter summary → Verse notes returns to the verse that was on screen.
+- Verse notes → Back to chapter summary returns to the same answer box.
 
 ## New in 6.77.0
 - The gold hop button stays on screen while you scroll. Chapter summary and verse notes each keep the spot you left.

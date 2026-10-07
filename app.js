@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.77.0';
+const APP_VERSION = '6.77.1';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4662,6 +4662,7 @@ async function openNote(key, place) {
     } else {
       await storage.setNote(key, body, imgs);
     }
+    await paintVerseNoteState(key);
   }
   async function openSummaryFromVerseNote() {
     if (!chapterTitle) {
@@ -5763,8 +5764,9 @@ async function openNotesList(resume) {
     const panel = overlay.querySelector('.panel');
     const arts = Array.from(overlay.querySelectorAll('.note-read, .note-list-row'));
     if (panel && arts.length) {
-      const edge = panel.getBoundingClientRect().top + 12;
-      const visible = arts.find((el) => el.getBoundingClientRect().bottom > edge + 24) || arts[0];
+      const sticky = overlay.querySelector('.hop-gold');
+      const edge = sticky ? sticky.getBoundingClientRect().bottom : (panel.getBoundingClientRect().top + 12);
+      const visible = arts.find((el) => el.getBoundingClientRect().bottom > edge + 8) || arts[0];
       const keyBtn = visible.querySelector('[data-key]');
       if (keyBtn) {
         const fromKey = chapterFromKey(keyBtn.getAttribute('data-key'));
@@ -6108,12 +6110,13 @@ function captureSummaryPlace(overlay) {
   const active = document.activeElement;
   const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
   const seen = visibleSummaryBox(overlay);
+  const remembered = overlay._summaryCursor;
   const place = {
     field: 'answer',
-    box: seen,
-    start: 0,
-    end: 0,
-    scroll: 0,
+    box: remembered && remembered.box >= 0 ? remembered.box : seen,
+    start: remembered ? (remembered.start || 0) : 0,
+    end: remembered ? (remembered.end || 0) : 0,
+    scroll: remembered ? (remembered.scroll || 0) : 0,
     titleStart: title ? title.selectionStart || 0 : 0,
     titleEnd: title ? title.selectionEnd || 0 : 0,
     panelScroll: panel ? panel.scrollTop || 0 : 0
@@ -6129,10 +6132,6 @@ function captureSummaryPlace(overlay) {
     place.start = active.selectionStart || 0;
     place.end = active.selectionEnd || 0;
     place.scroll = active.scrollTop || 0;
-  } else if (overlay._summaryCursor && overlay._summaryCursor.box === seen) {
-    place.start = overlay._summaryCursor.start || 0;
-    place.end = overlay._summaryCursor.end || 0;
-    place.scroll = overlay._summaryCursor.scroll || 0;
   }
   return place;
 }
@@ -6206,6 +6205,53 @@ async function openChapterSummaryAt(title, place) {
   openSummaryNoteEditor(note);
 }
 
+function verseOnScreenKey() {
+  const main = document.getElementById('main');
+  if (!main) return '';
+  const verses = Array.from(main.querySelectorAll('.verse'));
+  if (!verses.length) return '';
+  const edge = main.getBoundingClientRect().top + 8;
+  const hit = verses.find((el) => el.getBoundingClientRect().bottom > edge + 24) || verses[0];
+  return hit.dataset.key || '';
+}
+
+function applyVerseNoteIndicator(key, on) {
+  const verse = document.getElementById('v-' + String(key || '').replace(/\./g, '-'));
+  if (!verse) return;
+  const noteBtn = verse.querySelector('.verse-actions button[data-act="note"]');
+  if (noteBtn) noteBtn.classList.toggle('has-content', !!on);
+  const dots = verse.querySelector('.verse-dots');
+  if (!dots) return;
+  let pill = dots.querySelector('.verse-dot.note');
+  if (on && !pill) {
+    pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'verse-dot note';
+    pill.dataset.act = 'note';
+    pill.dataset.key = key;
+    pill.title = 'Note';
+    pill.textContent = 'Note';
+    const xref = dots.querySelector('.verse-dot.xref');
+    const chain = dots.querySelector('.verse-dot.chain');
+    dots.insertBefore(pill, xref || chain || null);
+  } else if (!on && pill) {
+    pill.remove();
+  }
+}
+
+async function paintVerseNoteState(key) {
+  if (!key) return;
+  let on = false;
+  try {
+    const rec = await storage.getNoteRecord(key);
+    const shared = await storage.findSharedNoteForVerse(key);
+    const recOn = !!(rec && (String(rec.text || '').trim() || (Array.isArray(rec.imageIds) && rec.imageIds.length)));
+    const sharedOn = !!(shared && (String(shared.text || shared.body || shared.note || '').trim() || (Array.isArray(shared.imageIds) && shared.imageIds.length)));
+    on = recOn || sharedOn;
+  } catch (_) {}
+  applyVerseNoteIndicator(key, on);
+}
+
 async function openChapterSummary() {
   const title = chapterSummaryTitle();
   if (!title) {
@@ -6219,6 +6265,16 @@ async function openChapterSummary() {
     reopenMinimizedSummary();
     return;
   }
+  const key = verseOnScreenKey();
+  summaryHop = {
+    title,
+    from: 'reading',
+    versePlace: key ? { key, label: formatNoteRefLabel(key) } : null,
+    notesPlace: null,
+    summaryPlace: null,
+    listReturn: null,
+    summaryId: found && found.id
+  };
   openSummaryNoteEditor(found || { kind: 'chapter', title, text: '' });
 }
 
@@ -6346,16 +6402,24 @@ function openSummaryNoteEditor(existing) {
       }
       const same = summaryHop && String(summaryHop.title || '').toLowerCase() === title.toLowerCase();
       const priorNotes = same ? summaryHop.notesPlace : null;
+      const versePlace = same ? summaryHop.versePlace : null;
       summaryHop = {
         title,
-        from: 'summary',
+        from: versePlace && versePlace.key ? 'verse' : 'summary',
         summaryPlace: place,
         notesPlace: priorNotes,
-        versePlace: same ? summaryHop.versePlace : null,
+        versePlace,
         listReturn: null,
         summaryId: saved && saved.id
       };
       closeOverlay(overlay);
+      if (versePlace && versePlace.key) {
+        const parsed = bible.parseKey(versePlace.key);
+        if (parsed && parsed.bookId) {
+          await renderChapter(parsed.bookId, parsed.chapter, { scrollToKey: versePlace.key });
+          return;
+        }
+      }
       await openNotesList({
         filter: title,
         reading: true,
@@ -9086,7 +9150,7 @@ function openHelp() {
         <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.<br>
         <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.<br>
         On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.<br>
-        On a chapter summary, the gold <strong>Verse notes</strong> button stays on screen. It opens that chapter’s notes and returns to the same answer. On verse notes, the gold <strong>Back to chapter summary</strong> button stays on screen and returns to the verse that was on screen.</p>
+        On a chapter summary, the gold <strong>Verse notes</strong> button stays on screen. It returns to the verse that was on screen, with the Note button green when that verse has a note. On verse notes, the gold <strong>Back to chapter summary</strong> button stays on screen and returns to the same answer box.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
