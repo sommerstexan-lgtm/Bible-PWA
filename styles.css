@@ -2569,7 +2569,8 @@ textarea.sn-answer {
 .note-read p { margin: 0; white-space: pre-wrap; font-size: var(--font-size); line-height: 1.55; }
 
 .note-read .note-open-verse,
-.note-read .sn-read-edit {
+.note-read .sn-read-edit,
+.note-read .sn-read-verses {
   width: 100%;
   margin-top: 0.55rem;
   min-height: 52px;

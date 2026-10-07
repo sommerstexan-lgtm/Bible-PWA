@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.75.0';
+const APP_VERSION = '6.76.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -5824,13 +5824,23 @@ async function openNotesList(resume) {
     }
     const notesPlace = captureNotesPlace();
     const same = summaryHop && String(summaryHop.title || '').toLowerCase() === title.toLowerCase();
+    const listReturn = same && summaryHop.listReturn ? summaryHop.listReturn : null;
+    const summaryPlace = same ? summaryHop.summaryPlace : null;
     summaryHop = {
       title,
+      from: same ? (summaryHop.from || 'notes') : 'notes',
       notesPlace,
-      summaryPlace: same ? summaryHop.summaryPlace : null
+      summaryPlace,
+      listReturn,
+      versePlace: same ? summaryHop.versePlace : null,
+      summaryId: same ? summaryHop.summaryId : null
     };
     closeOverlay(overlay);
-    await openChapterSummaryAt(title, summaryHop.summaryPlace);
+    if (summaryHop.from === 'summary-list' && listReturn && !summaryPlace) {
+      await openSummaryNotesList(listReturn);
+      return;
+    }
+    await openChapterSummaryAt(title, summaryPlace);
   }
 
   function notesTitle(shown) {
@@ -6199,6 +6209,7 @@ function openSummaryNoteEditor(existing) {
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
       <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
       <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
+      <button type="button" id="sn-verse-notes" style="width:100%;margin:0 0 0.45rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Verse notes · ${escapeHtml(titleValue || 'this chapter')}</button>
       ${existing && existing._fromNotes ? `<button type="button" id="sn-back-notes" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">${escapeHtml((summaryHop && summaryHop.from === 'verse' && summaryHop.versePlace && summaryHop.versePlace.label) ? ('Back to ' + summaryHop.versePlace.label) : 'Back to verse notes')}</button>` : ''}
       ${showLegacy ? `<label class="sn-legacy-label" for="sn-legacy">Earlier single note — left as one box</label>
       <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
@@ -6271,6 +6282,29 @@ function openSummaryNoteEditor(existing) {
       createdAt: existing && existing.createdAt
     });
   }
+  const verseNotesBtn = $('#sn-verse-notes', overlay);
+  if (verseNotesBtn) verseNotesBtn.onclick = async () => {
+    const place = captureSummaryPlace(overlay);
+    let saved = null;
+    try { saved = await readSummaryFields(); }
+    catch (_) { alert('Could not save the summary note.'); return; }
+    const title = (saved && saved.title) || ($('#sn-title', overlay).value || '').trim();
+    if (!title) {
+      showAppStatus('Add a chapter title first.', 'fail');
+      return;
+    }
+    summaryHop = {
+      title,
+      from: 'summary',
+      summaryPlace: place,
+      notesPlace: null,
+      versePlace: null,
+      listReturn: null,
+      summaryId: saved && saved.id
+    };
+    closeOverlay(overlay);
+    await openNotesList({ filter: title, reading: true });
+  };
   const backNotes = $('#sn-back-notes', overlay);
   if (backNotes) backNotes.onclick = async () => {
     const place = captureSummaryPlace(overlay);
@@ -6669,7 +6703,31 @@ async function openSummaryNotesList(resume) {
         body: summaryNoteBody(n),
         focusId: n.id,
         extra: `<button type="button" class="sn-read-edit" data-id="${attrEsc(n.id)}">Edit this note</button>`
+          + (n.kind === 'book' ? '' : `<button type="button" class="sn-read-verses" data-id="${attrEsc(n.id)}">Verse notes</button>`)
       })));
+      $$('.sn-read-verses', overlay).forEach((btn) => {
+        btn.onclick = () => {
+          const rec = list.find((n) => n.id === btn.getAttribute('data-id'));
+          if (!rec) return;
+          const title = String(rec.title || '').trim();
+          if (!title) return;
+          summaryHop = {
+            title,
+            from: 'summary-list',
+            summaryPlace: null,
+            notesPlace: null,
+            versePlace: null,
+            summaryId: rec.id,
+            listReturn: {
+              reading: true,
+              filter: (filterBox && filterBox.value) || '',
+              focusId: rec.id
+            }
+          };
+          closeOverlay(overlay);
+          openNotesList({ filter: title, reading: true });
+        };
+      });
       $$('.sn-read-edit', overlay).forEach((btn) => {
         btn.onclick = () => {
           const rec = list.find((n) => n.id === btn.getAttribute('data-id'));
@@ -8967,7 +9025,8 @@ function openHelp() {
         <strong>Read these notes</strong> shows that same page on screen. <strong>Copy these notes</strong> and <strong>Print these notes</strong> use it too. Each note keeps its verse number, then the note as written, with a blank line between notes.<br>
         <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.<br>
         <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.<br>
-        On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.</p>
+        On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.<br>
+        On a chapter summary, <strong>Verse notes</strong> opens that chapter’s notes. <strong>Back to chapter summary</strong> returns to the same answer box.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
