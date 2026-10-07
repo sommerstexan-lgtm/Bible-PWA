@@ -50,6 +50,13 @@ html, body {
   /* iOS safe areas */
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
+/* Keep the window from scrolling the controls panel off the top. */
+html, body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overscroll-behavior: none;
+}
 
 /* ===== Layout ===== */
 #app {
@@ -779,9 +786,9 @@ header {
   border-bottom: 1px solid var(--border);
   z-index: 30;
   padding-top: env(safe-area-inset-top, 0px);
-  transition: transform 0.2s ease, opacity 0.2s ease, max-height 0.2s ease;
-  max-height: 200px;
-  overflow: hidden;
+  transition: opacity 0.2s ease, max-height 0.2s ease;
+  max-height: none;
+  overflow: visible;
 }
 .chrome.chrome-hidden {
   max-height: 0 !important;
@@ -2611,7 +2618,8 @@ textarea.sn-answer {
   color: #111;
   font-size: 1.3rem;
 }
-body.notes-return-open { padding-bottom: 84px; }
+body.notes-return-open { padding-bottom: 0; }
+body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .notes-back-verse {
   width: 100%;
   margin: 0.45rem 0 0.35rem;

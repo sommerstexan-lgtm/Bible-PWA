@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.77.2';
+const APP_VERSION = '6.77.3';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -5474,6 +5474,8 @@ function updateNotesReturnBar() {
   bar.hidden = false;
   document.body.classList.add('notes-return-open');
   if (btn) btn.textContent = 'Back to notes · ' + (verseNotesReturn.label || 'verse notes');
+  try { window.scrollTo(0, 0); } catch (_) {}
+  if (typeof showChrome === 'function') showChrome();
 }
 
 function dismissVerseNotesReturn() {

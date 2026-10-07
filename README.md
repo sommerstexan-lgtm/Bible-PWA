@@ -1,6 +1,9 @@
-# KJV Study PWA – v6.77.2
+# KJV Study PWA – v6.77.3
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.77.3
+- The controls panel stays fully on screen. The notes return bar no longer pushes it off the top.
 
 ## New in 6.77.2
 - One summary note per chapter title. The earlier note is kept. A second note for the same title is not saved or restored.
