@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.71.0';
+const APP_VERSION = '6.72.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -863,6 +863,10 @@ function renderShell() {
       <button type="button" id="chain-bar-next">Next</button>
       <button type="button" id="chain-bar-x" aria-label="Close chain">×</button>
     </div>
+    <div id="notes-return-bar" class="notes-return-bar" hidden>
+      <button type="button" id="notes-return-btn">Back to notes</button>
+      <button type="button" id="notes-return-x" aria-label="Dismiss back to notes">×</button>
+    </div>
     <main id="main"></main>
   `;
 
@@ -901,6 +905,11 @@ function renderShell() {
   if (chipA) chipA.onclick = () => goAnchor();
   const sumChip = document.getElementById('summary-chip');
   if (sumChip) sumChip.onclick = () => reopenMinimizedSummary();
+  const notesBack = document.getElementById('notes-return-btn');
+  const notesBackX = document.getElementById('notes-return-x');
+  if (notesBack) notesBack.onclick = () => returnToVerseNotes();
+  if (notesBackX) notesBackX.onclick = () => dismissVerseNotesReturn();
+  updateNotesReturnBar();
   const sumBtn = document.getElementById('btn-summary');
   if (sumBtn) sumBtn.onclick = () => openChapterSummary();
   updateAnchorUI();
@@ -5363,13 +5372,58 @@ function notesReadingPlain(blocks) {
   }).join('\n\n').trim() + '\n';
 }
 
+function attrEsc(str) {
+  return String(str == null ? '' : str).replace(/&/g, '&').replace(/"/g, '"').replace(/</g, '<');
+}
+
 function notesReadingHtml(blocks) {
   if (!blocks || !blocks.length) return '<p style="color:var(--text-dim)">No notes to read.</p>';
   return blocks.map((b) => {
     const heading = String(b && b.heading || 'Note').trim() || 'Note';
     const body = String(b && b.body || '').replace(/\s+$/g, '');
-    return `<article class="note-read"><h3>${escapeHtml(heading)}</h3><p>${escapeHtml(body)}</p></article>`;
+    const focus = b && b.focusId ? ` data-focus="${attrEsc(b.focusId)}"` : '';
+    const extra = b && b.extra ? b.extra : '';
+    return `<article class="note-read"${focus}><h3>${escapeHtml(heading)}</h3><p>${escapeHtml(body)}</p>${extra}</article>`;
   }).join('');
+}
+
+function scrollPanelToFocus(overlay, focusId) {
+  if (!overlay || !focusId) return;
+  const panel = overlay.querySelector('.panel');
+  if (!panel) return;
+  const want = String(focusId);
+  const art = Array.from(panel.querySelectorAll('[data-focus]')).find((el) => el.getAttribute('data-focus') === want);
+  if (!art) return;
+  const panelRect = panel.getBoundingClientRect();
+  const artRect = art.getBoundingClientRect();
+  panel.scrollTop += artRect.top - panelRect.top - 8;
+}
+
+let verseNotesReturn = null;
+
+function updateNotesReturnBar() {
+  const bar = document.getElementById('notes-return-bar');
+  if (!bar) return;
+  const btn = document.getElementById('notes-return-btn');
+  if (!verseNotesReturn) {
+    bar.hidden = true;
+    document.body.classList.remove('notes-return-open');
+    return;
+  }
+  bar.hidden = false;
+  document.body.classList.add('notes-return-open');
+  if (btn) btn.textContent = 'Back to notes · ' + (verseNotesReturn.label || 'verse notes');
+}
+
+function dismissVerseNotesReturn() {
+  verseNotesReturn = null;
+  updateNotesReturnBar();
+}
+
+async function returnToVerseNotes() {
+  const place = verseNotesReturn;
+  if (!place) return;
+  await openNotesList(place);
 }
 
 function summaryNoteBody(note) {
@@ -5474,7 +5528,9 @@ function compareSummaryNotes(a, b) {
   return naturalCompare(ta, tb);
 }
 
-async function openNotesList() {
+async function openNotesList(resume) {
+  verseNotesReturn = null;
+  updateNotesReturnBar();
   let privateNotes = [];
   let sharedNotes = [];
   try { privateNotes = await storage.getAllNotes(); } catch (_) { privateNotes = []; }
@@ -5522,6 +5578,7 @@ async function openNotesList() {
       <p id="notes-hint" style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.55rem">
         Tap a row to open that verse and its note. Filter matches the note text and the reference.
         Read, Copy, and Print use the notes on screen, in verse order, with a blank line between notes.
+        Open a verse, then Back to notes returns to this same place.
       </p>
       <button type="button" id="notes-read" style="width:100%;min-height:52px">Read these notes</button>
       <button type="button" id="notes-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print these notes</button>
@@ -5545,11 +5602,23 @@ async function openNotesList() {
     return hay.includes(q);
   }
 
+  async function leaveForVerse(key, focusId, stayReading) {
+    if (!key) return;
+    verseNotesReturn = {
+      filter: (filterBox && filterBox.value) || '',
+      reading: !!stayReading,
+      focusId: focusId || '',
+      label: formatNoteRefLabel(key)
+    };
+    updateNotesReturnBar();
+    closeOverlay(overlay);
+    await jumpToRef(key);
+  }
+
   async function openHit(item) {
     const key = item.openKey;
-    closeOverlay(overlay);
     if (!key) return;
-    await jumpToRef(key);
+    await leaveForVerse(key, item.id, reading);
     setTimeout(() => openNote(key), 120);
   }
 
@@ -5569,14 +5638,23 @@ async function openNotesList() {
       return;
     }
     if (reading) {
-      el.innerHTML = notesReadingHtml(shown.map((it) => ({
-        heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
-        body: String(it.text || '').replace(/\s+$/g, '')
-      })));
+      el.innerHTML = notesReadingHtml(shown.map((it) => {
+        const keys = (it.keys && it.keys.length) ? it.keys : (it.openKey ? [it.openKey] : []);
+        const extra = keys.map((k) => `<button type="button" class="note-open-verse" data-key="${attrEsc(k)}" data-focus="${attrEsc(it.id)}">Open ${escapeHtml(formatNoteRefLabel(k))}</button>`).join('');
+        return {
+          heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
+          body: String(it.text || '').replace(/\s+$/g, ''),
+          focusId: it.id,
+          extra
+        };
+      }));
+      $$('.note-open-verse', overlay).forEach((btn) => {
+        btn.onclick = () => leaveForVerse(btn.getAttribute('data-key'), btn.getAttribute('data-focus'), true);
+      });
       return;
     }
     el.innerHTML = shown.map((it, i) => `
-      <button type="button" class="xref-item note-list-row" data-idx="${i}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
+      <button type="button" class="xref-item note-list-row" data-idx="${i}" data-focus="${attrEsc(it.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
         <strong>${escapeHtml(it.labels.join(', ') || 'Note')}</strong>
         ${it.kind === 'shared' ? '<div class="trail-src">Shared note</div>' : ''}
         <div class="trail-src">${escapeHtml(snippet(it.text) || '(empty)')}</div>
@@ -5650,16 +5728,27 @@ async function openNotesList() {
     readBtn.textContent = reading ? 'Back to list' : 'Read these notes';
     if (hint) {
       hint.textContent = reading
-        ? 'Reading the notes on screen, in verse order. A blank line separates each note. Back to list opens a verse.'
-        : 'Tap a row to open that verse and its note. Filter matches the note text and the reference. Read, Copy, and Print use the notes on screen, in verse order, with a blank line between notes.';
+        ? 'Reading the notes on screen, in verse order. A blank line separates each note. Open goes to that verse. Back to notes returns here.'
+        : 'Tap a row to open that verse and its note. Filter matches the note text and the reference. Read, Copy, and Print use the notes on screen, in verse order, with a blank line between notes. Open a verse, then Back to notes returns to this same place.';
     }
     renderList();
   };
   if (printBtn) printBtn.onclick = printShown;
   if (copyBtn) copyBtn.onclick = copyShown;
   if (filterBox) filterBox.oninput = renderList;
+  if (resume && resume.filter && filterBox) filterBox.value = resume.filter;
+  if (resume && resume.reading) {
+    reading = true;
+    if (readBtn) readBtn.textContent = 'Back to list';
+    if (hint) hint.textContent = 'Reading the notes on screen, in verse order. A blank line separates each note. Open goes to that verse. Back to notes returns here.';
+  }
   renderList();
-  setTimeout(() => filterBox && filterBox.focus(), 80);
+  if (resume && resume.focusId) {
+    setTimeout(() => scrollPanelToFocus(overlay, resume.focusId), 40);
+    setTimeout(() => scrollPanelToFocus(overlay, resume.focusId), 200);
+  } else {
+    setTimeout(() => filterBox && filterBox.focus(), 80);
+  }
 }
 
 
@@ -5892,8 +5981,14 @@ function openSummaryNoteEditor(existing) {
     </div>
   `);
   const close = () => closeOverlay(overlay);
-  $('.close', overlay).onclick = close;
-  $('#sn-cancel', overlay).onclick = close;
+  function leaveSummaryEditor(reopenList) {
+    const back = existing && existing._readReturn;
+    closeOverlay(overlay);
+    if (back) openSummaryNotesList(back);
+    else if (reopenList) openSummaryNotesList();
+  }
+  $('.close', overlay).onclick = () => leaveSummaryEditor(false);
+  $('#sn-cancel', overlay).onclick = () => leaveSummaryEditor(false);
   const answerCache = {
     chapter: summaryAnswersFromNote(existing, 'chapter'),
     book: summaryAnswersFromNote(existing, 'book')
@@ -5967,8 +6062,7 @@ function openSummaryNoteEditor(existing) {
         minimizedSummary = null;
         updateSummaryChip();
       }
-      close();
-      openSummaryNotesList();
+      leaveSummaryEditor(true);
     } catch (_) {
       alert('Could not save the summary note.');
     }
@@ -5978,8 +6072,7 @@ function openSummaryNoteEditor(existing) {
     del.onclick = async () => {
       if (!confirm('Delete this summary note?')) return;
       try { await storage.deleteSummaryNote(existing.id); } catch (_) {}
-      close();
-      openSummaryNotesList();
+      leaveSummaryEditor(true);
     };
   }
   setTimeout(() => {
@@ -6056,7 +6149,7 @@ async function openBookSummary(existing) {
   let found = (existing && existing.id)
     ? (list.find((n) => n && n.id === existing.id) || existing)
     : list.find((n) => n && n.kind === 'book' && summaryBookMatch(n.title) && summaryBookMatch(n.title).meta.id === book.id);
-  if (found && existing && existing._place) found = Object.assign({}, found, { _place: existing._place });
+  if (found && existing && (existing._place || existing._readReturn)) found = Object.assign({}, found, { _place: existing._place, _readReturn: existing._readReturn });
   if (found && minimizedSummary && minimizedSummary.id === found.id && !(existing && existing._place)) {
     reopenMinimizedSummary();
     return;
@@ -6125,8 +6218,14 @@ function openBookSummaryEditor(book, existing, allNotes) {
     </div>
   `);
   const close = () => closeOverlay(overlay);
-  $('.close', overlay).onclick = close;
-  $('#sn-cancel', overlay).onclick = close;
+  function leaveBookEditor(reopenList) {
+    const back = existing && existing._readReturn;
+    closeOverlay(overlay);
+    if (back) openSummaryNotesList(back);
+    else if (reopenList) openSummaryNotesList();
+  }
+  $('.close', overlay).onclick = () => leaveBookEditor(false);
+  $('#sn-cancel', overlay).onclick = () => leaveBookEditor(false);
   function paintKey() {
     const el = $('#bs-key', overlay);
     if (!el) return;
@@ -6217,8 +6316,7 @@ function openBookSummaryEditor(book, existing, allNotes) {
         minimizedSummary = null;
         updateSummaryChip();
       }
-      close();
-      openSummaryNotesList();
+      leaveBookEditor(true);
     } catch (_) {
       alert('Could not save the book summary.');
     }
@@ -6228,8 +6326,7 @@ function openBookSummaryEditor(book, existing, allNotes) {
     del.onclick = async () => {
       if (!confirm('Delete this book summary?')) return;
       try { await storage.deleteSummaryNote(existing.id); } catch (_) {}
-      close();
-      openSummaryNotesList();
+      leaveBookEditor(true);
     };
   }
   setTimeout(() => {
@@ -6243,7 +6340,7 @@ function openBookSummaryEditor(book, existing, allNotes) {
   }, 60);
 }
 
-async function openSummaryNotesList() {
+async function openSummaryNotesList(resume) {
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
   list.sort(compareSummaryNotes);
@@ -6261,6 +6358,7 @@ async function openSummaryNotesList() {
       <input id="sn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.2rem 0 0.4rem">
       <p id="sn-hint" style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.55rem">
         Read, Copy, and Print use the notes on screen, in order, with a blank line between notes.
+        Edit this note opens that summary. Save or Cancel returns here.
       </p>
       <button type="button" id="sn-read" style="width:100%;min-height:52px">Read these notes</button>
       <button type="button" id="sn-print-shown" style="width:100%;margin-top:0.45rem;min-height:52px">Print these notes</button>
@@ -6311,7 +6409,27 @@ async function openSummaryNotesList() {
       return;
     }
     if (reading) {
-      el.innerHTML = notesReadingHtml(summaryNoteBlocks(shown));
+      el.innerHTML = notesReadingHtml(shown.map((n) => ({
+        heading: String(n && n.title || 'Untitled summary').trim() || 'Untitled summary',
+        body: summaryNoteBody(n),
+        focusId: n.id,
+        extra: `<button type="button" class="sn-read-edit" data-id="${attrEsc(n.id)}">Edit this note</button>`
+      })));
+      $$('.sn-read-edit', overlay).forEach((btn) => {
+        btn.onclick = () => {
+          const rec = list.find((n) => n.id === btn.getAttribute('data-id'));
+          if (!rec) return;
+          const back = {
+            reading: true,
+            filter: (filterBox && filterBox.value) || '',
+            focusId: rec.id
+          };
+          closeOverlay(overlay);
+          const next = Object.assign({}, rec, { _readReturn: back });
+          if (rec.kind === 'book') openBookSummary(next);
+          else openSummaryNoteEditor(next);
+        };
+      });
       return;
     }
     el.innerHTML = shown.map(n => `
@@ -6367,8 +6485,8 @@ async function openSummaryNotesList() {
     readBtn.textContent = reading ? 'Back to list' : 'Read these notes';
     if (hint) {
       hint.textContent = reading
-        ? 'Reading the notes on screen, in order. A blank line separates each note. Back to list opens a note.'
-        : 'Read, Copy, and Print use the notes on screen, in order, with a blank line between notes.';
+        ? 'Reading the notes on screen, in order. A blank line separates each note. Edit this note opens that summary. Save or Cancel returns here.'
+        : 'Read, Copy, and Print use the notes on screen, in order, with a blank line between notes. Edit this note opens that summary. Save or Cancel returns here.';
     }
     renderList();
   };
@@ -6377,7 +6495,17 @@ async function openSummaryNotesList() {
   if (printBtn) printBtn.onclick = printShown;
   if (copyBtn) copyBtn.onclick = copyShown;
   if (filterBox) filterBox.oninput = renderList;
+  if (resume && resume.filter && filterBox) filterBox.value = resume.filter;
+  if (resume && resume.reading) {
+    reading = true;
+    if (readBtn) readBtn.textContent = 'Back to list';
+    if (hint) hint.textContent = 'Reading the notes on screen, in order. A blank line separates each note. Edit this note opens that summary. Save or Cancel returns here.';
+  }
   renderList();
+  if (resume && resume.focusId) {
+    setTimeout(() => scrollPanelToFocus(overlay, resume.focusId), 40);
+    setTimeout(() => scrollPanelToFocus(overlay, resume.focusId), 200);
+  }
 }
 
 // ---------- General notes (titled, not tied to a verse) ----------
@@ -8581,7 +8709,8 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Find your verse notes</strong><br>
         Menu → <strong>Verse notes</strong>. Filter matches the note text and the verse reference.
         Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.<br>
-        <strong>Read these notes</strong> shows that same page on screen. <strong>Copy these notes</strong> and <strong>Print these notes</strong> use it too. Each note keeps its verse number, then the note as written, with a blank line between notes.</p>
+        <strong>Read these notes</strong> shows that same page on screen. <strong>Copy these notes</strong> and <strong>Print these notes</strong> use it too. Each note keeps its verse number, then the note as written, with a blank line between notes.<br>
+        <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
@@ -8590,6 +8719,7 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
         Menu → <strong>Summary notes</strong>. A chapter note locks the four questions, each with this chapter’s reference, and each has its own answer box. The question lines do not change.<br>
         <strong>Read these notes</strong>, <strong>Copy these notes</strong>, and <strong>Print these notes</strong> use the notes on screen, in order. Each note keeps its title, then the note as written, with a blank line between notes.<br>
+        <strong>Edit this note</strong> opens that summary. Save or Cancel returns to the same place in the reading page.<br>
         Menu → <strong>Book summary</strong> opens this book. The five questions use the same locked lines and answer boxes. Chapter summaries stay on that screen, in order. A missing chapter stays marked not written.<br>
         Menu → <strong>Print or copy</strong>. Title, size, and bold are already set. Chapter notes print as one document. A general note prints alone, with its image. A chapter summary, a book’s chapter summaries, and the book summary each have their own page.<br>
         <strong>Summary</strong> in Controls opens this chapter’s note. <strong>Minimize</strong> saves it and leaves a chip beside Controls. Tap the chip to return to the same answer box.<br>

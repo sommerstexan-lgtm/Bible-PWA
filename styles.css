@@ -2567,3 +2567,44 @@ textarea.sn-answer {
 .note-read { margin: 0 0 1.6rem; }
 .note-read h3 { margin: 0 0 0.35rem; font-size: 1.2rem; line-height: 1.35; }
 .note-read p { margin: 0; white-space: pre-wrap; font-size: var(--font-size); line-height: 1.55; }
+
+.note-read .note-open-verse,
+.note-read .sn-read-edit {
+  width: 100%;
+  margin-top: 0.55rem;
+  min-height: 52px;
+  font-weight: 700;
+}
+.notes-return-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+  padding: 0.45rem 0.5rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+  background: var(--accent);
+  color: #111;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.35);
+}
+.notes-return-bar[hidden] { display: none !important; }
+.notes-return-bar button {
+  min-height: 52px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.25);
+}
+.notes-return-bar #notes-return-btn {
+  flex: 1;
+  font-size: 1.05rem;
+  background: #111;
+  color: #fff;
+}
+.notes-return-bar #notes-return-x {
+  min-width: 52px;
+  background: #fff;
+  color: #111;
+}
+body.notes-return-open { padding-bottom: 76px; }
