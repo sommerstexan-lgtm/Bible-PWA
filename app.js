@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.72.0';
+const APP_VERSION = '6.73.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -2843,6 +2843,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <span class="verse-dots">${dots}</span>
         <button type="button" class="verse-tools-toggle" data-act="tools" data-key="${key}">${toolsOpen ? 'Hide tools' : 'Tools'}</button>
       </div>
+      ${(verseNotesReturn && verseNotesReturn.focusKey === key) ? `<button type="button" class="notes-back-verse" data-act="notes-back" data-key="${key}">Back to notes · ${escapeHtml(verseNotesReturn.label || 'verse notes')}</button>` : ''}
       <div class="verse-actions${toolsOpen ? '' : ' is-collapsed'}">
         <button type="button" data-act="analyze" data-key="${key}">Analyze</button>
         <button type="button" data-act="anchor" data-key="${key}">Set Anchor</button>
@@ -2987,6 +2988,10 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       captureSelectionFromVerse(key);
     }
 
+    if (act === 'notes-back') {
+      returnToVerseNotes();
+      return;
+    }
     if (act === 'tools') {
       const row = btn.closest('.verse');
       const box = row && row.querySelector('.verse-actions');
@@ -5387,16 +5392,26 @@ function notesReadingHtml(blocks) {
   }).join('');
 }
 
-function scrollPanelToFocus(overlay, focusId) {
-  if (!overlay || !focusId) return;
+function scrollPanelToFocus(overlay, focusId, focusKey) {
+  if (!overlay) return null;
   const panel = overlay.querySelector('.panel');
-  if (!panel) return;
-  const want = String(focusId);
-  const art = Array.from(panel.querySelectorAll('[data-focus]')).find((el) => el.getAttribute('data-focus') === want);
-  if (!art) return;
+  if (!panel) return null;
+  let art = null;
+  if (focusId) {
+    const want = String(focusId);
+    art = Array.from(panel.querySelectorAll('[data-focus]')).find((el) => el.getAttribute('data-focus') === want);
+  }
+  if (!art && focusKey) {
+    const keyBtn = Array.from(panel.querySelectorAll('[data-key]')).find((el) => el.getAttribute('data-key') === String(focusKey));
+    art = keyBtn && (keyBtn.closest('.note-read') || keyBtn.closest('.note-list-row'));
+  }
+  if (!art) return null;
+  panel.querySelectorAll('.note-return-here').forEach((el) => el.classList.remove('note-return-here'));
+  art.classList.add('note-return-here');
   const panelRect = panel.getBoundingClientRect();
   const artRect = art.getBoundingClientRect();
-  panel.scrollTop += artRect.top - panelRect.top - 8;
+  panel.scrollTop += artRect.top - panelRect.top - 12;
+  return art;
 }
 
 let verseNotesReturn = null;
@@ -5424,6 +5439,7 @@ async function returnToVerseNotes() {
   const place = verseNotesReturn;
   if (!place) return;
   await openNotesList(place);
+  showAppStatus(place.label ? ('Back at ' + place.label) : 'Back at your notes.', 'ok');
 }
 
 function summaryNoteBody(note) {
@@ -5604,11 +5620,14 @@ async function openNotesList(resume) {
 
   async function leaveForVerse(key, focusId, stayReading) {
     if (!key) return;
+    const panel = overlay.querySelector('.panel');
     verseNotesReturn = {
       filter: (filterBox && filterBox.value) || '',
       reading: !!stayReading,
       focusId: focusId || '',
-      label: formatNoteRefLabel(key)
+      focusKey: key,
+      label: formatNoteRefLabel(key),
+      scrollTop: panel ? panel.scrollTop || 0 : 0
     };
     updateNotesReturnBar();
     closeOverlay(overlay);
@@ -5743,9 +5762,11 @@ async function openNotesList(resume) {
     if (hint) hint.textContent = 'Reading the notes on screen, in verse order. A blank line separates each note. Open goes to that verse. Back to notes returns here.';
   }
   renderList();
-  if (resume && resume.focusId) {
-    setTimeout(() => scrollPanelToFocus(overlay, resume.focusId), 40);
-    setTimeout(() => scrollPanelToFocus(overlay, resume.focusId), 200);
+  if (resume && (resume.focusId || resume.focusKey)) {
+    const land = () => scrollPanelToFocus(overlay, resume.focusId, resume.focusKey);
+    setTimeout(land, 30);
+    setTimeout(land, 180);
+    setTimeout(land, 420);
   } else {
     setTimeout(() => filterBox && filterBox.focus(), 80);
   }
