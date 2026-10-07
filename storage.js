@@ -458,7 +458,36 @@ export async function getAllSummaryNotes() {
   });
 }
 
-export async function saveSummaryNote(note) {
+function summaryTitleKey(note) {
+  const kind = note && note.kind === 'book' ? 'book' : 'chapter';
+  const title = String(note && note.title || '').trim().toLowerCase();
+  return title ? (kind + '\n' + title) : '';
+}
+
+function earlierSummary(a, b) {
+  const ta = Date.parse(a && a.createdAt || '') || 0;
+  const tb = Date.parse(b && b.createdAt || '') || 0;
+  if (ta !== tb) return ta - tb;
+  return String(a && a.id || '').localeCompare(String(b && b.id || ''));
+}
+
+export async function collapseDuplicateSummaryNotes() {
+  const list = await getAllSummaryNotes();
+  const groups = new Map();
+  for (const note of list) {
+    const key = summaryTitleKey(note);
+    if (!key || !note.id) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(note);
+  }
+  for (const notes of groups.values()) {
+    if (notes.length < 2) continue;
+    notes.sort(earlierSummary);
+    for (const extra of notes.slice(1)) await deleteSummaryNote(extra.id);
+  }
+}
+
+export async function saveSummaryNote(note, options) {
   await openDB();
   const now = new Date().toISOString();
   if (!note.id) note.id = newSummaryNoteId();
@@ -471,6 +500,19 @@ export async function saveSummaryNote(note) {
   if (note.legacyText != null) note.legacyText = String(note.legacyText);
   if (Array.isArray(note.answers)) {
     note.answers = note.answers.map(a => (a == null ? '' : String(a)));
+  }
+  const key = summaryTitleKey(note);
+  if (key && !(options && options.keepId)) {
+    const same = (await getAllSummaryNotes()).filter((n) => summaryTitleKey(n) === key);
+    if (same.length) {
+      same.sort(earlierSummary);
+      const keep = same[0];
+      note.id = keep.id;
+      if (keep.createdAt) note.createdAt = keep.createdAt;
+      for (const extra of same) {
+        if (extra.id !== keep.id) await deleteSummaryNote(extra.id);
+      }
+    }
   }
   return new Promise((res, rej) => {
     const r = tx('summaryNotes', 'readwrite').put(note);
@@ -659,6 +701,8 @@ export async function exportAllData() {
     getAllNoteImages(),
     getAllSummaryNotes()
   ]);
+  await collapseDuplicateSummaryNotes();
+  const summaryNotesClean = await getAllSummaryNotes();
 
   const imagesOut = [];
   for (const img of (noteImages || [])) {
@@ -680,7 +724,7 @@ export async function exportAllData() {
     wordMarks,
     chains,
     generalNotes,
-    summaryNotes,
+    summaryNotes: summaryNotesClean,
     noteImages: imagesOut
   };
 }
@@ -769,8 +813,9 @@ export async function importAllData(data, { replace = true } = {}) {
 
   if (Array.isArray(data.summaryNotes)) {
     for (const note of data.summaryNotes) {
-      if (note && note.id) await saveSummaryNote(note);
+      if (note && note.id) await saveSummaryNote(note, { keepId: true });
     }
+    await collapseDuplicateSummaryNotes();
   }
 
   if (Array.isArray(data.noteImages)) {

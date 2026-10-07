@@ -1,6 +1,9 @@
-# KJV Study PWA – v6.77.1
+# KJV Study PWA – v6.77.2
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.77.2
+- One summary note per chapter title. The earlier note is kept. A second note for the same title is not saved or restored.
 
 ## New in 6.77.1
 - Saving a verse note turns the Note button green again and shows the Note marker.

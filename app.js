@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.77.1';
+const APP_VERSION = '6.77.2';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -802,6 +802,7 @@ async function init() {
 
   settings = await storage.getSettings();
   applySettings();
+  try { await storage.collapseDuplicateSummaryNotes(); } catch (_) {}
 
   books = await bible.loadSampleIfEmpty();
   const last = await storage.getLastPosition();
@@ -6188,6 +6189,18 @@ function chapterSummaryTitle() {
   return book.name + ' ' + currentChapter;
 }
 
+function earliestSummaryNote(list, title) {
+  const wanted = String(title || '').trim().toLowerCase();
+  const hits = (list || []).filter((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === wanted);
+  hits.sort((a, b) => {
+    const ta = Date.parse(a.createdAt || '') || 0;
+    const tb = Date.parse(b.createdAt || '') || 0;
+    if (ta !== tb) return ta - tb;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return hits[0] || null;
+}
+
 async function openChapterSummaryAt(title, place) {
   const wanted = String(title || '').trim();
   if (!wanted) {
@@ -6196,7 +6209,7 @@ async function openChapterSummaryAt(title, place) {
   }
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
-  const found = list.find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === wanted.toLowerCase());
+  const found = earliestSummaryNote(list, wanted);
   const note = Object.assign({}, found || { kind: 'chapter', title: wanted, text: '' }, {
     title: (found && found.title) || wanted,
     _place: place || null,
@@ -6260,7 +6273,7 @@ async function openChapterSummary() {
   }
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
-  const found = list.find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === title.toLowerCase());
+  const found = earliestSummaryNote(list, title);
   if (found && minimizedSummary && minimizedSummary.id === found.id) {
     reopenMinimizedSummary();
     return;
@@ -6781,10 +6794,17 @@ async function openSummaryNotesList(resume) {
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
-  $('#sn-new', overlay).onclick = () => {
+  $('#sn-new', overlay).onclick = async () => {
     closeOverlay(overlay);
     const title = chapterSummaryTitle();
-    openSummaryNoteEditor(title ? { kind: 'chapter', title, text: '' } : null);
+    if (!title) {
+      openSummaryNoteEditor(null);
+      return;
+    }
+    let list = [];
+    try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+    const found = earliestSummaryNote(list, title);
+    openSummaryNoteEditor(found || { kind: 'chapter', title, text: '' });
   };
   const el = $('#sn-list', overlay);
   const filterBox = $('#sn-filter', overlay);
