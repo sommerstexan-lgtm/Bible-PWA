@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.73.0';
+const APP_VERSION = '6.74.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -5598,11 +5598,13 @@ async function openNotesList(resume) {
       </p>
       <button type="button" id="notes-read" style="width:100%;min-height:52px">Read these notes</button>
       <button type="button" id="notes-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print these notes</button>
-      <button type="button" id="notes-copy" style="width:100%;margin:0.45rem 0 0.7rem;min-height:52px">Copy these notes</button>
+      <button type="button" id="notes-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy these notes</button>
+      <button type="button" id="notes-summary" style="width:100%;margin:0.45rem 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
       <div id="notes-list"></div>
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const summaryBtn = $('#notes-summary', overlay);
   const el = $('#notes-list', overlay);
   const filterBox = $('#note-filter', overlay);
 
@@ -5670,6 +5672,7 @@ async function openNotesList(resume) {
       $$('.note-open-verse', overlay).forEach((btn) => {
         btn.onclick = () => leaveForVerse(btn.getAttribute('data-key'), btn.getAttribute('data-focus'), true);
       });
+      paintSummaryButton();
       return;
     }
     el.innerHTML = shown.map((it, i) => `
@@ -5682,6 +5685,7 @@ async function openNotesList(resume) {
     $$('.note-list-row', overlay).forEach(btn => {
       btn.onclick = () => openHit(shown[Number(btn.dataset.idx)]);
     });
+    paintSummaryButton();
   }
 
   function shownNotes() {
@@ -5694,6 +5698,95 @@ async function openNotesList(resume) {
       heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
       body: String(it.text || '').replace(/\s+$/g, '')
     })));
+  }
+
+  function chapterFromKey(key) {
+    const parsed = bible.parseKey(key) || {};
+    const meta = bible.CANONICAL_BOOKS.find(b => b.id === parsed.bookId);
+    const name = meta ? meta.name : (parsed.bookId || '');
+    return name && parsed.chapter ? (name + ' ' + parsed.chapter) : '';
+  }
+
+  function chapterOnScreen(shown) {
+    const chapters = [];
+    (shown || []).forEach((it) => {
+      (it.keys || []).forEach((k) => {
+        const label = chapterFromKey(k);
+        if (label && chapters.indexOf(label) < 0) chapters.push(label);
+      });
+    });
+    if (chapters.length === 1) return chapters[0];
+    const panel = overlay.querySelector('.panel');
+    const arts = Array.from(overlay.querySelectorAll('.note-read, .note-list-row'));
+    if (panel && arts.length) {
+      const edge = panel.getBoundingClientRect().top + 12;
+      const visible = arts.find((el) => el.getBoundingClientRect().bottom > edge + 24) || arts[0];
+      const keyBtn = visible.querySelector('[data-key]');
+      if (keyBtn) {
+        const fromKey = chapterFromKey(keyBtn.getAttribute('data-key'));
+        if (fromKey) return fromKey;
+      }
+      const head = visible.querySelector('h3') || visible.querySelector('strong');
+      const text = head ? String(head.textContent || '').trim() : '';
+      const cut = text.replace(/:\d+.*$/, '').trim();
+      if (cut) return cut;
+    }
+    return '';
+  }
+
+  function captureNotesPlace() {
+    const panel = overlay.querySelector('.panel');
+    const arts = Array.from(overlay.querySelectorAll('.note-read, .note-list-row'));
+    let focusId = '';
+    let focusKey = '';
+    if (panel && arts.length) {
+      const edge = panel.getBoundingClientRect().top + 12;
+      const visible = arts.find((el) => el.getBoundingClientRect().bottom > edge + 24) || arts[0];
+      focusId = visible.getAttribute('data-focus') || '';
+      const keyBtn = visible.querySelector('[data-key]');
+      focusKey = keyBtn ? (keyBtn.getAttribute('data-key') || '') : '';
+    }
+    return {
+      filter: (filterBox && filterBox.value) || '',
+      reading: !!reading,
+      focusId,
+      focusKey,
+      label: focusKey ? formatNoteRefLabel(focusKey) : (chapterOnScreen(shownNotes()) || 'verse notes'),
+      scrollTop: panel ? panel.scrollTop || 0 : 0
+    };
+  }
+
+  function paintSummaryButton() {
+    if (!summaryBtn) return;
+    const title = chapterOnScreen(shownNotes());
+    const hopTitle = summaryHop && summaryHop.title;
+    const labelTitle = title || hopTitle || '';
+    if (!labelTitle) {
+      summaryBtn.hidden = true;
+      return;
+    }
+    summaryBtn.hidden = false;
+    const returning = hopTitle && (!title || hopTitle.toLowerCase() === title.toLowerCase());
+    summaryBtn.textContent = returning
+      ? ('Back to chapter summary · ' + hopTitle)
+      : ('Chapter summary · ' + labelTitle);
+  }
+
+  async function openSummaryFromNotes() {
+    const title = chapterOnScreen(shownNotes()) || (summaryHop && summaryHop.title) || '';
+    if (!title) {
+      showAppStatus('Filter to one chapter first.', 'fail');
+      return;
+    }
+    const notesPlace = captureNotesPlace();
+    const same = summaryHop && String(summaryHop.title || '').toLowerCase() === title.toLowerCase();
+    summaryHop = {
+      title,
+      notesPlace,
+      summaryPlace: same ? summaryHop.summaryPlace : null
+    };
+    closeOverlay(overlay);
+    await openChapterSummaryAt(title, summaryHop.summaryPlace);
   }
 
   function notesTitle(shown) {
@@ -5762,14 +5855,34 @@ async function openNotesList(resume) {
     if (hint) hint.textContent = 'Reading the notes on screen, in verse order. A blank line separates each note. Open goes to that verse. Back to notes returns here.';
   }
   renderList();
-  if (resume && (resume.focusId || resume.focusKey)) {
-    const land = () => scrollPanelToFocus(overlay, resume.focusId, resume.focusKey);
-    setTimeout(land, 30);
-    setTimeout(land, 180);
-    setTimeout(land, 420);
+  function landNotes() {
+    if (!resume) return;
+    const panel = overlay.querySelector('.panel');
+    if (panel && typeof resume.scrollTop === 'number') panel.scrollTop = resume.scrollTop;
+    if (resume.focusId || resume.focusKey) {
+      if (typeof resume.scrollTop === 'number') {
+        const want = String(resume.focusId || '');
+        let art = want ? Array.from(overlay.querySelectorAll('[data-focus]')).find((el) => el.getAttribute('data-focus') === want) : null;
+        if (!art && resume.focusKey) {
+          const keyBtn = Array.from(overlay.querySelectorAll('[data-key]')).find((el) => el.getAttribute('data-key') === String(resume.focusKey));
+          art = keyBtn && (keyBtn.closest('.note-read') || keyBtn.closest('.note-list-row'));
+        }
+        overlay.querySelectorAll('.note-return-here').forEach((el) => el.classList.remove('note-return-here'));
+        if (art) art.classList.add('note-return-here');
+      } else {
+        scrollPanelToFocus(overlay, resume.focusId, resume.focusKey);
+      }
+    }
+  }
+  if (resume && (resume.focusId || resume.focusKey || typeof resume.scrollTop === 'number')) {
+    setTimeout(landNotes, 30);
+    setTimeout(landNotes, 180);
+    setTimeout(landNotes, 420);
   } else {
     setTimeout(() => filterBox && filterBox.focus(), 80);
   }
+  if (summaryBtn) summaryBtn.onclick = () => openSummaryFromNotes();
+  paintSummaryButton();
 }
 
 
@@ -5800,6 +5913,7 @@ function summaryQuestionsHtml() {
 }
 
 let minimizedSummary = null;
+let summaryHop = null;
 
 function updateSummaryChip() {
   const chip = document.getElementById('summary-chip');
@@ -5953,6 +6067,23 @@ function chapterSummaryTitle() {
   return book.name + ' ' + currentChapter;
 }
 
+async function openChapterSummaryAt(title, place) {
+  const wanted = String(title || '').trim();
+  if (!wanted) {
+    showAppStatus('Open a chapter first.', 'fail');
+    return;
+  }
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  const found = list.find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === wanted.toLowerCase());
+  const note = Object.assign({}, found || { kind: 'chapter', title: wanted, text: '' }, {
+    title: (found && found.title) || wanted,
+    _place: place || null,
+    _fromNotes: true
+  });
+  openSummaryNoteEditor(note);
+}
+
 async function openChapterSummary() {
   const title = chapterSummaryTitle();
   if (!title) {
@@ -5990,6 +6121,7 @@ function openSummaryNoteEditor(existing) {
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
       <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
       <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
+      ${existing && existing._fromNotes ? '<button type="button" id="sn-back-notes" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Back to verse notes</button>' : ''}
       ${showLegacy ? `<label class="sn-legacy-label" for="sn-legacy">Earlier single note — left as one box</label>
       <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
       <div id="sn-answers"></div>
@@ -6061,6 +6193,23 @@ function openSummaryNoteEditor(existing) {
       createdAt: existing && existing.createdAt
     });
   }
+  const backNotes = $('#sn-back-notes', overlay);
+  if (backNotes) backNotes.onclick = async () => {
+    const place = captureSummaryPlace(overlay);
+    let saved = null;
+    try { saved = await readSummaryFields(); }
+    catch (_) { alert('Could not save the summary note.'); return; }
+    const title = (saved && saved.title) || (summaryHop && summaryHop.title) || '';
+    summaryHop = {
+      title,
+      notesPlace: (summaryHop && summaryHop.notesPlace) || null,
+      summaryPlace: place,
+      summaryId: saved && saved.id
+    };
+    closeOverlay(overlay);
+    if (summaryHop.notesPlace) await openNotesList(summaryHop.notesPlace);
+    else openNotesList();
+  };
   const minBtn = $('#sn-min', overlay);
   minBtn.addEventListener('pointerdown', () => {
     minBtn._place = captureSummaryPlace(overlay);
@@ -6100,6 +6249,7 @@ function openSummaryNoteEditor(existing) {
     if (existing && existing._place) {
       restoreSummaryPlace(overlay, existing._place);
       setTimeout(() => restoreSummaryPlace(overlay, existing._place), 90);
+      setTimeout(() => restoreSummaryPlace(overlay, existing._place), 280);
       return;
     }
     const first = overlay.querySelector('textarea.sn-answer');
@@ -8731,7 +8881,8 @@ function openHelp() {
         Menu → <strong>Verse notes</strong>. Filter matches the note text and the verse reference.
         Tap a row to open that verse and the note. Shared notes appear once with every linked verse listed.<br>
         <strong>Read these notes</strong> shows that same page on screen. <strong>Copy these notes</strong> and <strong>Print these notes</strong> use it too. Each note keeps its verse number, then the note as written, with a blank line between notes.<br>
-        <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.</p>
+        <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.<br>
+        <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.

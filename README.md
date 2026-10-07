@@ -1,6 +1,10 @@
-# KJV Study PWA – v6.73.0
+# KJV Study PWA – v6.74.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.74.0
+- Verse notes for one chapter has Chapter summary. Back to verse notes returns to the same note.
+- Back to chapter summary returns to the same answer box.
 
 ## New in 6.73.0
 - Open a verse from verse notes. Back to notes is on that verse and in the gold bar.
