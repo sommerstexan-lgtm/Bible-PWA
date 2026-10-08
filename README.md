@@ -1,6 +1,12 @@
-# KJV Study PWA – v6.77.3
+# KJV Study PWA – v6.78.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.78.0
+- From any verse, Tools → **Chapter notes** opens this chapter’s note list in one tap (filter already set). Gold **Back to verse** returns to that verse.
+- Tools → **Chapter summary** opens this chapter’s summary from the same Tools row.
+- Verse notes Read mode has **Edit this note** so you can correct text then and there, then Back to notes returns to the same place.
+- Navigation between verse, verse notes, and chapter summary stays on the gold hop buttons — no Menu → search → open path required.
 
 ## New in 6.77.3
 - The controls panel stays fully on screen. The notes return bar no longer pushes it off the top.

@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.77.3';
+const APP_VERSION = '6.78.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -2854,6 +2854,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <button type="button" data-act="chains" data-key="${key}" class="${chainCls.trim()}">Chains${chainCountMap[key] ? ' ' + chainCountMap[key] : ''}</button>
         <button type="button" data-act="tkn" data-key="${key}">Then-Now</button>
         <button type="button" data-act="places" data-key="${key}">Places</button>
+        <button type="button" data-act="chapter-notes" data-key="${key}">Chapter notes</button>
+        <button type="button" data-act="chapter-summary" data-key="${key}">Chapter summary</button>
       </div>
     `;
     main.appendChild(verseEl);
@@ -3011,6 +3013,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'chains') openVerseChains(key);
     else if (act === 'tkn') openThenKindNow(key);
     else if (act === 'places') { reopenResearchPlaces = true; openResearch(); }
+    else if (act === 'chapter-notes') openChapterNotesFromVerse(key);
+    else if (act === 'chapter-summary') openChapterSummaryFromVerse(key);
   };
 
   installSelectionWatchers(main);
@@ -5592,7 +5596,58 @@ function compareSummaryNotes(a, b) {
   return naturalCompare(ta, tb);
 }
 
+
+/** Chapter label for a verse key, e.g. "1 Samuel 12". */
+function chapterLabelFromKey(key) {
+  const parsed = bible.parseKey(key) || {};
+  const meta = bible.CANONICAL_BOOKS.find(b => b.id === parsed.bookId);
+  const name = meta ? meta.name : (parsed.bookId || '');
+  return name && parsed.chapter ? (name + ' ' + parsed.chapter) : '';
+}
+
+/** From a verse: open verse-notes list for this chapter only, with return to this verse. */
+async function openChapterNotesFromVerse(key) {
+  if (!key) return;
+  const chapter = chapterLabelFromKey(key);
+  await openNotesList({
+    filter: chapter,
+    chapterOnly: true,
+    fromKey: key,
+    fromLabel: formatNoteRefLabel(key)
+  });
+}
+
+/** From a verse: open this chapter's summary, with hop back to the verse. */
+async function openChapterSummaryFromVerse(key) {
+  if (!key) return;
+  const title = chapterLabelFromKey(key) || chapterSummaryTitle();
+  if (!title) {
+    showAppStatus('Open a chapter first.', 'fail');
+    return;
+  }
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  const found = earliestSummaryNote(list, title);
+  summaryHop = {
+    title,
+    from: 'verse',
+    versePlace: { key, label: formatNoteRefLabel(key) },
+    notesPlace: null,
+    summaryPlace: null,
+    listReturn: null,
+    summaryId: found && found.id
+  };
+  openSummaryNoteEditor(found || { kind: 'chapter', title, text: '' });
+}
+
 async function openNotesList(resume) {
+  // resume may be a prior place object, or options: { filter, chapterOnly, fromKey, fromLabel, reading, focusId, scrollTop }
+  const opts = resume && typeof resume === 'object' ? resume : {};
+  const fromKey = opts.fromKey || '';
+  const fromLabel = opts.fromLabel || (fromKey ? formatNoteRefLabel(fromKey) : '');
+  const chapterOnly = !!opts.chapterOnly;
+  const initialFilter = (opts.filter != null) ? String(opts.filter) : '';
+
   verseNotesReturn = null;
   updateNotesReturnBar();
   let privateNotes = [];
@@ -5632,15 +5687,23 @@ async function openNotesList(resume) {
   });
   items.sort((a, b) => noteCanonRank(a.openKey) - noteCanonRank(b.openKey));
 
+  const listTitle = chapterOnly && (initialFilter || fromKey)
+    ? ('Chapter notes · ' + (initialFilter || chapterLabelFromKey(fromKey) || 'this chapter'))
+    : 'Verse notes';
+  const hintExtra = chapterOnly
+    ? 'Showing this chapter only. Clear the filter to see all notes. Tap a row to open that verse and edit its note.'
+    : 'Tap a row to open that verse and its note. Filter matches the note text and the reference.';
+
   const overlay = showOverlay(`
     <div class="panel trail-panel">
       <div class="search-header-top">
-        <h2 class="search-title" style="margin:0">Verse notes</h2>
+        <h2 class="search-title" style="margin:0">${escapeHtml(listTitle)}</h2>
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
+      ${fromKey ? `<button type="button" id="notes-back-verse" class="hop-gold" style="width:100%;margin:0.45rem 0 0.35rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Back to verse · ${escapeHtml(fromLabel || formatNoteRefLabel(fromKey))}</button>` : ''}
       <input id="note-filter" class="search-box" type="search" placeholder="Filter notes" autocomplete="off" style="margin:0.5rem 0 0.4rem">
       <p id="notes-hint" style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.55rem">
-        Tap a row to open that verse and its note. Filter matches the note text and the reference.
+        ${hintExtra}
         Read, Copy, and Print use the notes on screen, in verse order, with a blank line between notes.
         Open a verse, then Back to notes returns to this same place.
       </p>
@@ -5652,9 +5715,17 @@ async function openNotesList(resume) {
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const backVerseBtn = $('#notes-back-verse', overlay);
+  if (backVerseBtn && fromKey) {
+    backVerseBtn.onclick = async () => {
+      closeOverlay(overlay);
+      await jumpToRef(fromKey);
+    };
+  }
   const summaryBtn = $('#notes-summary', overlay);
   const el = $('#notes-list', overlay);
   const filterBox = $('#note-filter', overlay);
+  if (filterBox && initialFilter) filterBox.value = initialFilter;
 
   function snippet(text) {
     const one = String(text || '').replace(/\s+/g, ' ').trim();
@@ -5677,7 +5748,10 @@ async function openNotesList(resume) {
       focusId: focusId || '',
       focusKey: key,
       label: formatNoteRefLabel(key),
-      scrollTop: panel ? panel.scrollTop || 0 : 0
+      scrollTop: panel ? panel.scrollTop || 0 : 0,
+      fromKey: fromKey || '',
+      fromLabel: fromLabel || '',
+      chapterOnly: chapterOnly
     };
     updateNotesReturnBar();
     closeOverlay(overlay);
@@ -5709,7 +5783,10 @@ async function openNotesList(resume) {
     if (reading) {
       el.innerHTML = notesReadingHtml(shown.map((it) => {
         const keys = (it.keys && it.keys.length) ? it.keys : (it.openKey ? [it.openKey] : []);
-        const extra = keys.map((k) => `<button type="button" class="note-open-verse" data-key="${attrEsc(k)}" data-focus="${attrEsc(it.id)}">Open ${escapeHtml(formatNoteRefLabel(k))}</button>`).join('');
+        const editKey = it.openKey || (keys[0] || '');
+        const extra = (editKey
+          ? `<button type="button" class="note-edit-here" data-key="${attrEsc(editKey)}" data-focus="${attrEsc(it.id)}">Edit this note</button>`
+          : '') + keys.map((k) => `<button type="button" class="note-open-verse" data-key="${attrEsc(k)}" data-focus="${attrEsc(it.id)}">Open ${escapeHtml(formatNoteRefLabel(k))}</button>`).join('');
         return {
           heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
           body: String(it.text || '').replace(/\s+$/g, ''),
@@ -5717,6 +5794,28 @@ async function openNotesList(resume) {
           extra
         };
       }));
+      $$('.note-edit-here', overlay).forEach((btn) => {
+        btn.onclick = async () => {
+          const k = btn.getAttribute('data-key');
+          if (!k) return;
+          // Stay in notes context: after save/cancel, return to this list place
+          const panel = overlay.querySelector('.panel');
+          verseNotesReturn = {
+            filter: (filterBox && filterBox.value) || '',
+            reading: true,
+            focusId: btn.getAttribute('data-focus') || '',
+            focusKey: k,
+            label: formatNoteRefLabel(k),
+            scrollTop: panel ? panel.scrollTop || 0 : 0,
+            fromKey: fromKey || '',
+            fromLabel: fromLabel || '',
+            chapterOnly: chapterOnly
+          };
+          updateNotesReturnBar();
+          closeOverlay(overlay);
+          await openNote(k);
+        };
+      });
       $$('.note-open-verse', overlay).forEach((btn) => {
         btn.onclick = () => leaveForVerse(btn.getAttribute('data-key'), btn.getAttribute('data-focus'), true);
       });
@@ -9155,7 +9254,9 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Color precision</strong><br>
         Color and Analyze paint a speech frame (<em>God said</em>, <em>Jesus saith</em>) when that is the subject — not the whole quote. Tap a color chip for the saved span, Unpaint, or Shrink speech colors to frames. Bare <em>spirit / beast / serpent</em> ask for a sense first. Holy Spirit paints yellow, Antichrist figure paints pink, and Satan paints grey. The other choice leaves the word unpainted. Review by color lists the painted words.</p>
         <p style="margin-bottom:1rem"><strong>Verse tools</strong><br>
-        Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, and Then-Now. Tap a green/color dot to open that tool directly.</p>
+        Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, Then-Now, Places, <strong>Chapter notes</strong>, and <strong>Chapter summary</strong>. Tap a green/color dot to open that tool directly.<br>
+        <strong>Chapter notes</strong> opens this chapter’s verse-note list in one tap (filter already set). Gold <strong>Back to verse</strong> returns to the verse you left. From the list, <strong>Edit this note</strong> (in Read mode) or a row opens the note so you can correct it then and there.<br>
+        <strong>Chapter summary</strong> opens this chapter’s four-question summary from the same Tools row.</p>
         <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
         1. Long-press the verse and drag to select only the words you want.<br>
         2. Lift your finger (keep the selection visible a moment).<br>
@@ -9172,7 +9273,8 @@ function openHelp() {
         <strong>Open</strong> under a note goes to that verse. <strong>Back to notes</strong> returns to the same place in the list or the reading page.<br>
         <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.<br>
         On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.<br>
-        On a chapter summary, the gold <strong>Verse notes</strong> button stays on screen. It returns to the verse that was on screen, with the Note button green when that verse has a note. On verse notes, the gold <strong>Back to chapter summary</strong> button stays on screen and returns to the same answer box.</p>
+        On a chapter summary, the gold <strong>Verse notes</strong> button stays on screen. It returns to the verse that was on screen, with the Note button green when that verse has a note. On verse notes, the gold <strong>Back to chapter summary</strong> button stays on screen and returns to the same answer box.<br>
+        From any verse: Tools → <strong>Chapter notes</strong> or <strong>Chapter summary</strong> without going through Menu. Gold hop buttons keep your place between verse, verse notes, and chapter summary.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
