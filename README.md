@@ -1,6 +1,10 @@
-# KJV Study PWA – v6.78.0
+# KJV Study PWA – v6.78.1
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.78.1
+- Typing in a chapter summary answer no longer jumps the box to the top. The line you are typing stays on screen, below the gold hop button.
+- The same guard covers book summary answers, verse notes, general notes, legacy summary text, and chain notes.
 
 ## New in 6.78.0
 - From any verse, Tools → **Chapter notes** opens this chapter’s note list in one tap (filter already set). Gold **Back to verse** returns to that verse.

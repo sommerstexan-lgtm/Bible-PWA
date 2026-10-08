@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.78.0';
+const APP_VERSION = '6.78.1';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -823,6 +823,7 @@ async function init() {
 }
 
 function renderShell() {
+  installTypingScrollGuard();
   const app = $('#app');
   app.innerHTML = `
     <div id="chrome" class="chrome">
@@ -6125,11 +6126,66 @@ function joinSummaryText(lines, answers) {
   return parts.join('\n\n');
 }
 
+function caretLineTop(el) {
+  if (!el) return 0;
+  const style = getComputedStyle(el);
+  const line = parseFloat(style.lineHeight) || 24;
+  const pad = parseFloat(style.paddingTop) || 0;
+  const value = String(el.value || '').slice(0, el.selectionStart || 0);
+  const lines = value.split('\n').length;
+  return el.getBoundingClientRect().top + pad + Math.max(0, lines - 1) * line;
+}
+
+/** Grow a note box without letting the browser yank the caret to the top of the panel. */
 function growSummaryBox(el) {
   if (!el) return;
+  const panel = el.closest('.panel');
+  const prev = panel ? panel.scrollTop : 0;
+  const topBefore = el.getBoundingClientRect().top;
+  el.style.overflowY = 'hidden';
   el.style.height = 'auto';
-  const next = Math.max(96, el.scrollHeight || 0);
+  const next = Math.max(120, (el.scrollHeight || 0) + 8);
   el.style.height = next + 'px';
+  el.scrollTop = 0;
+  if (panel) {
+    const delta = el.getBoundingClientRect().top - topBefore;
+    panel.scrollTop = prev + delta;
+  }
+  keepCaretComfortable(el);
+  const locked = panel ? panel.scrollTop : 0;
+  requestAnimationFrame(() => {
+    if (!panel || document.activeElement !== el) return;
+    panel.scrollTop = locked;
+    keepCaretComfortable(el);
+  });
+}
+
+/** Keep the typing line in the visible area, below any sticky gold hop button. Never pin it to the top. */
+function keepCaretComfortable(el) {
+  const panel = el && el.closest ? el.closest('.panel') : null;
+  if (!panel || !el) return;
+  const sticky = panel.querySelector('.hop-gold');
+  const stickyH = sticky ? sticky.getBoundingClientRect().height : 0;
+  const panelRect = panel.getBoundingClientRect();
+  const topLimit = panelRect.top + stickyH + 16;
+  const bottomLimit = panelRect.bottom - 36;
+  const line = parseFloat(getComputedStyle(el).lineHeight) || 24;
+  const caret = caretLineTop(el);
+  if (caret + line > bottomLimit) panel.scrollTop += (caret + line) - bottomLimit;
+  else if (caret < topLimit) panel.scrollTop -= topLimit - caret;
+}
+
+function installTypingScrollGuard() {
+  if (installTypingScrollGuard.done) return;
+  installTypingScrollGuard.done = true;
+  document.addEventListener('input', (ev) => {
+    const el = ev.target;
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    if (!el.closest('#overlay-root, .overlay, body')) return;
+    const grow = el.classList.contains('sn-answer') || el.id === 'sn-legacy' || el.id === 'note-text' || el.id === 'gn-text' || el.id === 'chain-note';
+    if (!grow) return;
+    growSummaryBox(el);
+  }, true);
 }
 
 function readSummaryAnswerBoxes(overlay, n) {
