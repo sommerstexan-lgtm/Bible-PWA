@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.79.0';
+const APP_VERSION = '6.79.1';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7523,7 +7523,10 @@ function markChapterStudyVerse(overlay, skipScroll) {
   });
   if (skipScroll) return;
   const on = overlay.querySelector('.cs-row.cs-on');
-  if (on) on.scrollIntoView({ block: 'nearest' });
+  const scroller = overlay.querySelector('.cs-scroll');
+  if (!on || !scroller) return;
+  const top = on.offsetTop - scroller.offsetTop;
+  scroller.scrollTop = Math.max(0, top - 8);
 }
 
 async function paintChapterStudyBody(overlay) {
@@ -7709,22 +7712,26 @@ async function openChapterStudy() {
   };
   const overlay = showOverlay(
     '<div class="panel cs-panel">' +
-      '<div class="search-header-top">' +
-        '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
-        '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
+      '<div class="cs-float">' +
+        '<div class="search-header-top">' +
+          '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+          '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
+        '</div>' +
+        '<div class="cs-tabs">' +
+          '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
+          '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
+          '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
+        '</div>' +
+        '<div class="cs-step">' +
+          '<button type="button" id="cs-prev">Prev verse</button>' +
+          '<span id="cs-working"></span>' +
+          '<button type="button" id="cs-next">Next verse</button>' +
+        '</div>' +
       '</div>' +
-      '<div class="cs-tabs">' +
-        '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
-        '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
-        '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
+      '<div class="cs-scroll">' +
+        '<p id="cs-strip" class="cs-strip"></p>' +
+        '<div id="cs-body"></div>' +
       '</div>' +
-      '<div class="cs-step">' +
-        '<button type="button" id="cs-prev">Prev verse</button>' +
-        '<span id="cs-working"></span>' +
-        '<button type="button" id="cs-next">Next verse</button>' +
-      '</div>' +
-      '<p id="cs-strip" class="cs-strip"></p>' +
-      '<div id="cs-body"></div>' +
     '</div>'
   );
   overlay.addEventListener('click', (e) => {

@@ -1,4 +1,11 @@
-# KJV Study PWA – v6.79.0
+# KJV Study PWA – v6.79.1
+
+Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.79.1
+- Chapter study keeps the Verses / Verse notes / Chapter summary row and the Prev verse / Next verse row fixed at the top. The verse list scrolls under them. The working verse stays the same when you hop views.
+
+## New in 6.79.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
