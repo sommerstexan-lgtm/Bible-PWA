@@ -2655,3 +2655,19 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
   z-index: 6;
   box-shadow: 0 4px 14px rgba(0,0,0,0.45);
 }
+
+/* Chapter study session */
+.cs-panel { padding-bottom: 1.2rem; }
+.cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0; }
+.cs-tab { flex: 1; min-height: 48px; }
+.cs-tab-on { background: #f4c430; color: #111; font-weight: 800; }
+.cs-step { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem; }
+.cs-step button { flex: 0 0 auto; min-height: 44px; }
+#cs-working { flex: 1; text-align: center; font-weight: 700; }
+.cs-strip { margin: 0 0 0.7rem; line-height: 1.45; padding: 0.55rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.cs-row { border-bottom: 1px solid var(--border); padding: 0.55rem 0; }
+.cs-row.cs-on { outline: 2px solid #f4c430; border-radius: 8px; padding: 0.55rem; }
+.cs-pick { min-height: 44px; font-weight: 700; }
+.cs-verse-text { margin: 0.35rem 0; line-height: 1.45; }
+.cs-meta { color: var(--text-dim); font-size: 0.9em; margin: 0.2rem 0 0.35rem; }
+textarea.cs-note, textarea.cs-answer { width: 100%; margin: 0.25rem 0 0.45rem; padding: 0.6rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.59.0
+/* app.js – Main application controller. KJV Study PWA v6.79.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.78.1';
+const APP_VERSION = '6.79.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7341,6 +7341,422 @@ async function checkForAppUpdate() {
 }
 
 // ---------- Menu (Import, Settings, About) ----------
+
+// ---------- Chapter study (one session: verses, verse notes, chapter summary) ----------
+let chapterStudy = null;
+
+function chapterStudyBook() {
+  if (!chapterStudy) return null;
+  return books.find((b) => b.id === chapterStudy.bookId) || null;
+}
+
+function chapterStudyChapter() {
+  const book = chapterStudyBook();
+  if (!book) return null;
+  return (book.chapters || []).find((c) => Number(c.number) === Number(chapterStudy.chapter)) || null;
+}
+
+function chapterStudyVerses() {
+  const ch = chapterStudyChapter();
+  return (ch && ch.verses) ? ch.verses : [];
+}
+
+function chapterStudyKey(verseNum) {
+  if (!chapterStudy) return '';
+  return bible.verseKey(chapterStudy.bookId, chapterStudy.chapter, verseNum);
+}
+
+function chapterStudyLabel(verseNum) {
+  const book = chapterStudyBook();
+  const name = book ? book.name : chapterStudy.bookId;
+  return name + ' ' + chapterStudy.chapter + ':' + verseNum;
+}
+
+function chapterStudyTitle() {
+  const book = chapterStudyBook();
+  return (book ? book.name : '') + ' ' + (chapterStudy ? chapterStudy.chapter : '');
+}
+
+async function loadChapterStudyNoteMap() {
+  const verses = chapterStudyVerses();
+  let privateNotes = [];
+  let sharedNotes = [];
+  try { privateNotes = await storage.getAllNotes(); } catch (_) { privateNotes = []; }
+  try { sharedNotes = await storage.getAllSharedNotes(); } catch (_) { sharedNotes = []; }
+  const map = {};
+  verses.forEach((v) => {
+    const key = chapterStudyKey(v.number);
+    const shared = (sharedNotes || []).find((n) => n && Array.isArray(n.verseKeys) && n.verseKeys.includes(key)) || null;
+    const priv = (privateNotes || []).find((n) => n && n.key === key) || null;
+    if (shared) {
+      map[key] = {
+        mode: 'shared',
+        text: String(shared.text || ''),
+        imageIds: Array.isArray(shared.imageIds) ? shared.imageIds.slice() : [],
+        sharedId: shared.id,
+        linkCount: (shared.verseKeys || []).length
+      };
+    } else {
+      map[key] = {
+        mode: 'private',
+        text: priv ? String(priv.text || '') : '',
+        imageIds: priv && Array.isArray(priv.imageIds) ? priv.imageIds.slice() : [],
+        sharedId: '',
+        linkCount: 0
+      };
+    }
+  });
+  return map;
+}
+
+async function saveChapterStudyNote(key, text) {
+  const cached = chapterStudy && chapterStudy.noteMap && chapterStudy.noteMap[key];
+  const body = String(text == null ? '' : text);
+  const imageIds = cached && Array.isArray(cached.imageIds) ? cached.imageIds.slice() : [];
+  if (cached && cached.mode === 'shared' && cached.sharedId) {
+    const shared = await storage.findSharedNoteForVerse(key);
+    if (!shared) return;
+    shared.text = body;
+    shared.imageIds = imageIds;
+    if (!Array.isArray(shared.verseKeys)) shared.verseKeys = [];
+    if (!shared.verseKeys.includes(key)) shared.verseKeys.push(key);
+    await storage.saveSharedNote(shared);
+    cached.text = body;
+    return;
+  }
+  await storage.setNote(key, body, imageIds);
+  if (cached) cached.text = body;
+  try { await paintVerseNoteState(key); } catch (_) {}
+}
+
+async function flushChapterStudyNotes(overlay) {
+  if (!overlay) return;
+  const boxes = overlay.querySelectorAll('textarea.cs-note');
+  for (const box of boxes) {
+    const key = box.dataset.key;
+    if (!key) continue;
+    const cached = chapterStudy && chapterStudy.noteMap && chapterStudy.noteMap[key];
+    const next = box.value || '';
+    if (cached && next === cached.text) continue;
+    await saveChapterStudyNote(key, next);
+  }
+}
+
+function captureChapterStudySummary(overlay) {
+  if (!chapterStudy || !overlay) return;
+  const boxes = overlay.querySelectorAll('textarea.cs-answer');
+  if (!boxes.length) return;
+  chapterStudy.summaryDraft = Array.from(boxes).map((el) => el.value || '');
+  chapterStudy.summaryDirty = true;
+}
+
+async function loadChapterStudySummary() {
+  const title = chapterStudyTitle().trim();
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  const found = earliestSummaryNote(list, title);
+  const answers = summaryAnswersFromNote(found, 'chapter');
+  return {
+    id: found && found.id,
+    createdAt: found && found.createdAt,
+    legacyText: found && found.legacyText ? String(found.legacyText) : '',
+    answers
+  };
+}
+
+async function saveChapterStudySummary(overlay) {
+  if (!chapterStudy) return;
+  captureChapterStudySummary(overlay);
+  const draft = chapterStudy.summaryDraft;
+  if (!draft) return;
+  const loaded = chapterStudy.summaryLoaded || await loadChapterStudySummary();
+  chapterStudy.summaryLoaded = loaded;
+  const title = chapterStudyTitle().trim();
+  const ref = summaryRefFromTitle(title, 'chapter');
+  const lines = summaryQuestionLines('chapter', ref);
+  const answers = draft.slice(0, lines.length);
+  while (answers.length < lines.length) answers.push('');
+  const keptLegacy = loaded.legacyText || '';
+  const joined = joinSummaryText(lines, answers);
+  const text = String(keptLegacy).trim()
+    ? (String(keptLegacy).replace(/\s+$/g, '') + '\n\n' + joined)
+    : joined;
+  const saved = await storage.saveSummaryNote({
+    id: loaded.id,
+    kind: 'chapter',
+    title,
+    ref,
+    answers,
+    legacyText: keptLegacy,
+    text,
+    createdAt: loaded.createdAt
+  });
+  chapterStudy.summaryLoaded = {
+    id: saved.id,
+    createdAt: saved.createdAt,
+    legacyText: keptLegacy,
+    answers
+  };
+  chapterStudy.summaryDraft = answers.slice();
+  chapterStudy.summaryDirty = false;
+}
+
+function paintChapterStudyStrip(overlay) {
+  const strip = overlay.querySelector('#cs-strip');
+  const label = overlay.querySelector('#cs-working');
+  if (!strip || !chapterStudy) return;
+  const verses = chapterStudyVerses();
+  const hit = verses.find((v) => Number(v.number) === Number(chapterStudy.verse)) || verses[0];
+  if (!hit) {
+    strip.textContent = '';
+    if (label) label.textContent = 'No verse';
+    return;
+  }
+  chapterStudy.verse = Number(hit.number);
+  if (label) label.textContent = chapterStudyLabel(hit.number);
+  strip.innerHTML = '<strong>' + escapeHtml(chapterStudyLabel(hit.number)) + '</strong> ' + escapeHtml(hit.text || '');
+}
+
+function markChapterStudyVerse(overlay, skipScroll) {
+  overlay.querySelectorAll('.cs-row').forEach((row) => {
+    row.classList.toggle('cs-on', Number(row.dataset.verse) === Number(chapterStudy.verse));
+  });
+  if (skipScroll) return;
+  const on = overlay.querySelector('.cs-row.cs-on');
+  if (on) on.scrollIntoView({ block: 'nearest' });
+}
+
+async function paintChapterStudyBody(overlay) {
+  const body = overlay.querySelector('#cs-body');
+  if (!body || !chapterStudy) return;
+  const view = chapterStudy.view || 'verses';
+  const verses = chapterStudyVerses();
+  if (view === 'notes') {
+    if (!chapterStudy.noteMap) chapterStudy.noteMap = await loadChapterStudyNoteMap();
+    body.innerHTML = verses.map((v) => {
+      const key = chapterStudyKey(v.number);
+      const note = chapterStudy.noteMap[key] || { mode: 'private', text: '', imageIds: [], linkCount: 0 };
+      const shared = note.mode === 'shared'
+        ? ('<p class="cs-meta">Shared note — edit here updates all ' + note.linkCount + ' linked verses. Images stay attached.</p>')
+        : (note.imageIds && note.imageIds.length
+          ? '<p class="cs-meta">Image stays on this note. The verse Note tool still edits images.</p>'
+          : '');
+      return '<article class="cs-row" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">' +
+        '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
+        '<p class="cs-verse-text">' + escapeHtml(v.text || '') + '</p>' +
+        shared +
+        '<textarea class="cs-note" data-key="' + escapeHtml(key) + '" rows="4" placeholder="Verse note">' + escapeHtml(note.text || '') + '</textarea>' +
+        '</article>';
+    }).join('') + '<button type="button" id="cs-copy-notes" style="width:100%;margin-top:0.6rem;min-height:48px">Copy these verse notes</button>';
+    body.querySelectorAll('.cs-pick').forEach((btn) => {
+      btn.onclick = () => setChapterStudyVerse(overlay, Number(btn.dataset.verse));
+    });
+    body.querySelectorAll('textarea.cs-note').forEach((box) => {
+      box.addEventListener('focus', () => {
+        const row = box.closest('.cs-row');
+        if (row) setChapterStudyVerse(overlay, Number(row.dataset.verse), true);
+      });
+      box.addEventListener('blur', async () => {
+        try { await saveChapterStudyNote(box.dataset.key, box.value || ''); } catch (_) {
+          showAppStatus('Could not save that verse note.', 'fail');
+        }
+      });
+    });
+    const copyBtn = body.querySelector('#cs-copy-notes');
+    if (copyBtn) copyBtn.onclick = () => copyChapterStudyNotes(overlay);
+  } else if (view === 'summary') {
+    if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
+    if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = chapterStudy.summaryLoaded.answers.slice();
+    const title = chapterStudyTitle().trim();
+    const ref = summaryRefFromTitle(title, 'chapter');
+    const lines = summaryQuestionLines('chapter', ref);
+    body.innerHTML = '<p class="cs-meta">Same four questions as this chapter’s summary. Saving here writes that summary, not a second note.</p>' +
+      lines.map((line, i) => {
+        const val = chapterStudy.summaryDraft[i] == null ? '' : chapterStudy.summaryDraft[i];
+        return '<p class="sn-q-label">' + escapeHtml(line) + '</p>' +
+          '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>';
+      }).join('') +
+      '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.7rem;min-height:52px">Save chapter summary</button>';
+    body.querySelectorAll('textarea.cs-answer').forEach((box) => {
+      box.addEventListener('input', () => { chapterStudy.summaryDirty = true; });
+    });
+    const saveBtn = body.querySelector('#cs-save-summary');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        try {
+          await saveChapterStudySummary(overlay);
+          showAppStatus('Chapter summary saved.', 'ok');
+        } catch (_) {
+          showAppStatus('Could not save the chapter summary.', 'fail');
+        }
+      };
+    }
+  } else {
+    body.innerHTML = verses.map((v) => {
+      return '<article class="cs-row" data-verse="' + v.number + '">' +
+        '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
+        '<p class="cs-verse-text">' + escapeHtml(v.text || '') + '</p>' +
+        '</article>';
+    }).join('');
+    body.querySelectorAll('.cs-pick').forEach((btn) => {
+      btn.onclick = () => setChapterStudyVerse(overlay, Number(btn.dataset.verse));
+    });
+  }
+  markChapterStudyVerse(overlay);
+  overlay.querySelectorAll('.cs-tab').forEach((tab) => {
+    tab.classList.toggle('cs-tab-on', tab.dataset.view === view);
+  });
+}
+
+function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
+  const verses = chapterStudyVerses();
+  if (!verses.length || !chapterStudy) return;
+  const nums = verses.map((v) => Number(v.number));
+  if (!nums.includes(Number(verseNum))) return;
+  chapterStudy.verse = Number(verseNum);
+  paintChapterStudyStrip(overlay);
+  markChapterStudyVerse(overlay, !!fromNoteFocus);
+  if (!fromNoteFocus) {
+    const on = overlay.querySelector('.cs-row.cs-on textarea');
+    if (on && document.activeElement !== on) on.focus();
+  }
+}
+
+async function switchChapterStudyView(overlay, view) {
+  if (!chapterStudy || chapterStudy.view === view) return;
+  try {
+    if (chapterStudy.view === 'notes') await flushChapterStudyNotes(overlay);
+    if (chapterStudy.view === 'summary') captureChapterStudySummary(overlay);
+  } catch (_) {
+    showAppStatus('Could not keep the last edit.', 'fail');
+    return;
+  }
+  chapterStudy.view = view;
+  await paintChapterStudyBody(overlay);
+}
+
+async function copyChapterStudyNotes(overlay) {
+  try { await flushChapterStudyNotes(overlay); } catch (_) {}
+  const verses = chapterStudyVerses();
+  const lines = [];
+  verses.forEach((v) => {
+    const key = chapterStudyKey(v.number);
+    const note = chapterStudy.noteMap && chapterStudy.noteMap[key];
+    const text = note ? String(note.text || '').trim() : '';
+    if (!text) return;
+    lines.push(chapterStudyLabel(v.number));
+    lines.push(text);
+    lines.push('');
+  });
+  if (!lines.length) {
+    showAppStatus('No verse notes in this chapter.', 'fail');
+    return;
+  }
+  const ok = await copyText(lines.join('\n').trim());
+  showAppStatus(ok ? 'Copied verse notes in order.' : 'Could not copy.', ok ? 'ok' : 'fail');
+}
+
+async function leaveChapterStudy(overlay) {
+  if (chapterStudy && chapterStudy._leaving) return;
+  if (chapterStudy) chapterStudy._leaving = true;
+  const place = chapterStudy
+    ? { bookId: chapterStudy.bookId, chapter: chapterStudy.chapter, verse: chapterStudy.verse }
+    : null;
+  try {
+    if (overlay && chapterStudy) {
+      await flushChapterStudyNotes(overlay);
+      if (chapterStudy.summaryDirty || overlay.querySelector('textarea.cs-answer')) {
+        await saveChapterStudySummary(overlay);
+      }
+    }
+  } catch (_) {
+    showAppStatus('Could not save the chapter study edits.', 'fail');
+  }
+  chapterStudy = null;
+  closeOverlay(overlay);
+  if (place && place.bookId) {
+    const key = bible.verseKey(place.bookId, place.chapter, place.verse);
+    try { await renderChapter(place.bookId, place.chapter, { scrollToKey: key }); } catch (_) {}
+  }
+}
+
+async function openChapterStudy() {
+  const book = books.find((b) => b.id === currentBookId);
+  if (!book) {
+    showAppStatus('Open a chapter first.', 'fail');
+    return;
+  }
+  const ch = (book.chapters || []).find((c) => Number(c.number) === Number(currentChapter));
+  if (!ch || !(ch.verses || []).length) {
+    showAppStatus('This chapter has no verses.', 'fail');
+    return;
+  }
+  let verse = Number(ch.verses[0].number) || 1;
+  const onScreen = verseOnScreenKey();
+  const parsed = onScreen ? bible.parseKey(onScreen) : null;
+  if (parsed && parsed.bookId === book.id && Number(parsed.chapter) === Number(currentChapter) && parsed.verse) {
+    verse = Number(parsed.verse);
+  }
+  chapterStudy = {
+    bookId: book.id,
+    chapter: Number(currentChapter),
+    verse,
+    view: 'verses',
+    noteMap: null,
+    summaryLoaded: null,
+    summaryDraft: null,
+    summaryDirty: false
+  };
+  const overlay = showOverlay(
+    '<div class="panel cs-panel">' +
+      '<div class="search-header-top">' +
+        '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+        '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
+      '</div>' +
+      '<div class="cs-tabs">' +
+        '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
+        '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
+        '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
+      '</div>' +
+      '<div class="cs-step">' +
+        '<button type="button" id="cs-prev">Prev verse</button>' +
+        '<span id="cs-working"></span>' +
+        '<button type="button" id="cs-next">Next verse</button>' +
+      '</div>' +
+      '<p id="cs-strip" class="cs-strip"></p>' +
+      '<div id="cs-body"></div>' +
+    '</div>'
+  );
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      e.stopImmediatePropagation();
+      leaveChapterStudy(overlay);
+    }
+  }, true);
+  $('#cs-close', overlay).onclick = () => leaveChapterStudy(overlay);
+  overlay.querySelectorAll('.cs-tab').forEach((tab) => {
+    tab.onclick = () => switchChapterStudyView(overlay, tab.dataset.view);
+  });
+  $('#cs-prev', overlay).onclick = () => stepChapterStudyVerse(overlay, -1);
+  $('#cs-next', overlay).onclick = () => stepChapterStudyVerse(overlay, 1);
+  paintChapterStudyStrip(overlay);
+  await paintChapterStudyBody(overlay);
+}
+
+function stepChapterStudyVerse(overlay, dir) {
+  const verses = chapterStudyVerses();
+  if (!verses.length || !chapterStudy) return;
+  const nums = verses.map((v) => Number(v.number));
+  let idx = nums.indexOf(Number(chapterStudy.verse));
+  if (idx < 0) idx = 0;
+  const next = idx + dir;
+  if (next < 0 || next >= nums.length) {
+    showAppStatus(next < 0 ? 'First verse of this chapter.' : 'Last verse of this chapter.', 'ok');
+    return;
+  }
+  setChapterStudyVerse(overlay, nums[next]);
+}
+
 function openMenu() {
   const overlay = showOverlay(`
     <div class="panel">
@@ -7349,6 +7765,7 @@ function openMenu() {
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
       <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Verse notes</button>
+      <button type="button" id="menu-chapter-study" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chapter study</button>
       <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
       <button type="button" id="menu-summary-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Summary notes</button>
       <button type="button" id="menu-book-summary" style="width:100%;margin-bottom:0.5rem;min-height:52px">Book summary</button>
@@ -7373,6 +7790,7 @@ function openMenu() {
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
   $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
+  $('#menu-chapter-study', overlay).onclick = () => { closeOverlay(overlay); openChapterStudy(); };
   $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
   $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
   $('#menu-book-summary', overlay).onclick = () => { closeOverlay(overlay); openBookSummary(); };
@@ -9321,6 +9739,9 @@ function openHelp() {
 
         <p style="margin-bottom:1rem"><strong>Shared notes</strong><br>
         Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
+
+        <p style="margin-bottom:1rem"><strong>Chapter study</strong><br>
+        Menu → <strong>Chapter study</strong> opens the chapter on screen as one session. Verses, verse notes, and the chapter summary stay on that session. Prev and next keep the same working verse in all three. A private note saved empty is cleared. A shared note edited here updates every verse it is linked to. Images stay on the note. Close returns to that verse in reading. Menu → Verse notes, Summary notes, and Book summary are unchanged.</p>
 
         <p style="margin-bottom:1rem"><strong>Find your verse notes</strong><br>
         Menu → <strong>Verse notes</strong>. Filter matches the note text and the verse reference.

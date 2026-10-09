@@ -1,6 +1,11 @@
-# KJV Study PWA – v6.78.1
+# KJV Study PWA – v6.79.0
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.79.0
+- Menu → **Chapter study** opens the chapter on screen as one session. Verses, verse notes, and the chapter summary share one working verse. Prev and next keep that verse in all three views. Close returns to that verse in reading.
+- Verse notes in that session are every verse in order, editable in place, including empty verses. A shared note edited there updates its linked verses. Images already on a note are kept.
+- The chapter summary in that session is the same four-question note as Menu → Summary notes for this chapter. It does not create a second summary.
 
 ## New in 6.78.1
 - Typing in a chapter summary answer no longer jumps the box to the top. The line you are typing stays on screen, below the gold hop button.
