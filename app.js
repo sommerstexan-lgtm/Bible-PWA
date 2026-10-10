@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.79.1';
+const APP_VERSION = '6.79.2';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6137,42 +6137,48 @@ function caretLineTop(el) {
 }
 
 /** Grow a note box without letting the browser yank the caret to the top of the panel. */
+function studyScrollHost(el) {
+  if (!el || !el.closest) return null;
+  return el.closest('.cs-scroll') || el.closest('.panel');
+}
+
 function growSummaryBox(el) {
   if (!el) return;
-  const panel = el.closest('.panel');
-  const prev = panel ? panel.scrollTop : 0;
+  const host = studyScrollHost(el);
+  const prev = host ? host.scrollTop : 0;
   const topBefore = el.getBoundingClientRect().top;
   el.style.overflowY = 'hidden';
   el.style.height = 'auto';
   const next = Math.max(120, (el.scrollHeight || 0) + 8);
   el.style.height = next + 'px';
   el.scrollTop = 0;
-  if (panel) {
+  if (host) {
     const delta = el.getBoundingClientRect().top - topBefore;
-    panel.scrollTop = prev + delta;
+    host.scrollTop = prev + delta;
   }
   keepCaretComfortable(el);
-  const locked = panel ? panel.scrollTop : 0;
+  const locked = host ? host.scrollTop : 0;
   requestAnimationFrame(() => {
-    if (!panel || document.activeElement !== el) return;
-    panel.scrollTop = locked;
+    if (!host || document.activeElement !== el) return;
+    host.scrollTop = locked;
     keepCaretComfortable(el);
   });
 }
 
 /** Keep the typing line in the visible area, below any sticky gold hop button. Never pin it to the top. */
 function keepCaretComfortable(el) {
-  const panel = el && el.closest ? el.closest('.panel') : null;
-  if (!panel || !el) return;
-  const sticky = panel.querySelector('.hop-gold');
+  const host = studyScrollHost(el);
+  if (!host || !el) return;
+  const inChapterStudy = host.classList && host.classList.contains('cs-scroll');
+  const sticky = inChapterStudy ? null : host.querySelector('.hop-gold');
   const stickyH = sticky ? sticky.getBoundingClientRect().height : 0;
-  const panelRect = panel.getBoundingClientRect();
-  const topLimit = panelRect.top + stickyH + 16;
-  const bottomLimit = panelRect.bottom - 36;
+  const hostRect = host.getBoundingClientRect();
+  const topLimit = hostRect.top + stickyH + 16;
+  const bottomLimit = hostRect.bottom - 36;
   const line = parseFloat(getComputedStyle(el).lineHeight) || 24;
   const caret = caretLineTop(el);
-  if (caret + line > bottomLimit) panel.scrollTop += (caret + line) - bottomLimit;
-  else if (caret < topLimit) panel.scrollTop -= topLimit - caret;
+  if (caret + line > bottomLimit) host.scrollTop += (caret + line) - bottomLimit;
+  else if (caret < topLimit) host.scrollTop -= topLimit - caret;
 }
 
 function installTypingScrollGuard() {
@@ -7442,12 +7448,36 @@ async function flushChapterStudyNotes(overlay) {
   }
 }
 
+function rememberChapterStudySummaryCursor(el) {
+  if (!chapterStudy || !el || !el.classList || !el.classList.contains('cs-answer')) return;
+  chapterStudy.summaryFocus = {
+    box: Number(el.dataset.i),
+    start: el.selectionStart || 0,
+    end: el.selectionEnd || 0
+  };
+}
+
 function captureChapterStudySummary(overlay) {
   if (!chapterStudy || !overlay) return;
   const boxes = overlay.querySelectorAll('textarea.cs-answer');
   if (!boxes.length) return;
+  const active = document.activeElement;
+  if (active && active.classList && active.classList.contains('cs-answer')) rememberChapterStudySummaryCursor(active);
   chapterStudy.summaryDraft = Array.from(boxes).map((el) => el.value || '');
   chapterStudy.summaryDirty = true;
+}
+
+function restoreChapterStudySummaryFocus(overlay) {
+  if (!chapterStudy || !chapterStudy.summaryFocus || !overlay) return;
+  const focus = chapterStudy.summaryFocus;
+  const box = overlay.querySelector('textarea.cs-answer[data-i="' + focus.box + '"]');
+  if (!box) return;
+  box.focus();
+  const end = box.value.length;
+  const start = Math.min(focus.start || 0, end);
+  const selEnd = Math.min(focus.end == null ? start : focus.end, end);
+  try { box.setSelectionRange(start, selEnd); } catch (_) {}
+  keepCaretComfortable(box);
 }
 
 async function loadChapterStudySummary() {
@@ -7581,8 +7611,19 @@ async function paintChapterStudyBody(overlay) {
       }).join('') +
       '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.7rem;min-height:52px">Save chapter summary</button>';
     body.querySelectorAll('textarea.cs-answer').forEach((box) => {
-      box.addEventListener('input', () => { chapterStudy.summaryDirty = true; });
+      box.addEventListener('focus', () => rememberChapterStudySummaryCursor(box));
+      box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
+      box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
+      box.addEventListener('input', () => {
+        chapterStudy.summaryDirty = true;
+        rememberChapterStudySummaryCursor(box);
+      });
+      growSummaryBox(box);
     });
+    if (chapterStudy.summaryFocus) {
+      setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
+      setTimeout(() => restoreChapterStudySummaryFocus(overlay), 60);
+    }
     const saveBtn = body.querySelector('#cs-save-summary');
     if (saveBtn) {
       saveBtn.onclick = async () => {

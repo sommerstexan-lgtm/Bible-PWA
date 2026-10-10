@@ -1,4 +1,12 @@
-# KJV Study PWA – v6.79.1
+# KJV Study PWA – v6.79.2
+
+Private, local-only Bible study (public-domain KJV). All data stays on your device.
+
+## New in 6.79.2
+- Chapter summary boxes in Chapter study scroll with the typing line. The caret stays on screen while the box grows.
+- Leaving a chapter summary box for Verses or Verse notes, then coming back, returns focus to that same box and caret.
+
+## New in 6.79.1
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 
