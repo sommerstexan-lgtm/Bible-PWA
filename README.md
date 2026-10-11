@@ -1,4 +1,8 @@
-# KJV Study PWA – v6.79.2
+# KJV Study PWA – v6.79.3
+
+## New in 6.79.3
+- General note editor text box is larger (min ~280px) and scrolls internally so Chromebook touchpad can move through long notes without the box being too small.
+
 
 Private, local-only Bible study (public-domain KJV). All data stays on your device.
 

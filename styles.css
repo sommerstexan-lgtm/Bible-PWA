@@ -2693,3 +2693,12 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-verse-text { margin: 0.35rem 0; line-height: 1.45; }
 .cs-meta { color: var(--text-dim); font-size: 0.9em; margin: 0.2rem 0 0.35rem; }
 textarea.cs-note, textarea.cs-answer { width: 100%; margin: 0.25rem 0 0.45rem; padding: 0.6rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+
+/* General note editor – larger, scrollable textarea for Chromebook touchpad (v6.79.3) */
+#gn-text {
+  min-height: 280px;
+  max-height: 55vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  resize: vertical;
+}
