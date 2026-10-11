@@ -1,4 +1,7 @@
-# KJV Study PWA – v6.79.3
+# KJV Study PWA – v6.79.4
+
+## New in 6.79.4
+- Menu → **Shekel weight** converts a number of shekels (1 shekel = 11.33 g) to grams, ounces, pounds, and pounds + ounces.
 
 ## New in 6.79.3
 - General note editor text box is larger (min ~280px) and scrolls internally so Chromebook touchpad can move through long notes without the box being too small.

@@ -7815,6 +7815,7 @@ function openMenu() {
       <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Verse notes</button>
       <button type="button" id="menu-chapter-study" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chapter study</button>
       <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
+      <button type="button" id="menu-shekel" style="width:100%;margin-bottom:0.5rem;min-height:52px">Shekel weight</button>
       <button type="button" id="menu-summary-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Summary notes</button>
       <button type="button" id="menu-book-summary" style="width:100%;margin-bottom:0.5rem;min-height:52px">Book summary</button>
       <button type="button" id="menu-print-copy" style="width:100%;margin-bottom:0.5rem;min-height:52px">Print or copy</button>
@@ -7840,6 +7841,7 @@ function openMenu() {
   $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
   $('#menu-chapter-study', overlay).onclick = () => { closeOverlay(overlay); openChapterStudy(); };
   $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
+  $('#menu-shekel', overlay).onclick = () => { closeOverlay(overlay); openShekelConverter(); };
   $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
   $('#menu-book-summary', overlay).onclick = () => { closeOverlay(overlay); openBookSummary(); };
   $('#menu-print-copy', overlay).onclick = () => { closeOverlay(overlay); openPrintCopyMenu(); };
@@ -7951,6 +7953,66 @@ function openImport() {
       alert('Import failed: ' + (err.message || err) + '\n\nYour existing books and notes are unchanged.');
     }
   };
+}
+
+
+// ---------- Shekel weight converter (1 shekel = 11.33 g) ----------
+function openShekelConverter() {
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Shekel weight</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p style="margin:0 0 0.8rem;font-size:0.95em;color:var(--text-dim);line-height:1.45">
+        1 shekel = 11.33 grams (Judahite archaeological standard).
+      </p>
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Number of shekels</label>
+      <input type="number" id="shekel-input" class="search-box" inputmode="decimal" step="any" min="0" placeholder="e.g. 50" style="margin-bottom:1rem" autocomplete="off">
+      <div id="shekel-result" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.9rem 1rem;line-height:1.6;min-height:8rem">
+        Enter a number of shekels.
+      </div>
+      <button type="button" id="shekel-clear" style="width:100%;margin-top:0.8rem;min-height:48px">Clear</button>
+    </div>
+  `);
+  const close = () => closeOverlay(overlay);
+  $('.close', overlay).onclick = close;
+  const input = $('#shekel-input', overlay);
+  const result = $('#shekel-result', overlay);
+  function update() {
+    const raw = (input.value || '').trim();
+    if (!raw) {
+      result.innerHTML = 'Enter a number of shekels.';
+      return;
+    }
+    const n = parseFloat(raw);
+    if (!isFinite(n) || n < 0) {
+      result.innerHTML = 'Enter a valid number of shekels.';
+      return;
+    }
+    const grams = n * 11.33;
+    const ounces = grams / 28.349523125;
+    const pounds = ounces / 16;
+    const wholePounds = Math.floor(pounds);
+    const remOunces = ounces - wholePounds * 16;
+    const fmt = (v, d) => (Math.round(v * Math.pow(10, d)) / Math.pow(10, d)).toFixed(d);
+    result.innerHTML =
+      '<div><strong>' + escapeHtml(String(n)) + ' shekel' + (n === 1 ? '' : 's') + '</strong></div>' +
+      '<div style="margin-top:0.5rem">Grams: ' + fmt(grams, 2) + ' g</div>' +
+      '<div>Ounces: ' + fmt(ounces, 3) + ' oz</div>' +
+      '<div>Pounds: ' + fmt(pounds, 4) + ' lb</div>' +
+      (wholePounds > 0
+        ? '<div style="margin-top:0.4rem">Combination: ' + wholePounds + ' lb ' + fmt(remOunces, 2) + ' oz</div>'
+        : '');
+  }
+  input.oninput = update;
+  input.onkeyup = update;
+  $('#shekel-clear', overlay).onclick = () => {
+    input.value = '';
+    update();
+    input.focus();
+  };
+  setTimeout(() => { if (input) input.focus(); }, 80);
 }
 
 function openSettings() {
