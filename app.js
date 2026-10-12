@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.79.5
+/* app.js – Main application controller. KJV Study PWA v6.79.6
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.79.5';
+const APP_VERSION = '6.79.6';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6117,6 +6117,24 @@ function summaryAnswersFromNote(note, kind) {
   return out;
 }
 
+/** Recover answers that were saved only in the joined summary text. */
+function answersFromSummaryText(text, lines) {
+  const out = lines.map(() => '');
+  const src = String(text || '');
+  if (!src.trim()) return out;
+  const markers = lines.map((line, i) => ({ i, line: String(line || '') })).filter(m => m.line);
+  if (!markers.length) return out;
+  for (let m = 0; m < markers.length; m++) {
+    const start = src.indexOf(markers[m].line);
+    if (start < 0) continue;
+    const after = start + markers[m].line.length;
+    const next = m + 1 < markers.length ? src.indexOf(markers[m + 1].line, after) : -1;
+    const chunk = (next >= 0 ? src.slice(after, next) : src.slice(after)).replace(/^\s+/, '').replace(/\s+$/, '');
+    if (chunk) out[markers[m].i] = chunk;
+  }
+  return out;
+}
+
 function joinSummaryText(lines, answers) {
   const parts = [];
   for (let i = 0; i < lines.length; i++) {
@@ -7513,7 +7531,16 @@ async function loadChapterStudySummary() {
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
   const found = earliestSummaryNote(list, title);
-  const answers = summaryAnswersFromNote(found, 'chapter');
+  const ref = summaryRefFromTitle(title, 'chapter');
+  const lines = summaryQuestionLines('chapter', ref);
+  let answers = summaryAnswersFromNote(found, 'chapter');
+  const joined = String((found && found.text) || '').trim();
+  const legacy = String((found && found.legacyText) || '').trim();
+  const source = joined || legacy;
+  if (source) {
+    const recovered = answersFromSummaryText(source, lines);
+    answers = answers.map((a, i) => (String(a || '').trim() ? a : (recovered[i] || '')));
+  }
   return {
     id: found && found.id,
     createdAt: found && found.createdAt,

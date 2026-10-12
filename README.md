@@ -1,4 +1,7 @@
-# KJV Study PWA – v6.79.5
+# KJV Study PWA – v6.79.6
+
+## New in 6.79.6
+- Chapter study recovers summary answers from the stored summary text when the answers array is incomplete.
 
 ## New in 6.79.5
 - Chapter study text boxes stay visible above the on-screen keyboard while typing.
