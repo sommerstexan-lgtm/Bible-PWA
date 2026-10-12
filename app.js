@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.79.0
+/* app.js – Main application controller. KJV Study PWA v6.79.5
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.79.2';
+const APP_VERSION = '6.79.5';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6173,12 +6173,40 @@ function keepCaretComfortable(el) {
   const sticky = inChapterStudy ? null : host.querySelector('.hop-gold');
   const stickyH = sticky ? sticky.getBoundingClientRect().height : 0;
   const hostRect = host.getBoundingClientRect();
+  // Use visualViewport so the caret stays above the on-screen keyboard
+  let visibleBottom = window.innerHeight;
+  if (window.visualViewport) {
+    visibleBottom = window.visualViewport.offsetTop + window.visualViewport.height;
+  }
   const topLimit = hostRect.top + stickyH + 16;
-  const bottomLimit = hostRect.bottom - 36;
+  const bottomLimit = Math.min(hostRect.bottom, visibleBottom) - 48;
   const line = parseFloat(getComputedStyle(el).lineHeight) || 24;
   const caret = caretLineTop(el);
   if (caret + line > bottomLimit) host.scrollTop += (caret + line) - bottomLimit;
   else if (caret < topLimit) host.scrollTop -= topLimit - caret;
+}
+
+/** Keep the caret visible above the keyboard while editing chapter-study notes/summary. */
+function attachChapterStudyKeyboardFix(box) {
+  if (!box || box._csKbFix) return;
+  box._csKbFix = true;
+  const adjust = () => {
+    if (document.activeElement !== box) return;
+    requestAnimationFrame(() => keepCaretComfortable(box));
+  };
+  box.addEventListener('focus', () => {
+    setTimeout(adjust, 50);
+    setTimeout(adjust, 300);
+    setTimeout(adjust, 700);
+  });
+  box.addEventListener('input', adjust);
+  if (window.visualViewport) {
+    const onVV = () => {
+      if (document.activeElement === box) adjust();
+    };
+    window.visualViewport.addEventListener('resize', onVV);
+    window.visualViewport.addEventListener('scroll', onVV);
+  }
 }
 
 function installTypingScrollGuard() {
@@ -7594,6 +7622,7 @@ async function paintChapterStudyBody(overlay) {
           showAppStatus('Could not save that verse note.', 'fail');
         }
       });
+      attachChapterStudyKeyboardFix(box);
     });
     const copyBtn = body.querySelector('#cs-copy-notes');
     if (copyBtn) copyBtn.onclick = () => copyChapterStudyNotes(overlay);
@@ -7619,6 +7648,7 @@ async function paintChapterStudyBody(overlay) {
         rememberChapterStudySummaryCursor(box);
       });
       growSummaryBox(box);
+      attachChapterStudyKeyboardFix(box);
     });
     if (chapterStudy.summaryFocus) {
       setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
