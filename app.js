@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.79.6
+/* app.js – Main application controller. KJV Study PWA v6.79.7
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.79.6';
+const APP_VERSION = '6.79.7';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6410,6 +6410,27 @@ function earliestSummaryNote(list, title) {
   return hits[0] || null;
 }
 
+/** Prefer the note with the most non-empty answers, then most recently updated. */
+function fullestSummaryNote(list, title) {
+  const wanted = String(title || '').trim().toLowerCase();
+  const hits = (list || []).filter((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === wanted);
+  if (!hits.length) return null;
+  function score(n) {
+    const ans = Array.isArray(n.answers) ? n.answers : [];
+    let filled = 0;
+    for (const a of ans) if (String(a || '').trim()) filled++;
+    const updated = Date.parse(n.updatedAt || n.createdAt || '') || 0;
+    return { filled, updated };
+  }
+  hits.sort((a, b) => {
+    const sa = score(a), sb = score(b);
+    if (sa.filled !== sb.filled) return sb.filled - sa.filled;
+    if (sa.updated !== sb.updated) return sb.updated - sa.updated;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return hits[0];
+}
+
 async function openChapterSummaryAt(title, place) {
   const wanted = String(title || '').trim();
   if (!wanted) {
@@ -7530,7 +7551,7 @@ async function loadChapterStudySummary() {
   const title = chapterStudyTitle().trim();
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
-  const found = earliestSummaryNote(list, title);
+  const found = fullestSummaryNote(list, title);
   const ref = summaryRefFromTitle(title, 'chapter');
   const lines = summaryQuestionLines('chapter', ref);
   let answers = summaryAnswersFromNote(found, 'chapter');
@@ -7559,8 +7580,33 @@ async function saveChapterStudySummary(overlay) {
   const title = chapterStudyTitle().trim();
   const ref = summaryRefFromTitle(title, 'chapter');
   const lines = summaryQuestionLines('chapter', ref);
+  const prev = (loaded.answers || []).slice();
   const answers = draft.slice(0, lines.length);
   while (answers.length < lines.length) answers.push('');
+  // Never replace a non-empty stored answer with a blank unless the user confirms.
+  const cleared = [];
+  for (let i = 0; i < answers.length; i++) {
+    const was = String(prev[i] || '').trim();
+    const now = String(answers[i] || '').trim();
+    if (was && !now) {
+      cleared.push(lines[i] || ('answer ' + (i + 1)));
+    }
+  }
+  if (cleared.length) {
+    const msg = 'This will clear previously saved notes for:\n\n' + cleared.join('\n') + '\n\nContinue?';
+    if (!confirm(msg)) {
+      // Restore the previous non-empty answers and do not write.
+      chapterStudy.summaryDraft = prev.slice();
+      chapterStudy.summaryDirty = false;
+      return;
+    }
+  }
+  // For any remaining blanks, keep the previously stored non-empty value (safety).
+  for (let i = 0; i < answers.length; i++) {
+    if (!String(answers[i] || '').trim() && String(prev[i] || '').trim()) {
+      answers[i] = prev[i];
+    }
+  }
   const keptLegacy = loaded.legacyText || '';
   const joined = joinSummaryText(lines, answers);
   const text = String(keptLegacy).trim()
@@ -7766,7 +7812,7 @@ async function leaveChapterStudy(overlay) {
   try {
     if (overlay && chapterStudy) {
       await flushChapterStudyNotes(overlay);
-      if (chapterStudy.summaryDirty || overlay.querySelector('textarea.cs-answer')) {
+      if (chapterStudy.summaryDirty) {
         await saveChapterStudySummary(overlay);
       }
     }

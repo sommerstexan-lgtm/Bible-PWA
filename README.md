@@ -1,4 +1,7 @@
-# KJV Study PWA – v6.79.6
+# KJV Study PWA – v6.79.7
+
+## New in 6.79.7
+- Chapter study summary saves only after an actual edit, loads the fullest note, and refuses to replace a saved answer with a blank without confirmation.
 
 ## New in 6.79.6
 - Chapter study recovers summary answers from the stored summary text when the answers array is incomplete.
