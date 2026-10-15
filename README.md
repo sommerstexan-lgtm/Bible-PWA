@@ -1,4 +1,8 @@
-# KJV Study PWA – v6.79.7
+# KJV Study PWA – v6.79.8
+
+## New in 6.79.8
+- Chapter study modal is centered on screen with more usable height.
+- Summary and verse-note text boxes stay fully visible while typing: larger bottom padding in the scroll area, height capped with internal scroll when long, and focus scrolls the box into the visible area so you can type, watch, and confirm the entry.
 
 ## New in 6.79.7
 - Chapter study summary saves only after an actual edit, loads the fullest note, and refuses to replace a saved answer with a blank without confirmation.

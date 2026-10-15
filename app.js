@@ -6167,7 +6167,15 @@ function growSummaryBox(el) {
   const topBefore = el.getBoundingClientRect().top;
   el.style.overflowY = 'hidden';
   el.style.height = 'auto';
-  const next = Math.max(120, (el.scrollHeight || 0) + 8);
+  let next = Math.max(120, (el.scrollHeight || 0) + 8);
+  // Cap so the box stays usable; switch to internal scroll if content is longer
+  const maxH = Math.min(window.innerHeight * 0.38, 420);
+  if (next > maxH) {
+    next = maxH;
+    el.style.overflowY = 'auto';
+  } else {
+    el.style.overflowY = 'hidden';
+  }
   el.style.height = next + 'px';
   el.scrollTop = 0;
   if (host) {
@@ -7689,6 +7697,18 @@ async function paintChapterStudyBody(overlay) {
       box.addEventListener('focus', () => {
         const row = box.closest('.cs-row');
         if (row) setChapterStudyVerse(overlay, Number(row.dataset.verse), true);
+        setTimeout(() => {
+          const host = box.closest('.cs-scroll');
+          if (host) {
+            const br = box.getBoundingClientRect();
+            const hr = host.getBoundingClientRect();
+            const fullyVisible = br.top >= hr.top + 8 && br.bottom <= hr.bottom - 24;
+            if (!fullyVisible) {
+              box.scrollIntoView({ block: 'center', behavior: 'instant' });
+            }
+          }
+          keepCaretComfortable(box);
+        }, 40);
       });
       box.addEventListener('blur', async () => {
         try { await saveChapterStudyNote(box.dataset.key, box.value || ''); } catch (_) {
@@ -7713,7 +7733,21 @@ async function paintChapterStudyBody(overlay) {
       }).join('') +
       '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.7rem;min-height:52px">Save chapter summary</button>';
     body.querySelectorAll('textarea.cs-answer').forEach((box) => {
-      box.addEventListener('focus', () => rememberChapterStudySummaryCursor(box));
+      box.addEventListener('focus', () => {
+        rememberChapterStudySummaryCursor(box);
+        setTimeout(() => {
+          const host = box.closest('.cs-scroll');
+          if (host) {
+            const br = box.getBoundingClientRect();
+            const hr = host.getBoundingClientRect();
+            const fullyVisible = br.top >= hr.top + 8 && br.bottom <= hr.bottom - 24;
+            if (!fullyVisible) {
+              box.scrollIntoView({ block: 'center', behavior: 'instant' });
+            }
+          }
+          keepCaretComfortable(box);
+        }, 40);
+      });
       box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
       box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
       box.addEventListener('input', () => {
@@ -7876,7 +7910,8 @@ async function openChapterStudy() {
         '<p id="cs-strip" class="cs-strip"></p>' +
         '<div id="cs-body"></div>' +
       '</div>' +
-    '</div>'
+    '</div>',
+    { center: true }
   );
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) {

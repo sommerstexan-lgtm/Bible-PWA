@@ -2677,7 +2677,7 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 0.7rem 1.2rem 1.2rem;
+  padding: 0.7rem 1.2rem 9rem;
   -webkit-overflow-scrolling: touch;
 }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }
@@ -2692,7 +2692,22 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-pick { min-height: 44px; font-weight: 700; }
 .cs-verse-text { margin: 0.35rem 0; line-height: 1.45; }
 .cs-meta { color: var(--text-dim); font-size: 0.9em; margin: 0.2rem 0 0.35rem; }
-textarea.cs-note, textarea.cs-answer { width: 100%; margin: 0.25rem 0 0.45rem; padding: 0.6rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+textarea.cs-note, textarea.cs-answer {
+  width: 100%;
+  margin: 0.25rem 0 0.45rem;
+  padding: 0.6rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 140px;
+  max-height: 38vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  resize: vertical;
+  box-sizing: border-box;
+}
 
 /* General note editor – larger, scrollable textarea for Chromebook touchpad (v6.79.3) */
 #gn-text {
