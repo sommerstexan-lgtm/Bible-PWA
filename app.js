@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.86.0
+/* app.js – Main application controller. KJV Study PWA v6.87.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.86.0';
+const APP_VERSION = '6.87.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -423,6 +423,7 @@ function openPlaceMapScreen(place) {
       <div class="places-fs-dist" id="places-fs-dist" hidden></div>
       <div class="places-fs-dock">
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-legs-btn">Legs</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save map image</button>
@@ -525,6 +526,17 @@ function openPlaceMapScreen(place) {
   const qEl = $('#places-fs-q', mapOverlay);
   const hitsEl = $('#places-fs-hits', mapOverlay);
   const onMapEl = $('#places-fs-onmap', mapOverlay);
+  const legsBtn = $('#places-fs-legs-btn', mapOverlay);
+  let legsOpen = false;
+  function setLegsOpen(open) {
+    legsOpen = !!open;
+    if (distEl) {
+      if (legsOpen && extras && extras.length) distEl.removeAttribute('hidden');
+      else distEl.setAttribute('hidden', '');
+    }
+    if (legsBtn) legsBtn.textContent = legsOpen ? 'Hide legs' : 'Legs';
+  }
+  if (legsBtn) legsBtn.onclick = () => setLegsOpen(!legsOpen);
 
   function setPanel(which) {
     if (notesEl) {
@@ -614,17 +626,37 @@ function openPlaceMapScreen(place) {
         }
         const mapEl = document.getElementById('places-fs-map');
         if (!mapEl) throw new Error('no map');
-        // Hide compass temporarily for cleaner image
         const compass = mapEl.parentElement && mapEl.parentElement.querySelector('.places-compass');
+        const legsWasOpen = legsOpen;
+        setLegsOpen(false);
         if (compass) compass.style.display = 'none';
-        const canvas = await html2canvas(mapEl, {
+        if (typeof relabelMarkers === 'function') relabelMarkers(false);
+        if (mapObj && mapObj.invalidateSize) mapObj.invalidateSize();
+        if (typeof fitAll === 'function') fitAll();
+        await new Promise((r) => setTimeout(r, 450));
+        const mapCanvas = await html2canvas(mapEl, {
           useCORS: true,
           allowTaint: false,
-          backgroundColor: '#1a1f2e',
+          backgroundColor: '#d8d4c8',
           scale: 2
         });
         if (compass) compass.style.display = '';
-        canvas.toBlob(async (blob) => {
+        if (legsWasOpen) setLegsOpen(true);
+        const labels = [name].concat((extras || []).map((ex) => ex.name));
+        const legendH = Math.max(64, 36 + labels.length * 34);
+        const out = document.createElement('canvas');
+        out.width = mapCanvas.width;
+        out.height = mapCanvas.height + legendH;
+        const ctx = out.getContext('2d');
+        ctx.fillStyle = '#0f1724';
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(mapCanvas, 0, 0);
+        ctx.fillStyle = '#e8e4d8';
+        ctx.font = 'bold 28px sans-serif';
+        labels.forEach((label, i) => {
+          ctx.fillText((i + 1) + '. ' + label, 28, mapCanvas.height + 40 + i * 34);
+        });
+        out.toBlob(async (blob) => {
           if (!blob) throw new Error('blob failed');
           const filename = (name || 'map').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-map.png';
           // Prefer clipboard on Chromebook / Chrome
@@ -697,7 +729,8 @@ function openPlaceMapScreen(place) {
         distEl.setAttribute('hidden', '');
         distEl.textContent = '';
       } else {
-        distEl.removeAttribute('hidden');
+        if (legsOpen) distEl.removeAttribute('hidden');
+        else distEl.setAttribute('hidden', '');
         const pts = [{ name, coord: origin }].concat(extras.map((ex) => ({ name: ex.name, coord: ex.coord })));
         let total = 0;
         const legs = [];
@@ -737,22 +770,35 @@ function openPlaceMapScreen(place) {
     lineLayer.addTo(mapObj);
   }
 
+  const routeMarkers = [];
+  const tipDirs = ['right', 'left', 'top', 'bottom'];
+  function markerLabel(index, full) {
+    return full ? ((index + 1) + ' ' + routeMarkers[index].name) : String(index + 1);
+  }
+  function relabelMarkers(full) {
+    routeMarkers.forEach((m, i) => {
+      if (m.marker && m.marker.setTooltipContent) m.marker.setTooltipContent(markerLabel(i, full));
+    });
+  }
   function addMarker(L, coord, label, gold) {
+    const index = routeMarkers.length;
     const marker = L.circleMarker([coord.lat, coord.lon], {
-      radius: gold ? 12 : 10,
+      radius: gold ? 13 : 11,
       color: gold ? '#8a6d12' : '#1d4f70',
       weight: 3,
       fillColor: gold ? '#c9a227' : '#4a9fd8',
       fillOpacity: 1
     }).addTo(mapObj);
-    marker.bindTooltip(label, {
+    marker.bindTooltip(String(index + 1), {
       permanent: true,
-      direction: 'right',
-      offset: [14, 0],
+      direction: tipDirs[index % tipDirs.length],
+      offset: [12, 0],
       className: gold ? 'place-en-label' : 'place-en-label place-en-label-alt',
       opacity: 1
     });
     if (gold) marker.on('click', () => setPanel('notes'));
+    routeMarkers.push({ marker, name: label, gold });
+    relabelMarkers(false);
     return marker;
   }
 

@@ -1298,6 +1298,8 @@ body.chrome-is-hidden main#main {
 }
 .places-fs-dist {
   flex-shrink: 0;
+  max-height: 28vh;
+  overflow-y: auto;
   padding: 0.4rem 0.85rem;
   background: #152033;
   color: #e8e4d8;
