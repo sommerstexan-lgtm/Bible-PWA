@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.85.0
+/* app.js – Main application controller. KJV Study PWA v6.86.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.85.0';
+const APP_VERSION = '6.86.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -392,6 +392,10 @@ function ensureLeaflet() {
 }
 
 function openPlaceMapScreen(place) {
+  if (activeMapSession && typeof activeMapSession.close === 'function') {
+    activeMapSession.close();
+  }
+
   const name = placeDisplayName(place);
   const origin = placeCoords(place);
   const hasCoord = !!origin;
@@ -422,6 +426,7 @@ function openPlaceMapScreen(place) {
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save map image</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-min-btn">Minimize</button>
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
       </div>
       <div class="places-fs-add" id="places-fs-add" hidden>
@@ -447,8 +452,70 @@ function openPlaceMapScreen(place) {
     </div>
   `);
   mapOverlay.classList.add('places-fs-overlay');
-  function closeMap() { closeOverlay(mapOverlay); }
+  const miniBar = document.createElement('div');
+  miniBar.className = 'map-mini-bar';
+  miniBar.hidden = true;
+  miniBar.innerHTML = '<button type="button" class="map-mini-restore" id="map-mini-restore">Show map</button>' +
+    '<span class="map-mini-label" id="map-mini-label"></span>' +
+    '<button type="button" class="map-mini-close" id="map-mini-close">Close</button>';
+  document.body.appendChild(miniBar);
+
+  function sessionSummary() {
+    let extraNames = [];
+    try {
+      if (Array.isArray(extras)) extraNames = extras.map((ex) => ex.name).filter(Boolean);
+    } catch (_) {
+      extraNames = [];
+    }
+    const parts = [name].concat(extraNames);
+    return parts.join(' → ') + (extraNames.length ? ' · ' + extraNames.length + ' stop' + (extraNames.length === 1 ? '' : 's') : '');
+  }
+
+  function refreshMiniLabel() {
+    const lab = miniBar.querySelector('#map-mini-label');
+    if (lab) lab.textContent = sessionSummary();
+  }
+
+  function restoreMap() {
+    mapOverlay.classList.remove('is-minimized');
+    miniBar.hidden = true;
+    setTimeout(() => {
+      if (mapObj && mapObj.invalidateSize) mapObj.invalidateSize();
+    }, 60);
+    setTimeout(() => {
+      if (mapObj && mapObj.invalidateSize) mapObj.invalidateSize();
+    }, 250);
+  }
+
+  function minimizeMap() {
+    mapOverlay.classList.add('is-minimized');
+    refreshMiniLabel();
+    miniBar.hidden = false;
+  }
+
+  function closeMap() {
+    if (activeMapSession && activeMapSession.overlay === mapOverlay) activeMapSession = null;
+    if (miniBar.parentNode) miniBar.parentNode.removeChild(miniBar);
+    closeOverlay(mapOverlay);
+  }
+
+  activeMapSession = {
+    overlay: mapOverlay,
+    summary: sessionSummary,
+    restore: restoreMap,
+    close: closeMap,
+    refreshLabel: refreshMiniLabel
+  };
+
   mapOverlay.querySelectorAll('.places-fs-close').forEach((btn) => { btn.onclick = closeMap; });
+  const minBtn = $('#places-fs-min-btn', mapOverlay);
+  if (minBtn) minBtn.onclick = minimizeMap;
+  const miniRestore = miniBar.querySelector('#map-mini-restore');
+  const miniClose = miniBar.querySelector('#map-mini-close');
+  if (miniRestore) miniRestore.onclick = restoreMap;
+  if (miniClose) miniClose.onclick = closeMap;
+  const miniLab = miniBar.querySelector('#map-mini-label');
+  if (miniLab) miniLab.textContent = name;
   const notesBtn = $('#places-fs-notes-btn', mapOverlay);
   const notesEl = $('#places-fs-notes', mapOverlay);
   const addBtn = $('#places-fs-add-btn', mapOverlay);
@@ -604,6 +671,9 @@ function openPlaceMapScreen(place) {
       titleEl.textContent = extras.length
         ? name + ' + ' + extras.length
         : name;
+    }
+    if (activeMapSession && activeMapSession.overlay === mapOverlay && typeof activeMapSession.refreshLabel === 'function') {
+      activeMapSession.refreshLabel();
     }
     if (onMapEl) {
       if (!extras.length) {
@@ -849,6 +919,25 @@ let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
 let reopenResearchTheme = false; // after a Theme verse hop, Back reopens Theme
 let reopenResearchPlaces = false; // Tools → Places opens the chapter place list
+let activeMapSession = null;
+
+function mapSessionLabel() {
+  if (!activeMapSession || typeof activeMapSession.summary !== 'function') return '';
+  return activeMapSession.summary();
+}
+
+function restoreActiveMap() {
+  if (!activeMapSession || typeof activeMapSession.restore !== 'function') {
+    showAppStatus('No map open. Open a place first.', 'fail');
+    return;
+  }
+  activeMapSession.restore();
+}
+
+function closeActiveMap() {
+  if (activeMapSession && typeof activeMapSession.close === 'function') activeMapSession.close();
+}
+
 /** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
 let searchSession = {
   query: '',
@@ -3025,6 +3114,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <button type="button" data-act="chains" data-key="${key}" class="${chainCls.trim()}">Chains${chainCountMap[key] ? ' ' + chainCountMap[key] : ''}</button>
         <button type="button" data-act="tkn" data-key="${key}">Then-Now</button>
         <button type="button" data-act="places" data-key="${key}">Places</button>
+        <button type="button" data-act="show-map" data-key="${key}">Show map</button>
         <button type="button" data-act="chapter-notes" data-key="${key}">Chapter notes</button>
         <button type="button" data-act="chapter-summary" data-key="${key}">Chapter summary</button>
       </div>
@@ -3184,6 +3274,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'chains') openVerseChains(key);
     else if (act === 'tkn') openThenKindNow(key);
     else if (act === 'places') { reopenResearchPlaces = true; openResearch(); }
+    else if (act === 'show-map') restoreActiveMap();
     else if (act === 'chapter-notes') openChapterNotesFromVerse(key);
     else if (act === 'chapter-summary') openChapterSummaryFromVerse(key);
   };
@@ -4791,6 +4882,7 @@ async function openNote(key, place) {
           ? 'Shared note — edits apply to all linked verses.'
           : 'Private note for this verse only. Link more verses to share one note.'}
       </p>
+      <button type="button" id="note-show-map" style="width:100%;margin:0 0 0.4rem;min-height:44px">Show map</button>
       <button type="button" id="note-chapter-summary" class="hop-gold" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
       <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
       ${noteImagesMarkup()}
@@ -4818,6 +4910,8 @@ async function openNote(key, place) {
   const noteImgs = mountNoteImages(overlay, workingImageIds);
   const close = () => closeOverlay(overlay);
   const chapterTitle = chapterTitleFromKey(key);
+  const noteMapBtn = $('#note-show-map', overlay);
+  if (noteMapBtn) noteMapBtn.onclick = () => restoreActiveMap();
   const summaryBtn = $('#note-chapter-summary', overlay);
   if (summaryBtn) {
     const hopHere = summaryHop && chapterTitle && String(summaryHop.title || '').toLowerCase() === chapterTitle.toLowerCase() && summaryHop.summaryPlace;
@@ -8197,6 +8291,7 @@ async function openChapterStudy() {
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
           '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+          '<button type="button" id="cs-show-map" class="cs-show-map">Show map</button>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
         '<div class="cs-tabs">' +
@@ -8225,6 +8320,8 @@ async function openChapterStudy() {
     }
   }, true);
   $('#cs-close', overlay).onclick = () => leaveChapterStudy(overlay);
+  const csMapBtn = $('#cs-show-map', overlay);
+  if (csMapBtn) csMapBtn.onclick = () => restoreActiveMap();
   overlay.querySelectorAll('.cs-tab').forEach((tab) => {
     tab.onclick = () => switchChapterStudyView(overlay, tab.dataset.view);
   });

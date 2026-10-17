@@ -2717,3 +2717,54 @@ textarea.cs-note, textarea.cs-answer {
   -webkit-overflow-scrolling: touch;
   resize: vertical;
 }
+
+
+/* Minimized map session */
+.overlay.places-fs-overlay.is-minimized {
+  display: none !important;
+}
+.map-mini-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem calc(0.45rem + env(safe-area-inset-bottom));
+  background: #0f1724;
+  border-top: 1px solid #334;
+  color: var(--text);
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.35);
+}
+.map-mini-bar[hidden] {
+  display: none !important;
+}
+.map-mini-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-mini-restore,
+.map-mini-close,
+.cs-show-map {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #334;
+  background: var(--accent);
+  color: #111;
+  font-weight: 700;
+}
+.map-mini-close {
+  background: #3a1d1d;
+  color: #fff;
+}
+.cs-show-map {
+  margin-left: 0.4rem;
+}
