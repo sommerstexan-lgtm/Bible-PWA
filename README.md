@@ -1,4 +1,8 @@
-# KJV Study PWA – v6.79.8
+# KJV Study PWA – v6.79.9
+
+## New in 6.79.9
+
+* Chapter study “Save chapter summary” now shows the confirmation toast above the modal (toast z-index raised above the overlay).
 
 ## New in 6.79.8
 - Chapter study modal is centered on screen with more usable height.

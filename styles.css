@@ -2177,7 +2177,7 @@ body.chrome-is-hidden main#main {
 .img-viewer {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 200;
   background: rgba(0,0,0,0.94);
   display: flex;
   align-items: center;
@@ -2210,7 +2210,7 @@ body.chrome-is-hidden main#main {
   left: 50%;
   bottom: calc(env(safe-area-inset-bottom, 8px) + 12px);
   transform: translateX(-50%);
-  z-index: 80;
+  z-index: 200;
   max-width: calc(100vw - 1.5rem);
   padding: 0.7rem 1rem;
   border-radius: 10px;
