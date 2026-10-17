@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.79.7
+/* app.js – Main application controller. KJV Study PWA v6.82.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.79.7';
+const APP_VERSION = '6.82.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -115,6 +115,57 @@ function chapterRegionPhrases(bookId, chapter) {
     }
   }
   return out;
+}
+
+
+async function placesMentionedInChapter(bookId, chapter) {
+  const index = await loadTheoPlacesIndex().catch(() => []);
+  if (!index || !index.length) return [];
+  const byKey = new Map();
+  index.forEach((p) => {
+    const names = [p.kjvName, p.name, p.id].filter(Boolean);
+    names.forEach((n) => {
+      const k = placeNameKey(n);
+      if (k && k.length >= 4 && !byKey.has(k)) byKey.set(k, p);
+    });
+  });
+  const found = new Map();
+  let empty = 0;
+  const candidates = [];
+  byKey.forEach((p, k) => {
+    const display = placeDisplayName(p);
+    if (display && display.length >= 4) candidates.push({ key: k, p, display: display.toLowerCase() });
+  });
+  for (let v = 1; v <= 90; v++) {
+    const text = bible.getVerseText(books, bookId, chapter, v);
+    if (!text) {
+      empty += 1;
+      if (empty >= 2 && v > 2) break;
+      continue;
+    }
+    empty = 0;
+    const lower = text.toLowerCase();
+    for (const c of candidates) {
+      if (lower.includes(c.display)) {
+        const id = c.p.id || c.key;
+        if (!found.has(id)) {
+          found.set(id, {
+            id: c.p.id,
+            name: c.p.name,
+            kjvName: c.p.kjvName,
+            featureType: c.p.featureType,
+            verses: [v],
+            latitude: c.p.latitude,
+            longitude: c.p.longitude
+          });
+        } else {
+          const existing = found.get(id);
+          if (!existing.verses.includes(v)) existing.verses.push(v);
+        }
+      }
+    }
+  }
+  return Array.from(found.values());
 }
 
 function chapterWalkHtml(places) {
@@ -370,16 +421,19 @@ function openPlaceMapScreen(place) {
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save map image</button>
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
       </div>
       <div class="places-fs-add" id="places-fs-add" hidden>
         <p class="theme-step">Add a place</p>
         <div class="places-search-row">
-          <input type="search" id="places-fs-q" class="places-q" placeholder="Type a name…" autocomplete="off">
+          <input type="search" id="places-fs-q" class="places-q" placeholder="Type a name or pick below…" autocomplete="off">
           <button type="button" id="places-fs-go">Search</button>
         </div>
+        <div id="places-fs-chapter" class="places-fs-chapter"></div>
         <div id="places-fs-hits"></div>
         <div id="places-fs-onmap"></div>
+        <button type="button" id="places-fs-copy-route" class="places-fs-add-btn" style="margin-top:0.5rem">Copy route summary</button>
       </div>
       <div class="places-fs-notes" id="places-fs-notes" hidden>
         <p class="theme-note">${escapeHtml(place.featureType || 'Place')}${hasCoord ? ' · ' + origin.lat.toFixed(4) + ', ' + origin.lon.toFixed(4) : ''}</p>
@@ -420,10 +474,114 @@ function openPlaceMapScreen(place) {
   }
   if (notesBtn) notesBtn.onclick = () => setPanel(notesEl && notesEl.hasAttribute('hidden') ? 'notes' : null);
   if (addBtn) addBtn.onclick = () => setPanel(addEl && addEl.hasAttribute('hidden') ? 'add' : null);
+
+  // Populate one-tap chapter places for easy add
+  (async function loadChapterAddList() {
+    const box = $('#places-fs-chapter', mapOverlay);
+    if (!box) return;
+    try {
+      const mentioned = await placesMentionedInChapter(currentBookId, currentChapter).catch(() => []);
+      const withCoord = mentioned.filter((p) => placeCoords(p));
+      if (!withCoord.length) {
+        box.innerHTML = '<p class="theme-note">No other mapped places found in this chapter.</p>';
+        return;
+      }
+      box.innerHTML = '<p class="theme-step">From this chapter (tap to add)</p>' +
+        withCoord.map((p) => {
+          const label = placeDisplayName(p);
+          return `<button type="button" class="place-hit" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(label)}"><strong>${escapeHtml(label)}</strong> <span>v. ${(p.verses||[]).join(',')}</span></button>`;
+        }).join('');
+      box.querySelectorAll('.place-hit').forEach((btn) => {
+        btn.onclick = () => addById(btn.dataset.id, btn.dataset.name);
+      });
+    } catch (_) {
+      box.innerHTML = '<p class="theme-note">Chapter list unavailable.</p>';
+    }
+  })();
+
+  const copyRouteBtn = $('#places-fs-copy-route', mapOverlay);
+  if (copyRouteBtn) {
+    copyRouteBtn.onclick = async () => {
+      const names = [name].concat(extras.map((e) => e.name));
+      let miles = 0;
+      const pts = [origin].concat(extras.map((e) => e.coord)).filter(Boolean);
+      for (let i = 1; i < pts.length; i++) miles += haversineMiles(pts[i-1], pts[i]);
+      const summary = 'Route in ' + (bible.CANONICAL_BOOKS.find(b => b.id === currentBookId) || {}).name + ' ' + currentChapter + ':\n' +
+        names.map((n, i) => (i+1) + '. ' + n).join('\n') +
+        (pts.length >= 2 ? '\nStraight-line total: ' + formatMilesKm(miles) + ' (not road distance).' : '');
+      try {
+        await navigator.clipboard.writeText(summary);
+        copyRouteBtn.textContent = 'Copied';
+        setTimeout(() => { copyRouteBtn.textContent = 'Copy route summary'; }, 1500);
+      } catch (_) {
+        prompt('Copy this route summary:', summary);
+      }
+    };
+  }
+
   const picBtn = $('#places-fs-pic-btn', mapOverlay);
   if (picBtn) {
     if (!chapterPicture()) picBtn.setAttribute('hidden', '');
     else picBtn.onclick = () => openChapterPicture();
+  }
+
+
+  const saveImgBtn = $('#places-fs-save-img', mapOverlay);
+  if (saveImgBtn && hasCoord) {
+    saveImgBtn.onclick = async () => {
+      saveImgBtn.textContent = 'Saving…';
+      saveImgBtn.disabled = true;
+      try {
+        if (typeof html2canvas === 'undefined') {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = './html2canvas.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
+        const mapEl = document.getElementById('places-fs-map');
+        if (!mapEl) throw new Error('no map');
+        // Hide compass temporarily for cleaner image
+        const compass = mapEl.parentElement && mapEl.parentElement.querySelector('.places-compass');
+        if (compass) compass.style.display = 'none';
+        const canvas = await html2canvas(mapEl, {
+          useCORS: true,
+          allowTaint: false,
+          backgroundColor: '#1a1f2e',
+          scale: 2
+        });
+        if (compass) compass.style.display = '';
+        canvas.toBlob(async (blob) => {
+          if (!blob) throw new Error('blob failed');
+          const filename = (name || 'map').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-map.png';
+          // Prefer clipboard on Chromebook / Chrome
+          try {
+            if (navigator.clipboard && window.ClipboardItem) {
+              await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+              saveImgBtn.textContent = 'Copied to clipboard';
+              setTimeout(() => { saveImgBtn.textContent = 'Save map image'; saveImgBtn.disabled = false; }, 2000);
+              return;
+            }
+          } catch (_) {}
+          // Fallback download
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+          saveImgBtn.textContent = 'Downloaded';
+          setTimeout(() => { saveImgBtn.textContent = 'Save map image'; saveImgBtn.disabled = false; }, 2000);
+        }, 'image/png');
+      } catch (err) {
+        saveImgBtn.textContent = 'Failed — try again';
+        setTimeout(() => { saveImgBtn.textContent = 'Save map image'; saveImgBtn.disabled = false; }, 2500);
+        console.error(err);
+      }
+    };
   }
 
   if (!hasCoord) return;
@@ -431,7 +589,7 @@ function openPlaceMapScreen(place) {
   const extras = [];
   let mapObj = null;
   let lineLayer = null;
-  const MAX_EXTRAS = 5;
+  const MAX_EXTRAS = 12;
 
   function originId() {
     return String(place.id || name);
@@ -530,7 +688,7 @@ function openPlaceMapScreen(place) {
     if (String(placeId) === originId()) return;
     if (extras.some((ex) => String(ex.id) === String(placeId))) return;
     if (extras.length >= MAX_EXTRAS) {
-      if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Five added places is the limit. Remove one first.</p>`;
+      if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Twelve added places is the limit. Remove one first.</p>`;
       return;
     }
     if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Adding ${escapeHtml(fallbackName || placeId)}…</p>`;
@@ -9447,16 +9605,31 @@ async function openResearch() {
 
     try {
       const chap = await theoFetchJson(THEO_API + "/" + encodeURIComponent(apiBook) + "/" + currentChapter + ".json");
-      const places = (chap.chapter && chap.chapter.places) || [];
+      let places = (chap.chapter && chap.chapter.places) || [];
+      const mentioned = await placesMentionedInChapter(currentBookId, currentChapter).catch(() => []);
+      const seen = new Set(places.map((p) => String(p.id || placeNameKey(placeDisplayName(p)))));
+      mentioned.forEach((m) => {
+        const k = String(m.id || placeNameKey(placeDisplayName(m)));
+        if (!seen.has(k)) {
+          places.push(m);
+          seen.add(k);
+        } else {
+          const existing = places.find((p) => String(p.id || placeNameKey(placeDisplayName(p))) === k);
+          if (existing && m.verses) {
+            existing.verses = Array.from(new Set([...(existing.verses || []), ...m.verses])).sort((a, b) => a - b);
+          }
+        }
+      });
+      places.sort((a, b) => ((a.verses && a.verses[0]) || 99) - ((b.verses && b.verses[0]) || 99));
       const coords = places.map(placeCoords).filter(Boolean);
       const shared = coords.length >= 2 && coords.every((c) => sameMapPoint(c, coords[0]));
-      chapterEl.innerHTML = chapterWalkHtml(places) + renderPlaceButtons(places, "No named places in this chapter’s Theographic file.");
+      chapterEl.innerHTML = chapterWalkHtml(places) + renderPlaceButtons(places, "No named places found in this chapter.");
       bindHits(chapterEl);
       statusEl.textContent = !places.length
-        ? "Places · none listed for this chapter. Use Search."
+        ? "Places · none found for this chapter. Use Search."
         : shared
-          ? ("Places · " + places.length + " in this chapter. Shared map point — no walk distance in the file.")
-          : ("Places · " + places.length + " in this chapter. Tap one for map and notes.");
+          ? ("Places · " + places.length + " in this chapter. Shared map point — no walk distance.")
+          : ("Places · " + places.length + " in this chapter (full chapter scan). Tap one for map.");
       loadTheoPlacesIndex().catch(() => {});
     } catch (err) {
       chapterEl.innerHTML = `<p class="theme-note">Could not load chapter places. Internet is required the first time. Then Search still works if the index loaded.</p>`;
