@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.87.0
+/* app.js – Main application controller. KJV Study PWA v6.88.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.87.0';
+const APP_VERSION = '6.88.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -630,19 +630,29 @@ function openPlaceMapScreen(place) {
         const legsWasOpen = legsOpen;
         setLegsOpen(false);
         if (compass) compass.style.display = 'none';
-        if (typeof relabelMarkers === 'function') relabelMarkers(false);
         if (mapObj && mapObj.invalidateSize) mapObj.invalidateSize();
         if (typeof fitAll === 'function') fitAll();
-        await new Promise((r) => setTimeout(r, 450));
+        await new Promise((r) => setTimeout(r, 350));
+        // Hide Leaflet marker/line panes so html2canvas cannot misplace them.
+        const hideSel = ['.leaflet-marker-pane', '.leaflet-tooltip-pane', '.leaflet-overlay-pane', '.leaflet-shadow-pane'];
+        const hidden = [];
+        hideSel.forEach((sel) => {
+          mapEl.querySelectorAll(sel).forEach((el) => {
+            hidden.push([el, el.style.display]);
+            el.style.display = 'none';
+          });
+        });
         const mapCanvas = await html2canvas(mapEl, {
           useCORS: true,
           allowTaint: false,
           backgroundColor: '#d8d4c8',
           scale: 2
         });
+        hidden.forEach(([el, prev]) => { el.style.display = prev; });
         if (compass) compass.style.display = '';
         if (legsWasOpen) setLegsOpen(true);
         const labels = [name].concat((extras || []).map((ex) => ex.name));
+        const stops = [origin].concat((extras || []).map((ex) => ex.coord)).filter(Boolean);
         const legendH = Math.max(64, 36 + labels.length * 34);
         const out = document.createElement('canvas');
         out.width = mapCanvas.width;
@@ -651,8 +661,41 @@ function openPlaceMapScreen(place) {
         ctx.fillStyle = '#0f1724';
         ctx.fillRect(0, 0, out.width, out.height);
         ctx.drawImage(mapCanvas, 0, 0);
+        const scale = mapCanvas.width / Math.max(1, mapEl.clientWidth || mapCanvas.width);
+        function pt(coord) {
+          if (!mapObj || !coord) return null;
+          const p = mapObj.latLngToContainerPoint([coord.lat, coord.lon]);
+          return { x: p.x * scale, y: p.y * scale };
+        }
+        const drawn = stops.map(pt).filter(Boolean);
+        if (drawn.length >= 2) {
+          ctx.beginPath();
+          ctx.strokeStyle = '#2a6f97';
+          ctx.lineWidth = 6;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          drawn.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+          ctx.stroke();
+        }
+        drawn.forEach((p, i) => {
+          const gold = i === 0;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, gold ? 18 : 15, 0, Math.PI * 2);
+          ctx.fillStyle = gold ? '#c9a227' : '#4a9fd8';
+          ctx.fill();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = gold ? '#8a6d12' : '#1d4f70';
+          ctx.stroke();
+          ctx.fillStyle = '#111';
+          ctx.font = 'bold 20px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(i + 1), p.x, p.y + 1);
+        });
         ctx.fillStyle = '#e8e4d8';
         ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
         labels.forEach((label, i) => {
           ctx.fillText((i + 1) + '. ' + label, 28, mapCanvas.height + 40 + i * 34);
         });
