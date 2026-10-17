@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.83.0
+/* app.js – Main application controller. KJV Study PWA v6.85.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.83.0';
+const APP_VERSION = '6.85.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -480,8 +480,12 @@ function openPlaceMapScreen(place) {
     const box = $('#places-fs-chapter', mapOverlay);
     if (!box) return;
     try {
-      const mentioned = await placesMentionedInChapter(currentBookId, currentChapter).catch(() => []);
-      const withCoord = mentioned.filter((p) => placeCoords(p));
+      let withCoord = [];
+      try {
+        const chap = await theoFetchJson(THEO_API + "/" + encodeURIComponent(bible.toApiBookCode(currentBookId)) + "/" + currentChapter + ".json");
+        const places = (chap.chapter && chap.chapter.places) || [];
+        withCoord = places.filter((p) => placeCoords(p));
+      } catch (_) {}
       if (!withCoord.length) {
         box.innerHTML = '<p class="theme-note">No other mapped places found in this chapter.</p>';
         return;
@@ -7736,11 +7740,18 @@ async function loadChapterStudySummary() {
     const recovered = answersFromSummaryText(source, lines);
     answers = answers.map((a, i) => (String(a || '').trim() ? a : (recovered[i] || '')));
   }
+  const chapterImages = Array.isArray(found && found.chapterImages)
+    ? found.chapterImages.map((im) => ({
+        id: String(im && im.id || ''),
+        explanation: String(im && im.explanation || '')
+      })).filter((im) => im.id)
+    : [];
   return {
     id: found && found.id,
     createdAt: found && found.createdAt,
     legacyText: found && found.legacyText ? String(found.legacyText) : '',
-    answers
+    answers,
+    chapterImages
   };
 }
 
@@ -7804,6 +7815,35 @@ async function saveChapterStudySummary(overlay) {
   };
   chapterStudy.summaryDraft = answers.slice();
   chapterStudy.summaryDirty = false;
+}
+
+
+async function saveChapterStudyImages() {
+  if (!chapterStudy) return;
+  if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
+  const loaded = chapterStudy.summaryLoaded;
+  const title = chapterStudyTitle().trim();
+  const ref = summaryRefFromTitle(title, 'chapter');
+  const images = (chapterStudy.chapterImages || []).map((im) => ({
+    id: String(im.id || ''),
+    explanation: String(im.explanation || '')
+  })).filter((im) => im.id);
+  const saved = await storage.saveSummaryNote({
+    id: loaded.id,
+    kind: 'chapter',
+    title,
+    ref,
+    answers: loaded.answers || [],
+    legacyText: loaded.legacyText || '',
+    text: loaded.text || '',
+    chapterImages: images,
+    createdAt: loaded.createdAt
+  });
+  if (saved && saved.id) {
+    loaded.id = saved.id;
+    loaded.chapterImages = images;
+  }
+  chapterStudy.summaryLoaded = loaded;
 }
 
 function paintChapterStudyStrip(overlay) {
@@ -7938,6 +7978,101 @@ async function paintChapterStudyBody(overlay) {
         }
       };
     }
+  } else if (view === 'images') {
+    if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
+    if (!chapterStudy.chapterImages) {
+      chapterStudy.chapterImages = (chapterStudy.summaryLoaded.chapterImages || []).map((im) => ({
+        id: im.id,
+        explanation: im.explanation || ''
+      }));
+    }
+    const imgs = chapterStudy.chapterImages;
+    body.innerHTML = '<p class="cs-meta">Images for this chapter. None, one, or more. Each image has its own explanation. Saved with the chapter.</p>' +
+      '<div id="cs-img-list"></div>' +
+      '<label class="note-add-image" style="display:inline-block;margin-top:0.6rem">' +
+        'Add image' +
+        '<input type="file" id="cs-img-file" accept="image/*" hidden>' +
+      '</label>' +
+      '<button type="button" id="cs-img-save" style="width:100%;margin-top:0.6rem;min-height:48px">Save explanations</button>';
+    const listEl = body.querySelector('#cs-img-list');
+    async function paintImages() {
+      if (!imgs.length) {
+        listEl.innerHTML = '<p class="theme-note">No images for this chapter yet.</p>';
+        return;
+      }
+      listEl.innerHTML = imgs.map((im, i) =>
+        '<article class="cs-img-card" data-i="' + i + '" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px">' +
+          '<div class="note-thumb" style="margin-bottom:0.4rem"><img alt="" data-src-id="' + escapeHtml(im.id) + '" style="max-width:100%;max-height:220px;border-radius:6px"></div>' +
+          '<textarea class="cs-img-exp" data-i="' + i + '" rows="4" placeholder="Explanation for this image">' + escapeHtml(im.explanation || '') + '</textarea>' +
+          '<button type="button" class="cs-img-del" data-i="' + i + '" style="margin-top:0.3rem">Remove image</button>' +
+        '</article>'
+      ).join('');
+      for (const img of listEl.querySelectorAll('img[data-src-id]')) {
+        const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
+        if (url) img.src = url;
+      }
+      listEl.querySelectorAll('.cs-img-exp').forEach((box) => {
+        box.addEventListener('input', () => {
+          const i = Number(box.dataset.i);
+          if (imgs[i]) imgs[i].explanation = box.value;
+        });
+        box.addEventListener('blur', async () => {
+          const i = Number(box.dataset.i);
+          if (imgs[i]) imgs[i].explanation = box.value;
+          try { await saveChapterStudyImages(); } catch (_) {}
+        });
+        growSummaryBox(box);
+        attachChapterStudyKeyboardFix(box);
+      });
+      listEl.querySelectorAll('.cs-img-del').forEach((btn) => {
+        btn.onclick = async () => {
+          const i = Number(btn.dataset.i);
+          const removed = imgs.splice(i, 1)[0];
+          if (removed && removed.id) {
+            try { await storage.deleteNoteImage(removed.id); } catch (_) {}
+            revokeNoteImageUrl(removed.id);
+          }
+          await saveChapterStudyImages();
+          await paintImages();
+        };
+      });
+    }
+    await paintImages();
+    const fileInput = body.querySelector('#cs-img-file');
+    if (fileInput) {
+      fileInput.onchange = async () => {
+        const file = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        if (!file) return;
+        if (!String(file.type || '').startsWith('image/')) {
+          alert('Please choose an image.');
+          return;
+        }
+        try {
+          const rec = await storage.saveNoteImage(file);
+          imgs.push({ id: rec.id, explanation: '' });
+          await saveChapterStudyImages();
+          await paintImages();
+        } catch (_) {
+          alert('Could not save that image.');
+        }
+      };
+    }
+    const saveImgsBtn = body.querySelector('#cs-img-save');
+    if (saveImgsBtn) {
+      saveImgsBtn.onclick = async () => {
+        listEl.querySelectorAll('.cs-img-exp').forEach((box) => {
+          const i = Number(box.dataset.i);
+          if (imgs[i]) imgs[i].explanation = box.value;
+        });
+        try {
+          await saveChapterStudyImages();
+          showAppStatus('Chapter images saved.', 'ok');
+        } catch (_) {
+          showAppStatus('Could not save chapter images.', 'fail');
+        }
+      };
+    }
   } else {
     body.innerHTML = verses.map((v) => {
       return '<article class="cs-row" data-verse="' + v.number + '">' +
@@ -7974,6 +8109,9 @@ async function switchChapterStudyView(overlay, view) {
   try {
     if (chapterStudy.view === 'notes') await flushChapterStudyNotes(overlay);
     if (chapterStudy.view === 'summary') captureChapterStudySummary(overlay);
+    if (chapterStudy.view === 'images') {
+      try { await saveChapterStudyImages(); } catch (_) {}
+    }
   } catch (_) {
     showAppStatus('Could not keep the last edit.', 'fail');
     return;
@@ -8065,6 +8203,7 @@ async function openChapterStudy() {
           '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
           '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
           '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
+          '<button type="button" class="cs-tab" data-view="images">Images</button>' +
         '</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
@@ -9614,30 +9753,16 @@ async function openResearch() {
     try {
       const chap = await theoFetchJson(THEO_API + "/" + encodeURIComponent(apiBook) + "/" + currentChapter + ".json");
       let places = (chap.chapter && chap.chapter.places) || [];
-      const mentioned = await placesMentionedInChapter(currentBookId, currentChapter).catch(() => []);
-      const seen = new Set(places.map((p) => String(p.id || placeNameKey(placeDisplayName(p)))));
-      mentioned.forEach((m) => {
-        const k = String(m.id || placeNameKey(placeDisplayName(m)));
-        if (!seen.has(k)) {
-          places.push(m);
-          seen.add(k);
-        } else {
-          const existing = places.find((p) => String(p.id || placeNameKey(placeDisplayName(p))) === k);
-          if (existing && m.verses) {
-            existing.verses = Array.from(new Set([...(existing.verses || []), ...m.verses])).sort((a, b) => a - b);
-          }
-        }
-      });
       places.sort((a, b) => ((a.verses && a.verses[0]) || 99) - ((b.verses && b.verses[0]) || 99));
       const coords = places.map(placeCoords).filter(Boolean);
       const shared = coords.length >= 2 && coords.every((c) => sameMapPoint(c, coords[0]));
-      chapterEl.innerHTML = chapterWalkHtml(places) + renderPlaceButtons(places, "No named places found in this chapter.");
+      chapterEl.innerHTML = chapterWalkHtml(places) + renderPlaceButtons(places, "No named places in this chapter’s Theographic file.");
       bindHits(chapterEl);
       statusEl.textContent = !places.length
-        ? "Places · none found for this chapter. Use Search."
+        ? "Places · none listed for this chapter. Use Search."
         : shared
           ? ("Places · " + places.length + " in this chapter. Shared map point — no walk distance.")
-          : ("Places · " + places.length + " in this chapter (full chapter scan). Tap one for map.");
+          : ("Places · " + places.length + " in this chapter. Tap one for map.");
       loadTheoPlacesIndex().catch(() => {});
     } catch (err) {
       chapterEl.innerHTML = `<p class="theme-note">Could not load chapter places. Internet is required the first time. Then Search still works if the index loaded.</p>`;
