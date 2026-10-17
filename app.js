@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.88.0
+/* app.js – Main application controller. KJV Study PWA v6.89.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.88.0';
+const APP_VERSION = '6.89.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6908,6 +6908,12 @@ function openSummaryNoteEditor(existing) {
       ${showLegacy ? `<label class="sn-legacy-label" for="sn-legacy">Earlier single note — left as one box</label>
       <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
       <div id="sn-answers"></div>
+      <div id="sn-images" class="sn-images" style="margin-top:1rem">
+        <p class="sn-q-label">Chapter images</p>
+        <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">None, one, or more. Each image has its own explanation.</p>
+        <div id="sn-img-list"></div>
+        <label class="note-add-image" style="display:inline-block;margin-top:0.4rem">Add image<input type="file" id="sn-img-file" accept="image/*" hidden></label>
+      </div>
       <button type="button" id="sn-min" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Minimize</button>
       <button type="button" id="sn-save" style="width:100%;margin-top:0.45rem;min-height:52px">Save</button>
       <button type="button" id="sn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
@@ -6933,6 +6939,65 @@ function openSummaryNoteEditor(existing) {
   function currentKind() {
     return 'chapter';
   }
+  const summaryImages = Array.isArray(existing && existing.chapterImages)
+    ? existing.chapterImages.map((im) => ({ id: String(im.id || ''), explanation: String(im.explanation || '') })).filter((im) => im.id)
+    : [];
+  async function paintSummaryImages() {
+    const listEl = $('#sn-img-list', overlay);
+    if (!listEl) return;
+    if (!summaryImages.length) {
+      listEl.innerHTML = '<p class="theme-note">No images for this chapter yet.</p>';
+      return;
+    }
+    listEl.innerHTML = summaryImages.map((im, i) =>
+      '<article class="cs-img-card" style="margin:0.7rem 0;padding:0.55rem;border:1px solid var(--border);border-radius:8px">' +
+        '<img alt="" data-src-id="' + escapeHtml(im.id) + '" style="max-width:100%;max-height:220px;border-radius:6px;display:block">' +
+        '<textarea class="sn-img-exp" data-i="' + i + '" rows="4" placeholder="Explanation for this image" style="width:100%;margin-top:0.4rem">' + escapeHtml(im.explanation || '') + '</textarea>' +
+        '<button type="button" class="sn-img-del" data-i="' + i + '" style="margin-top:0.3rem">Remove image</button>' +
+      '</article>'
+    ).join('');
+    for (const img of listEl.querySelectorAll('img[data-src-id]')) {
+      const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
+      if (url) img.src = url;
+    }
+    listEl.querySelectorAll('.sn-img-exp').forEach((box) => {
+      box.addEventListener('input', () => {
+        const i = Number(box.dataset.i);
+        if (summaryImages[i]) summaryImages[i].explanation = box.value;
+      });
+    });
+    listEl.querySelectorAll('.sn-img-del').forEach((btn) => {
+      btn.onclick = async () => {
+        const i = Number(btn.dataset.i);
+        const removed = summaryImages.splice(i, 1)[0];
+        if (removed && removed.id) {
+          try { await storage.deleteNoteImage(removed.id); } catch (_) {}
+          try { revokeNoteImageUrl(removed.id); } catch (_) {}
+        }
+        await paintSummaryImages();
+      };
+    });
+  }
+  const imgFile = $('#sn-img-file', overlay);
+  if (imgFile) {
+    imgFile.onchange = async () => {
+      const file = imgFile.files && imgFile.files[0];
+      imgFile.value = '';
+      if (!file) return;
+      if (!String(file.type || '').startsWith('image/')) {
+        alert('Please choose an image.');
+        return;
+      }
+      try {
+        const rec = await storage.saveNoteImage(file);
+        summaryImages.push({ id: rec.id, explanation: '' });
+        await paintSummaryImages();
+      } catch (_) {
+        alert('Could not save that image.');
+      }
+    };
+  }
+  paintSummaryImages();
   function paintAnswers() {
     const k = currentKind();
     const title = ($('#sn-title', overlay).value || '').trim();
@@ -6978,6 +7043,10 @@ function openSummaryNoteEditor(existing) {
     const text = String(keptLegacy || '').trim()
       ? (String(keptLegacy).replace(/\s+$/g, '') + '\n\n' + joined)
       : joined;
+    const chapterImages = (summaryImages || []).map((im) => ({
+      id: String(im.id || ''),
+      explanation: String(im.explanation || '')
+    })).filter((im) => im.id);
     return storage.saveSummaryNote({
       id: existing && existing.id,
       kind: picked,
@@ -6986,7 +7055,8 @@ function openSummaryNoteEditor(existing) {
       answers,
       legacyText: keptLegacy,
       text,
-      createdAt: existing && existing.createdAt
+      createdAt: existing && existing.createdAt,
+      chapterImages
     });
   }
   const verseNotesBtn = $('#sn-verse-notes', overlay);
@@ -7988,13 +8058,15 @@ async function saveChapterStudySummary(overlay) {
     answers,
     legacyText: keptLegacy,
     text,
-    createdAt: loaded.createdAt
+    createdAt: loaded.createdAt,
+    chapterImages: loaded.chapterImages || []
   });
   chapterStudy.summaryLoaded = {
     id: saved.id,
     createdAt: saved.createdAt,
     legacyText: keptLegacy,
-    answers
+    answers,
+    chapterImages: loaded.chapterImages || []
   };
   chapterStudy.summaryDraft = answers.slice();
   chapterStudy.summaryDirty = false;
@@ -8011,16 +8083,21 @@ async function saveChapterStudyImages() {
     id: String(im.id || ''),
     explanation: String(im.explanation || '')
   })).filter((im) => im.id);
+  let stored = null;
+  try {
+    const all = await storage.getAllSummaryNotes();
+    stored = (all || []).find((n) => n && loaded.id && n.id === loaded.id) || null;
+  } catch (_) {}
   const saved = await storage.saveSummaryNote({
     id: loaded.id,
     kind: 'chapter',
     title,
     ref,
-    answers: loaded.answers || [],
-    legacyText: loaded.legacyText || '',
-    text: loaded.text || '',
+    answers: (stored && stored.answers) || loaded.answers || [],
+    legacyText: (stored && stored.legacyText) || loaded.legacyText || '',
+    text: (stored && stored.text) || loaded.text || '',
     chapterImages: images,
-    createdAt: loaded.createdAt
+    createdAt: (stored && stored.createdAt) || loaded.createdAt
   });
   if (saved && saved.id) {
     loaded.id = saved.id;
