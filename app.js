@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.82.0
+/* app.js – Main application controller. KJV Study PWA v6.83.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.82.0';
+const APP_VERSION = '6.83.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -606,9 +606,10 @@ function openPlaceMapScreen(place) {
         onMapEl.innerHTML = `<p class="theme-note">On map: ${escapeHtml(name)} (gold). Search, then tap a result.</p>`;
       } else {
         onMapEl.innerHTML = extras.map((ex, i) => {
-          const miles = haversineMiles(origin, ex.coord);
+          const prev = i === 0 ? origin : extras[i - 1].coord;
+          const miles = haversineMiles(prev, ex.coord);
           return `<div class="places-fs-onitem">
-            <span>${escapeHtml(ex.name)} · ${formatMilesKm(miles)}</span>
+            <span>${i + 1}. ${escapeHtml(ex.name)} · ${formatMilesKm(miles)} from previous</span>
             <button type="button" class="places-fs-remove" data-i="${i}">Remove</button>
           </div>`;
         }).join('');
@@ -623,10 +624,15 @@ function openPlaceMapScreen(place) {
         distEl.textContent = '';
       } else {
         distEl.removeAttribute('hidden');
-        distEl.innerHTML = extras.map((ex) => {
-          const miles = haversineMiles(origin, ex.coord);
-          return `<div>${escapeHtml(name)} → ${escapeHtml(ex.name)}: ${formatMilesKm(miles)} · ${walkEstimate(miles)}</div>`;
-        }).join('');
+        const pts = [{ name, coord: origin }].concat(extras.map((ex) => ({ name: ex.name, coord: ex.coord })));
+        let total = 0;
+        const legs = [];
+        for (let i = 1; i < pts.length; i++) {
+          const miles = haversineMiles(pts[i - 1].coord, pts[i].coord);
+          total += miles;
+          legs.push(`<div>${i}. ${escapeHtml(pts[i - 1].name)} → ${escapeHtml(pts[i].name)}: ${formatMilesKm(miles)} · ${walkEstimate(miles)}</div>`);
+        }
+        distEl.innerHTML = legs.join('') + `<div style="margin-top:0.35rem;font-weight:600">Total in order: ${formatMilesKm(total)} · ${walkEstimate(total)}</div>`;
       }
     }
   }
@@ -646,12 +652,14 @@ function openPlaceMapScreen(place) {
     }
     if (!extras.length) return;
     lineLayer = window.L.layerGroup();
-    extras.forEach((ex) => {
-      window.L.polyline(
-        [[origin.lat, origin.lon], [ex.coord.lat, ex.coord.lon]],
-        { color: '#2a6f97', weight: 3, opacity: 0.85 }
-      ).addTo(lineLayer);
-    });
+    const path = [[origin.lat, origin.lon]].concat(extras.map((ex) => [ex.coord.lat, ex.coord.lon]));
+    if (path.length >= 2) {
+      window.L.polyline(path, {
+        color: '#2a6f97',
+        weight: 4,
+        opacity: 0.9
+      }).addTo(lineLayer);
+    }
     lineLayer.addTo(mapObj);
   }
 
