@@ -1267,6 +1267,16 @@ body.chrome-is-hidden main#main {
 .places-fs-dock {
   justify-content: space-between;
   border-top: 1px solid #334;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+}
+.places-fs-dock button {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.92rem;
 }
 .places-fs-title {
   margin: 0;
@@ -2837,10 +2847,6 @@ textarea.cs-note, textarea.cs-answer {
 .cs-map-row button {
   width: 100%;
   min-height: 44px;
-}
-.places-fs-dock-secondary {
-  border-top: 0;
-  padding-top: 0;
 }
 
 .img-card-open {

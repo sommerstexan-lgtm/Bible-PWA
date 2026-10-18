@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.91.0
+/* app.js – Main application controller. KJV Study PWA v6.91.1
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.91.0';
+const APP_VERSION = '6.91.1';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -425,8 +425,6 @@ function openPlaceMapScreen(place) {
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-legs-btn">Distances</button>
-      </div>
-      <div class="places-fs-dock places-fs-dock-secondary">
         <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save image</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-min-btn">Minimize</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
