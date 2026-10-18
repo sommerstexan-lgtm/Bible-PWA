@@ -8123,17 +8123,17 @@ async function saveChapterStudyImages() {
 
 function paintChapterStudyStrip(overlay) {
   const strip = overlay.querySelector('#cs-strip');
-  const label = overlay.querySelector('#cs-working');
+  const verseSelect = overlay.querySelector('#cs-verse-select');
   if (!strip || !chapterStudy) return;
   const verses = chapterStudyVerses();
   const hit = verses.find((v) => Number(v.number) === Number(chapterStudy.verse)) || verses[0];
   if (!hit) {
     strip.textContent = '';
-    if (label) label.textContent = 'No verse';
+    if (verseSelect) verseSelect.value = '';
     return;
   }
   chapterStudy.verse = Number(hit.number);
-  if (label) label.textContent = chapterStudyLabel(hit.number);
+  if (verseSelect) verseSelect.value = String(hit.number);
   strip.innerHTML = '<strong>' + escapeHtml(chapterStudyLabel(hit.number)) + '</strong> ' + escapeHtml(hit.text || '');
 }
 
@@ -8492,7 +8492,9 @@ async function openChapterStudy() {
         '</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
-          '<span id="cs-working"></span>' +
+          '<button type="button" id="cs-first" title="Jump to first verse">First</button>' +
+          '<select id="cs-verse-select" class="cs-verse-select" aria-label="Select verse"></select>' +
+          '<button type="button" id="cs-last" title="Jump to last verse">Last</button>' +
           '<button type="button" id="cs-next">Next verse</button>' +
         '</div>' +
       '</div>' +
@@ -8517,6 +8519,29 @@ async function openChapterStudy() {
   });
   $('#cs-prev', overlay).onclick = () => stepChapterStudyVerse(overlay, -1);
   $('#cs-next', overlay).onclick = () => stepChapterStudyVerse(overlay, 1);
+  const verseSelect = $('#cs-verse-select', overlay);
+  const versesForSelect = chapterStudyVerses();
+  if (verseSelect && versesForSelect.length) {
+    verseSelect.innerHTML = versesForSelect.map((v) => {
+      const n = Number(v.number);
+      return '<option value="' + n + '">' + n + '</option>';
+    }).join('');
+    verseSelect.value = String(chapterStudy.verse);
+    verseSelect.onchange = () => {
+      const num = Number(verseSelect.value);
+      if (num) setChapterStudyVerse(overlay, num);
+    };
+  }
+  const firstBtn = $('#cs-first', overlay);
+  if (firstBtn) firstBtn.onclick = () => {
+    const vs = chapterStudyVerses();
+    if (vs.length) setChapterStudyVerse(overlay, Number(vs[0].number));
+  };
+  const lastBtn = $('#cs-last', overlay);
+  if (lastBtn) lastBtn.onclick = () => {
+    const vs = chapterStudyVerses();
+    if (vs.length) setChapterStudyVerse(overlay, Number(vs[vs.length - 1].number));
+  };
   paintChapterStudyStrip(overlay);
   await paintChapterStudyBody(overlay);
 }
@@ -10582,7 +10607,7 @@ function openHelp() {
         Note → type → add other refs (gen.1.3 or Genesis 1:3) → Add links → Save Note.</p>
 
         <p style="margin-bottom:1rem"><strong>Chapter study</strong><br>
-        Menu → <strong>Chapter study</strong> opens the chapter on screen as one session. Verses, verse notes, and the chapter summary stay on that session. Prev and next keep the same working verse in all three. A private note saved empty is cleared. A shared note edited here updates every verse it is linked to. Images stay on the note. Close returns to that verse in reading. Menu → Verse notes, Summary notes, and Book summary are unchanged.</p>
+        Menu → <strong>Chapter study</strong> opens the chapter on screen as one session. Verses, verse notes, and the chapter summary stay on that session. Use Prev, Next, First, Last, or the verse number menu to move. The working verse stays the same in all three views. A private note saved empty is cleared. A shared note edited here updates every verse it is linked to. Images stay on the note. Close returns to that verse in reading. Menu → Verse notes, Summary notes, and Book summary are unchanged.</p>
 
         <p style="margin-bottom:1rem"><strong>Find your verse notes</strong><br>
         Menu → <strong>Verse notes</strong>. Filter matches the note text and the verse reference.

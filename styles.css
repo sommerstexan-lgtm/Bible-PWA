@@ -2695,9 +2695,20 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }
 .cs-tab { flex: 1; min-height: 48px; }
 .cs-tab-on { background: #f4c430; color: #111; font-weight: 800; }
-.cs-step { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem; }
+.cs-step { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem; flex-wrap: wrap; }
 .cs-step button { flex: 0 0 auto; min-height: 44px; }
-#cs-working { flex: 1; text-align: center; font-weight: 700; }
+.cs-verse-select {
+  flex: 1 1 80px;
+  min-width: 64px;
+  min-height: 44px;
+  font-weight: 700;
+  text-align: center;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 0.4rem;
+}
 .cs-strip { margin: 0 0 0.7rem; line-height: 1.45; padding: 0.55rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .cs-row { border-bottom: 1px solid var(--border); padding: 0.55rem 0; }
 .cs-row.cs-on { outline: 2px solid #f4c430; border-radius: 8px; padding: 0.55rem; }
