@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.89.0
+/* app.js – Main application controller. KJV Study PWA v6.90.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.89.0';
+const APP_VERSION = '6.90.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -421,13 +421,15 @@ function openPlaceMapScreen(place) {
         </div>` : ''}
       </div>
       <div class="places-fs-dist" id="places-fs-dist" hidden></div>
-      <div class="places-fs-dock">
+      <div class="places-fs-dock places-fs-dock-main">
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
-        <button type="button" class="places-fs-add-btn" id="places-fs-legs-btn">Legs</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
-        <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
-        <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save map image</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-legs-btn">Distances</button>
+      </div>
+      <div class="places-fs-dock places-fs-dock-secondary">
+        <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save image</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-min-btn">Minimize</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
       </div>
       <div class="places-fs-add" id="places-fs-add" hidden>
@@ -534,7 +536,7 @@ function openPlaceMapScreen(place) {
       if (legsOpen && extras && extras.length) distEl.removeAttribute('hidden');
       else distEl.setAttribute('hidden', '');
     }
-    if (legsBtn) legsBtn.textContent = legsOpen ? 'Hide legs' : 'Legs';
+    if (legsBtn) legsBtn.textContent = legsOpen ? 'Hide distances' : 'Distances';
   }
   if (legsBtn) legsBtn.onclick = () => setLegsOpen(!legsOpen);
 
@@ -707,7 +709,7 @@ function openPlaceMapScreen(place) {
             if (navigator.clipboard && window.ClipboardItem) {
               await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
               saveImgBtn.textContent = 'Copied to clipboard';
-              setTimeout(() => { saveImgBtn.textContent = 'Save map image'; saveImgBtn.disabled = false; }, 2000);
+              setTimeout(() => { saveImgBtn.textContent = 'Save image'; saveImgBtn.disabled = false; }, 2000);
               return;
             }
           } catch (_) {}
@@ -720,11 +722,11 @@ function openPlaceMapScreen(place) {
           a.click();
           setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
           saveImgBtn.textContent = 'Downloaded';
-          setTimeout(() => { saveImgBtn.textContent = 'Save map image'; saveImgBtn.disabled = false; }, 2000);
+          setTimeout(() => { saveImgBtn.textContent = 'Save image'; saveImgBtn.disabled = false; }, 2000);
         }, 'image/png');
       } catch (err) {
         saveImgBtn.textContent = 'Failed — try again';
-        setTimeout(() => { saveImgBtn.textContent = 'Save map image'; saveImgBtn.disabled = false; }, 2500);
+        setTimeout(() => { saveImgBtn.textContent = 'Save image'; saveImgBtn.disabled = false; }, 2500);
         console.error(err);
       }
     };
@@ -4971,7 +4973,7 @@ async function openNote(key, place) {
           ? 'Shared note — edits apply to all linked verses.'
           : 'Private note for this verse only. Link more verses to share one note.'}
       </p>
-      <button type="button" id="note-show-map" style="width:100%;margin:0 0 0.4rem;min-height:44px">Show map</button>
+      ${activeMapSession ? '<button type="button" id="note-show-map" style="width:100%;margin:0 0 0.4rem;min-height:44px">Show map</button>' : ''}
       <button type="button" id="note-chapter-summary" class="hop-gold" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
       <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
       ${noteImagesMarkup()}
@@ -6909,8 +6911,8 @@ function openSummaryNoteEditor(existing) {
       <textarea class="note-input" id="sn-legacy">${escapeHtml(legacyText)}</textarea>` : ''}
       <div id="sn-answers"></div>
       <div id="sn-images" class="sn-images" style="margin-top:1rem">
-        <p class="sn-q-label">Chapter images</p>
-        <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">None, one, or more. Each image has its own explanation.</p>
+        <p class="sn-q-label">Images</p>
+        <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Add one image, write its description, then add another if you need it.</p>
         <div id="sn-img-list"></div>
         <label class="note-add-image" style="display:inline-block;margin-top:0.4rem">Add image<input type="file" id="sn-img-file" accept="image/*" hidden></label>
       </div>
@@ -6950,12 +6952,18 @@ function openSummaryNoteEditor(existing) {
       return;
     }
     listEl.innerHTML = summaryImages.map((im, i) =>
-      '<article class="cs-img-card" style="margin:0.7rem 0;padding:0.55rem;border:1px solid var(--border);border-radius:8px">' +
-        '<img alt="" data-src-id="' + escapeHtml(im.id) + '" style="max-width:100%;max-height:220px;border-radius:6px;display:block">' +
-        '<textarea class="sn-img-exp" data-i="' + i + '" rows="4" placeholder="Explanation for this image" style="width:100%;margin-top:0.4rem">' + escapeHtml(im.explanation || '') + '</textarea>' +
-        '<button type="button" class="sn-img-del" data-i="' + i + '" style="margin-top:0.3rem">Remove image</button>' +
+      '<article class="img-card">' +
+        '<p class="img-card-n">Image ' + (i + 1) + '</p>' +
+        '<img class="img-card-pic" alt="Image ' + (i + 1) + '" data-src-id="' + escapeHtml(im.id) + '">' +
+        '<label class="img-card-label">Description</label>' +
+        '<textarea class="img-card-text sn-img-exp" data-i="' + i + '" rows="5" placeholder="What does this image show?"></textarea>' +
+        '<button type="button" class="img-card-remove sn-img-del" data-i="' + i + '">Remove this image</button>' +
       '</article>'
     ).join('');
+    listEl.querySelectorAll('.sn-img-exp').forEach((box) => {
+      const i = Number(box.dataset.i);
+      box.value = summaryImages[i] ? (summaryImages[i].explanation || '') : '';
+    });
     for (const img of listEl.querySelectorAll('img[data-src-id]')) {
       const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
       if (url) img.src = url;
@@ -8247,31 +8255,38 @@ async function paintChapterStudyBody(overlay) {
       }));
     }
     const imgs = chapterStudy.chapterImages;
-    body.innerHTML = '<p class="cs-meta">Images for this chapter. None, one, or more. Each image has its own explanation. Saved with the chapter.</p>' +
+    body.innerHTML = '<p class="cs-meta">Add one image, write its description, then add another if you need it. Descriptions save as you leave the box.</p>' +
       '<div id="cs-img-list"></div>' +
-      '<label class="note-add-image" style="display:inline-block;margin-top:0.6rem">' +
-        'Add image' +
+      '<label class="img-add" id="cs-img-add">' +
+        '<span id="cs-img-add-label">Add image</span>' +
         '<input type="file" id="cs-img-file" accept="image/*" hidden>' +
-      '</label>' +
-      '<button type="button" id="cs-img-save" style="width:100%;margin-top:0.6rem;min-height:48px">Save explanations</button>';
+      '</label>';
     const listEl = body.querySelector('#cs-img-list');
-    async function paintImages() {
+    const addLabel = body.querySelector('#cs-img-add-label');
+    async function paintImages(focusIndex) {
+      if (addLabel) addLabel.textContent = imgs.length ? 'Add another image' : 'Add image';
       if (!imgs.length) {
-        listEl.innerHTML = '<p class="theme-note">No images for this chapter yet.</p>';
+        listEl.innerHTML = '<p class="theme-note">No image yet.</p>';
         return;
       }
       listEl.innerHTML = imgs.map((im, i) =>
-        '<article class="cs-img-card" data-i="' + i + '" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px">' +
-          '<div class="note-thumb" style="margin-bottom:0.4rem"><img alt="" data-src-id="' + escapeHtml(im.id) + '" style="max-width:100%;max-height:220px;border-radius:6px"></div>' +
-          '<textarea class="cs-img-exp" data-i="' + i + '" rows="4" placeholder="Explanation for this image">' + escapeHtml(im.explanation || '') + '</textarea>' +
-          '<button type="button" class="cs-img-del" data-i="' + i + '" style="margin-top:0.3rem">Remove image</button>' +
+        '<article class="img-card" data-i="' + i + '">' +
+          '<p class="img-card-n">Image ' + (i + 1) + '</p>' +
+          '<img class="img-card-pic" alt="Image ' + (i + 1) + '" data-src-id="' + escapeHtml(im.id) + '">' +
+          '<label class="img-card-label" for="cs-img-exp-' + i + '">Description</label>' +
+          '<textarea class="img-card-text" id="cs-img-exp-' + i + '" data-i="' + i + '" rows="5" placeholder="What does this image show?"></textarea>' +
+          '<button type="button" class="img-card-remove" data-i="' + i + '">Remove this image</button>' +
         '</article>'
       ).join('');
+      listEl.querySelectorAll('.img-card-text').forEach((box) => {
+        const i = Number(box.dataset.i);
+        box.value = imgs[i] ? (imgs[i].explanation || '') : '';
+      });
       for (const img of listEl.querySelectorAll('img[data-src-id]')) {
         const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
         if (url) img.src = url;
       }
-      listEl.querySelectorAll('.cs-img-exp').forEach((box) => {
+      listEl.querySelectorAll('.img-card-text').forEach((box) => {
         box.addEventListener('input', () => {
           const i = Number(box.dataset.i);
           if (imgs[i]) imgs[i].explanation = box.value;
@@ -8281,10 +8296,9 @@ async function paintChapterStudyBody(overlay) {
           if (imgs[i]) imgs[i].explanation = box.value;
           try { await saveChapterStudyImages(); } catch (_) {}
         });
-        growSummaryBox(box);
         attachChapterStudyKeyboardFix(box);
       });
-      listEl.querySelectorAll('.cs-img-del').forEach((btn) => {
+      listEl.querySelectorAll('.img-card-remove').forEach((btn) => {
         btn.onclick = async () => {
           const i = Number(btn.dataset.i);
           const removed = imgs.splice(i, 1)[0];
@@ -8296,6 +8310,13 @@ async function paintChapterStudyBody(overlay) {
           await paintImages();
         };
       });
+      if (focusIndex != null) {
+        const box = listEl.querySelector('#cs-img-exp-' + focusIndex);
+        if (box) {
+          box.scrollIntoView({ block: 'center' });
+          box.focus();
+        }
+      }
     }
     await paintImages();
     const fileInput = body.querySelector('#cs-img-file');
@@ -8312,24 +8333,9 @@ async function paintChapterStudyBody(overlay) {
           const rec = await storage.saveNoteImage(file);
           imgs.push({ id: rec.id, explanation: '' });
           await saveChapterStudyImages();
-          await paintImages();
+          await paintImages(imgs.length - 1);
         } catch (_) {
           alert('Could not save that image.');
-        }
-      };
-    }
-    const saveImgsBtn = body.querySelector('#cs-img-save');
-    if (saveImgsBtn) {
-      saveImgsBtn.onclick = async () => {
-        listEl.querySelectorAll('.cs-img-exp').forEach((box) => {
-          const i = Number(box.dataset.i);
-          if (imgs[i]) imgs[i].explanation = box.value;
-        });
-        try {
-          await saveChapterStudyImages();
-          showAppStatus('Chapter images saved.', 'ok');
-        } catch (_) {
-          showAppStatus('Could not save chapter images.', 'fail');
         }
       };
     }
@@ -8457,8 +8463,10 @@ async function openChapterStudy() {
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
           '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
-          '<button type="button" id="cs-show-map" class="cs-show-map">Show map</button>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
+        '</div>' +
+        '<div class="cs-map-row"' + (activeMapSession ? '' : ' hidden') + '>' +
+          '<button type="button" id="cs-show-map">Show map</button>' +
         '</div>' +
         '<div class="cs-tabs">' +
           '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
