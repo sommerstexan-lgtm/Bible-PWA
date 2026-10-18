@@ -2179,7 +2179,7 @@ body.chrome-is-hidden main#main {
 .img-viewer {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 400;
   background: rgba(0,0,0,0.94);
   display: flex;
   align-items: center;
@@ -2841,4 +2841,20 @@ textarea.cs-note, textarea.cs-answer {
 .places-fs-dock-secondary {
   border-top: 0;
   padding-top: 0;
+}
+
+.img-card-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.img-card-hint {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
 }

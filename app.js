@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.90.0
+/* app.js – Main application controller. KJV Study PWA v6.91.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.90.0';
+const APP_VERSION = '6.91.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6954,7 +6954,10 @@ function openSummaryNoteEditor(existing) {
     listEl.innerHTML = summaryImages.map((im, i) =>
       '<article class="img-card">' +
         '<p class="img-card-n">Image ' + (i + 1) + '</p>' +
-        '<img class="img-card-pic" alt="Image ' + (i + 1) + '" data-src-id="' + escapeHtml(im.id) + '">' +
+        '<button type="button" class="img-card-open" data-src-id="' + escapeHtml(im.id) + '" aria-label="Open image ' + (i + 1) + ' full size">' +
+          '<img class="img-card-pic" alt="Image ' + (i + 1) + '" data-src-id="' + escapeHtml(im.id) + '">' +
+          '<span class="img-card-hint">Tap for full size</span>' +
+        '</button>' +
         '<label class="img-card-label">Description</label>' +
         '<textarea class="img-card-text sn-img-exp" data-i="' + i + '" rows="5" placeholder="What does this image show?"></textarea>' +
         '<button type="button" class="img-card-remove sn-img-del" data-i="' + i + '">Remove this image</button>' +
@@ -6968,6 +6971,12 @@ function openSummaryNoteEditor(existing) {
       const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
       if (url) img.src = url;
     }
+    listEl.querySelectorAll('.img-card-open').forEach((btn) => {
+      btn.onclick = async () => {
+        const url = await noteImageObjectUrl(btn.getAttribute('data-src-id'));
+        openNoteImageViewer(url, 'Image');
+      };
+    });
     listEl.querySelectorAll('.sn-img-exp').forEach((box) => {
       box.addEventListener('input', () => {
         const i = Number(box.dataset.i);
@@ -8272,7 +8281,10 @@ async function paintChapterStudyBody(overlay) {
       listEl.innerHTML = imgs.map((im, i) =>
         '<article class="img-card" data-i="' + i + '">' +
           '<p class="img-card-n">Image ' + (i + 1) + '</p>' +
-          '<img class="img-card-pic" alt="Image ' + (i + 1) + '" data-src-id="' + escapeHtml(im.id) + '">' +
+          '<button type="button" class="img-card-open" data-src-id="' + escapeHtml(im.id) + '" aria-label="Open image ' + (i + 1) + ' full size">' +
+            '<img class="img-card-pic" alt="Image ' + (i + 1) + '" data-src-id="' + escapeHtml(im.id) + '">' +
+            '<span class="img-card-hint">Tap for full size</span>' +
+          '</button>' +
           '<label class="img-card-label" for="cs-img-exp-' + i + '">Description</label>' +
           '<textarea class="img-card-text" id="cs-img-exp-' + i + '" data-i="' + i + '" rows="5" placeholder="What does this image show?"></textarea>' +
           '<button type="button" class="img-card-remove" data-i="' + i + '">Remove this image</button>' +
@@ -8286,6 +8298,12 @@ async function paintChapterStudyBody(overlay) {
         const url = await noteImageObjectUrl(img.getAttribute('data-src-id'));
         if (url) img.src = url;
       }
+      listEl.querySelectorAll('.img-card-open').forEach((btn) => {
+        btn.onclick = async () => {
+          const url = await noteImageObjectUrl(btn.getAttribute('data-src-id'));
+          openNoteImageViewer(url, 'Image');
+        };
+      });
       listEl.querySelectorAll('.img-card-text').forEach((box) => {
         box.addEventListener('input', () => {
           const i = Number(box.dataset.i);
