@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.91.1
+/* app.js – Main application controller. KJV Study PWA v6.94.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.91.1';
+const APP_VERSION = '6.94.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -8129,9 +8129,9 @@ function chapterStudyColoredHtml(text, key) {
   return buildColoredHtml(plain, ranges, false);
 }
 
-async function ensureChapterStudyHighlights() {
+async function ensureChapterStudyHighlights(force) {
   if (!chapterStudy) return;
-  if (chapterStudy.highlightMap) return;
+  if (chapterStudy.highlightMap && !force) return;
   const verses = chapterStudyVerses();
   const keys = verses.map((v) => chapterStudyKey(v.number));
   let maps = { highlightMap: {} };
@@ -8393,6 +8393,9 @@ async function paintChapterStudyBody(overlay) {
   if (!body || !chapterStudy) return;
   const view = chapterStudy.view || 'verses';
   const verses = chapterStudyVerses();
+  if (view === 'verses' || view === 'notes') {
+    await ensureChapterStudyHighlights(false);
+  }
   if (view === 'notes') {
     if (!chapterStudy.noteMap) chapterStudy.noteMap = await loadChapterStudyNoteMap();
     body.innerHTML = verses.map((v) => {
@@ -8789,7 +8792,7 @@ async function openChapterStudy() {
     const vs = chapterStudyVerses();
     if (vs.length) setChapterStudyVerse(overlay, Number(vs[vs.length - 1].number));
   };
-  await ensureChapterStudyHighlights();
+  await ensureChapterStudyHighlights(true);
   paintChapterStudyStrip(overlay);
   await paintChapterStudyBody(overlay);
 }
