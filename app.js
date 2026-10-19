@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.94.0
+/* app.js – Main application controller. KJV Study PWA v6.95.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.94.0';
+const APP_VERSION = '6.95.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -395,10 +395,11 @@ function openPlaceMapScreen(place) {
   if (activeMapSession && typeof activeMapSession.close === 'function') {
     activeMapSession.close();
   }
-
-  const name = placeDisplayName(place);
-  const origin = placeCoords(place);
-  const hasCoord = !!origin;
+  const isBlank = !!(place && place.blank);
+  let name = isBlank ? 'New route' : placeDisplayName(place);
+  let origin = isBlank ? null : placeCoords(place);
+  let originIdValue = isBlank ? '' : String(place.id || name);
+  let hasCoord = !!origin;
   const desc = Array.isArray(place.description) ? place.description.join(' ') : (place.description || '');
   const refs = Array.isArray(place.references) ? place.references : [];
   const shown = refs.slice(0, 40);
@@ -423,7 +424,8 @@ function openPlaceMapScreen(place) {
       <div class="places-fs-dist" id="places-fs-dist" hidden></div>
       <div class="places-fs-dock places-fs-dock-main">
         <button type="button" class="places-fs-notes-btn" id="places-fs-notes-btn">Notes</button>
-        <button type="button" class="places-fs-add-btn" id="places-fs-add-btn"${hasCoord ? '' : ' disabled'}>Add place</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-add-btn">Add place</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-new-route">New route</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-legs-btn">Distances</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save image</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-min-btn">Minimize</button>
@@ -431,7 +433,8 @@ function openPlaceMapScreen(place) {
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
       </div>
       <div class="places-fs-add" id="places-fs-add" hidden>
-        <p class="theme-step">Add a place</p>
+        <p class="theme-step" id="places-fs-add-title">Add a place</p>
+        <p class="theme-note">Set the start first, even if it is outside this chapter. Then add stops in order. New route keeps this army and starts another.</p>
         <div class="places-search-row">
           <input type="search" id="places-fs-q" class="places-q" placeholder="Type a name or pick below…" autocomplete="off">
           <button type="button" id="places-fs-go">Search</button>
@@ -730,15 +733,13 @@ function openPlaceMapScreen(place) {
     };
   }
 
-  if (!hasCoord) return;
-
   const extras = [];
   let mapObj = null;
   let lineLayer = null;
   const MAX_EXTRAS = 12;
 
   function originId() {
-    return String(place.id || name);
+    return String(originIdValue || name || '');
   }
 
   function refreshChrome() {
@@ -789,7 +790,11 @@ function openPlaceMapScreen(place) {
 
   function fitAll() {
     if (!mapObj || !window.L) return;
-    const pts = [[origin.lat, origin.lon]].concat(extras.map((ex) => [ex.coord.lat, ex.coord.lon]));
+    const pts = [];
+    lockedRoutes.forEach((rt) => rt.stops.forEach((s) => pts.push([s.coord.lat, s.coord.lon])));
+    if (origin) pts.push([origin.lat, origin.lon]);
+    extras.forEach((ex) => pts.push([ex.coord.lat, ex.coord.lon]));
+    if (!pts.length) { mapObj.setView([31.5, 35.1], 8); return; }
     if (pts.length === 1) mapObj.setView(pts[0], 11);
     else mapObj.fitBounds(pts, { padding: [48, 48], maxZoom: 12 });
   }
@@ -800,7 +805,7 @@ function openPlaceMapScreen(place) {
       mapObj.removeLayer(lineLayer);
       lineLayer = null;
     }
-    if (!extras.length) return;
+    if (!origin || !extras.length) return;
     lineLayer = window.L.layerGroup();
     const path = [[origin.lat, origin.lon]].concat(extras.map((ex) => [ex.coord.lat, ex.coord.lon]));
     if (path.length >= 2) {
@@ -855,8 +860,61 @@ function openPlaceMapScreen(place) {
     fitAll();
   }
 
+  const lockedRoutes = [];
+  const routeColors = ['#c62828', '#1565c0', '#c9a227', '#2e7d32', '#6a1b9a'];
+  let lockedLayer = null;
+  function drawLocked() {
+    if (!mapObj || !window.L) return;
+    if (lockedLayer) { mapObj.removeLayer(lockedLayer); lockedLayer = null; }
+    if (!lockedRoutes.length) return;
+    lockedLayer = window.L.layerGroup();
+    lockedRoutes.forEach((rt) => {
+      const path = rt.stops.map((s) => [s.coord.lat, s.coord.lon]);
+      if (path.length >= 2) {
+        window.L.polyline(path, { color: rt.color, weight: 4, opacity: 0.9 }).addTo(lockedLayer);
+      }
+      rt.stops.forEach((s, i) => {
+        const m = window.L.circleMarker([s.coord.lat, s.coord.lon], {
+          radius: i === 0 ? 11 : 9,
+          color: rt.color,
+          weight: 2,
+          fillColor: rt.color,
+          fillOpacity: 0.85
+        }).addTo(lockedLayer);
+        m.bindTooltip(rt.name + ' ' + (i + 1), { permanent: true, direction: 'right', offset: [10, 0], className: 'place-en-label' });
+      });
+    });
+    lockedLayer.addTo(mapObj);
+  }
+  function lockCurrentRoute() {
+    if (!origin) {
+      showAppStatus('Set a start before starting another route.', 'fail');
+      return;
+    }
+    const suggested = ['Saul', 'Philistines', 'David', 'Route'][lockedRoutes.length] || ('Route ' + (lockedRoutes.length + 1));
+    const label = prompt('Name this route (one army):', suggested);
+    if (!label) return;
+    const stops = [{ id: originIdValue, name: name, coord: origin }].concat(extras.map((ex) => ({ id: ex.id, name: ex.name, coord: ex.coord })));
+    lockedRoutes.push({ name: label.trim() || suggested, color: routeColors[lockedRoutes.length % routeColors.length], stops });
+    extras.forEach((ex) => { if (ex.marker && mapObj) mapObj.removeLayer(ex.marker); });
+    extras.length = 0;
+    routeMarkers.forEach((m) => { if (m.marker && mapObj) mapObj.removeLayer(m.marker); });
+    routeMarkers.length = 0;
+    origin = null;
+    originIdValue = '';
+    name = 'New route';
+    hasCoord = false;
+    drawLocked();
+    redrawLines();
+    refreshChrome();
+    if (titleEl) titleEl.textContent = 'New route';
+    showAppStatus(label.trim() + ' kept. Set the next army’s start.', 'ok');
+  }
+  const newRouteBtn = $('#places-fs-new-route', mapOverlay);
+  if (newRouteBtn) newRouteBtn.onclick = lockCurrentRoute;
+
   async function addById(placeId, fallbackName) {
-    if (String(placeId) === originId()) return;
+    if (origin && String(placeId) === originId()) return;
     if (extras.some((ex) => String(ex.id) === String(placeId))) return;
     if (extras.length >= MAX_EXTRAS) {
       if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">Twelve added places is the limit. Remove one first.</p>`;
@@ -870,6 +928,21 @@ function openPlaceMapScreen(place) {
       const label = placeDisplayName(p) || fallbackName || placeId;
       if (!coord) {
         if (hitsEl) hitsEl.innerHTML = `<p class="theme-note">${escapeHtml(label)} has no coordinates.</p>`;
+        return;
+      }
+      if (!origin) {
+        origin = coord;
+        originIdValue = String(p.id || placeId);
+        name = label;
+        hasCoord = true;
+        addMarker(window.L, coord, label, true);
+        if (titleEl) titleEl.textContent = name;
+        redrawLines();
+        refreshChrome();
+        fitAll();
+        if (hitsEl) hitsEl.innerHTML = '';
+        if (qEl) qEl.value = '';
+        showAppStatus('Start set: ' + label + '. Add the next stop.', 'ok');
         return;
       }
       const marker = addMarker(window.L, coord, label, false);
@@ -928,12 +1001,14 @@ function openPlaceMapScreen(place) {
   ensureLeaflet().then((L) => {
     const el = $('#places-fs-map', mapOverlay);
     if (!el || !L) return;
-    mapObj = L.map(el, { zoomControl: true, attributionControl: true }).setView([origin.lat, origin.lon], 11);
+    const start = origin ? [origin.lat, origin.lon] : [31.5, 35.1];
+    const zoom = origin ? 11 : 8;
+    mapObj = L.map(el, { zoomControl: true, attributionControl: true }).setView(start, zoom);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
       attribution: 'Tiles &copy; Esri'
     }).addTo(mapObj);
-    addMarker(L, origin, name, true);
+    if (origin) addMarker(L, origin, name, true);
     const size = () => mapObj && mapObj.invalidateSize();
     setTimeout(size, 50);
     setTimeout(size, 250);
@@ -1015,9 +1090,13 @@ function mapSessionLabel() {
   return activeMapSession.summary();
 }
 
+function openBlankMap() {
+  openPlaceMapScreen({ id: '', kjvName: 'New route', name: 'New route', blank: true });
+}
+
 function restoreActiveMap() {
   if (!activeMapSession || typeof activeMapSession.restore !== 'function') {
-    showAppStatus('No map open. Open a place first.', 'fail');
+    openBlankMap();
     return;
   }
   activeMapSession.restore();
@@ -3203,7 +3282,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <button type="button" data-act="chains" data-key="${key}" class="${chainCls.trim()}">Chains${chainCountMap[key] ? ' ' + chainCountMap[key] : ''}</button>
         <button type="button" data-act="tkn" data-key="${key}">Then-Now</button>
         <button type="button" data-act="places" data-key="${key}">Places</button>
-        <button type="button" data-act="show-map" data-key="${key}">Show map</button>
+        <button type="button" data-act="show-map" data-key="${key}">Open map</button>
         <button type="button" data-act="chapter-notes" data-key="${key}">Chapter notes</button>
         <button type="button" data-act="chapter-summary" data-key="${key}">Chapter summary</button>
       </div>
@@ -8731,8 +8810,8 @@ async function openChapterStudy() {
           '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
-        '<div class="cs-map-row"' + (activeMapSession ? '' : ' hidden') + '>' +
-          '<button type="button" id="cs-show-map">Show map</button>' +
+        '<div class="cs-map-row">' +
+          '<button type="button" id="cs-show-map">Open map</button>' +
         '</div>' +
         '<div class="cs-tabs">' +
           '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
@@ -10220,6 +10299,7 @@ async function openResearch() {
       </div>
       <div id="places-results" class="places-results"></div>
       <p class="theme-step">This chapter</p>
+      <button type="button" id="places-open-map" style="width:100%;margin:0 0 0.45rem;min-height:48px">Open map</button>
       <button type="button" id="places-picture">Chapter picture</button>
       <div id="places-chapter">Loading chapter places…</div>
       <div id="places-detail" class="places-detail" hidden></div>
@@ -10231,6 +10311,8 @@ async function openResearch() {
     const resultsEl = $("#places-results", overlay);
     const chapterEl = $("#places-chapter", overlay);
     const detailEl = $("#places-detail", overlay);
+    const openMapBtn = $("#places-open-map", overlay);
+    if (openMapBtn) openMapBtn.onclick = () => { closeOverlay(overlay); restoreActiveMap(); };
     const pictureBtn = $("#places-picture", overlay);
     if (pictureBtn) {
       if (!chapterPicture()) pictureBtn.setAttribute("hidden", "");
