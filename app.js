@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.95.0
+/* app.js – Main application controller. KJV Study PWA v6.96.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.95.0';
+const APP_VERSION = '6.96.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -427,7 +427,7 @@ function openPlaceMapScreen(place) {
         <button type="button" class="places-fs-add-btn" id="places-fs-add-btn">Add place</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-new-route">New route</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-legs-btn">Distances</button>
-        <button type="button" class="places-fs-add-btn" id="places-fs-save-img"${hasCoord ? '' : ' disabled'}>Save image</button>
+        <button type="button" class="places-fs-add-btn" id="places-fs-save-img">Save image</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-min-btn">Minimize</button>
         <button type="button" class="places-fs-add-btn" id="places-fs-pic-btn">Chapter picture</button>
         <button type="button" class="places-fs-close" id="places-fs-close-2">Close</button>
@@ -534,7 +534,7 @@ function openPlaceMapScreen(place) {
   function setLegsOpen(open) {
     legsOpen = !!open;
     if (distEl) {
-      if (legsOpen && extras && extras.length) distEl.removeAttribute('hidden');
+      if (legsOpen && ((extras && extras.length) || lockedRoutes.length)) distEl.removeAttribute('hidden');
       else distEl.setAttribute('hidden', '');
     }
     if (legsBtn) legsBtn.textContent = legsOpen ? 'Hide distances' : 'Distances';
@@ -613,7 +613,7 @@ function openPlaceMapScreen(place) {
 
 
   const saveImgBtn = $('#places-fs-save-img', mapOverlay);
-  if (saveImgBtn && hasCoord) {
+  if (saveImgBtn) {
     saveImgBtn.onclick = async () => {
       saveImgBtn.textContent = 'Saving…';
       saveImgBtn.disabled = true;
@@ -654,9 +654,14 @@ function openPlaceMapScreen(place) {
         hidden.forEach(([el, prev]) => { el.style.display = prev; });
         if (compass) compass.style.display = '';
         if (legsWasOpen) setLegsOpen(true);
-        const labels = [name].concat((extras || []).map((ex) => ex.name));
-        const stops = [origin].concat((extras || []).map((ex) => ex.coord)).filter(Boolean);
-        const legendH = Math.max(64, 36 + labels.length * 34);
+        const blocks = routeBlocks();
+        if (!blocks.length) throw new Error('no route');
+        const legendLines = [];
+        blocks.forEach((rt) => {
+          legendLines.push(rt.name);
+          rt.stops.forEach((s, i) => legendLines.push('  ' + (i + 1) + '. ' + s.name));
+        });
+        const legendH = Math.max(64, 28 + legendLines.length * 32);
         const out = document.createElement('canvas');
         out.width = mapCanvas.width;
         out.height = mapCanvas.height + legendH;
@@ -670,37 +675,38 @@ function openPlaceMapScreen(place) {
           const p = mapObj.latLngToContainerPoint([coord.lat, coord.lon]);
           return { x: p.x * scale, y: p.y * scale };
         }
-        const drawn = stops.map(pt).filter(Boolean);
-        if (drawn.length >= 2) {
-          ctx.beginPath();
-          ctx.strokeStyle = '#2a6f97';
-          ctx.lineWidth = 6;
-          ctx.lineJoin = 'round';
-          ctx.lineCap = 'round';
-          drawn.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-          ctx.stroke();
-        }
-        drawn.forEach((p, i) => {
-          const gold = i === 0;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, gold ? 18 : 15, 0, Math.PI * 2);
-          ctx.fillStyle = gold ? '#c9a227' : '#4a9fd8';
-          ctx.fill();
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = gold ? '#8a6d12' : '#1d4f70';
-          ctx.stroke();
-          ctx.fillStyle = '#111';
-          ctx.font = 'bold 20px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(String(i + 1), p.x, p.y + 1);
+        blocks.forEach((rt) => {
+          const drawn = rt.stops.map((s) => pt(s.coord)).filter(Boolean);
+          if (drawn.length >= 2) {
+            ctx.beginPath();
+            ctx.strokeStyle = rt.color || '#2a6f97';
+            ctx.lineWidth = 6;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            drawn.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+            ctx.stroke();
+          }
+          drawn.forEach((p, i) => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, i === 0 ? 18 : 15, 0, Math.PI * 2);
+            ctx.fillStyle = rt.color || '#4a9fd8';
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#111';
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(i + 1), p.x, p.y + 1);
+          });
         });
         ctx.fillStyle = '#e8e4d8';
-        ctx.font = 'bold 28px sans-serif';
+        ctx.font = 'bold 26px sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
-        labels.forEach((label, i) => {
-          ctx.fillText((i + 1) + '. ' + label, 28, mapCanvas.height + 40 + i * 34);
+        legendLines.forEach((line, i) => {
+          ctx.fillText(line, 28, mapCanvas.height + 36 + i * 32);
         });
         out.toBlob(async (blob) => {
           if (!blob) throw new Error('blob failed');
@@ -734,6 +740,8 @@ function openPlaceMapScreen(place) {
   }
 
   const extras = [];
+  const lockedRoutes = [];
+  const routeColors = ['#c62828', '#1565c0', '#c9a227', '#2e7d32', '#6a1b9a'];
   let mapObj = null;
   let lineLayer = null;
   const MAX_EXTRAS = 12;
@@ -742,6 +750,37 @@ function openPlaceMapScreen(place) {
     return String(originIdValue || name || '');
   }
 
+  function routeBlocks() {
+    const blocks = lockedRoutes.map((rt) => ({ name: rt.name, color: rt.color, stops: rt.stops.slice() }));
+    if (origin) {
+      blocks.push({
+        name: name || 'Current',
+        color: '#2a6f97',
+        stops: [{ id: originIdValue, name: name, coord: origin }].concat(extras.map((ex) => ({ id: ex.id, name: ex.name, coord: ex.coord })))
+      });
+    }
+    return blocks;
+  }
+  function paintRouteNotes() {
+    const host = $('#places-fs-route-notes', mapOverlay);
+    if (!host) return;
+    const blocks = routeBlocks();
+    if (!blocks.length) {
+      host.innerHTML = '<p class="theme-note">No route yet. Set a start, then add stops in order.</p>';
+      return;
+    }
+    host.innerHTML = blocks.map((rt) => {
+      let total = 0;
+      const lines = rt.stops.map((s, i) => {
+        if (i) total += haversineMiles(rt.stops[i - 1].coord, s.coord);
+        return '<div>' + (i + 1) + '. ' + escapeHtml(s.name) + '</div>';
+      }).join('');
+      const totalLine = rt.stops.length >= 2
+        ? '<div style="margin-top:0.2rem;font-weight:600">Total in order: ' + formatMilesKm(total) + ' · ' + walkEstimate(total) + '</div>'
+        : '';
+      return '<div style="margin:0 0 0.8rem"><p class="theme-step" style="margin:0 0 0.25rem">' + escapeHtml(rt.name) + '</p>' + lines + totalLine + '</div>';
+    }).join('');
+  }
   function refreshChrome() {
     if (titleEl) {
       titleEl.textContent = extras.length
@@ -769,23 +808,29 @@ function openPlaceMapScreen(place) {
       }
     }
     if (distEl) {
-      if (!extras.length) {
+      const blocks = routeBlocks();
+      if (!blocks.length) {
         distEl.setAttribute('hidden', '');
         distEl.textContent = '';
       } else {
         if (legsOpen) distEl.removeAttribute('hidden');
         else distEl.setAttribute('hidden', '');
-        const pts = [{ name, coord: origin }].concat(extras.map((ex) => ({ name: ex.name, coord: ex.coord })));
-        let total = 0;
-        const legs = [];
-        for (let i = 1; i < pts.length; i++) {
-          const miles = haversineMiles(pts[i - 1].coord, pts[i].coord);
-          total += miles;
-          legs.push(`<div>${i}. ${escapeHtml(pts[i - 1].name)} → ${escapeHtml(pts[i].name)}: ${formatMilesKm(miles)} · ${walkEstimate(miles)}</div>`);
-        }
-        distEl.innerHTML = legs.join('') + `<div style="margin-top:0.35rem;font-weight:600">Total in order: ${formatMilesKm(total)} · ${walkEstimate(total)}</div>`;
+        distEl.innerHTML = blocks.map((rt) => {
+          let total = 0;
+          const legs = [];
+          for (let i = 1; i < rt.stops.length; i++) {
+            const miles = haversineMiles(rt.stops[i - 1].coord, rt.stops[i].coord);
+            total += miles;
+            legs.push('<div>' + i + '. ' + escapeHtml(rt.stops[i - 1].name) + ' → ' + escapeHtml(rt.stops[i].name) + ': ' + formatMilesKm(miles) + ' · ' + walkEstimate(miles) + '</div>');
+          }
+          const totalLine = rt.stops.length >= 2
+            ? '<div style="margin-top:0.2rem;font-weight:600">Total in order: ' + formatMilesKm(total) + ' · ' + walkEstimate(total) + '</div>'
+            : '<div>Start only.</div>';
+          return '<div style="margin:0.35rem 0 0.55rem"><strong>' + escapeHtml(rt.name) + '</strong>' + legs.join('') + totalLine + '</div>';
+        }).join('');
       }
     }
+    paintRouteNotes();
   }
 
   function fitAll() {
@@ -860,8 +905,6 @@ function openPlaceMapScreen(place) {
     fitAll();
   }
 
-  const lockedRoutes = [];
-  const routeColors = ['#c62828', '#1565c0', '#c9a227', '#2e7d32', '#6a1b9a'];
   let lockedLayer = null;
   function drawLocked() {
     if (!mapObj || !window.L) return;
