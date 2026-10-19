@@ -8121,6 +8121,245 @@ async function saveChapterStudyImages() {
   chapterStudy.summaryLoaded = loaded;
 }
 
+
+function chapterStudyColoredHtml(text, key) {
+  const plain = text || '';
+  const raw = (chapterStudy && chapterStudy.highlightMap && chapterStudy.highlightMap[key]) || [];
+  const ranges = normalizeRanges(raw, plain.length);
+  return buildColoredHtml(plain, ranges, false);
+}
+
+async function ensureChapterStudyHighlights() {
+  if (!chapterStudy) return;
+  if (chapterStudy.highlightMap) return;
+  const verses = chapterStudyVerses();
+  const keys = verses.map((v) => chapterStudyKey(v.number));
+  let maps = { highlightMap: {} };
+  try {
+    maps = await storage.getChapterVerseMaps(keys);
+  } catch (_) {}
+  chapterStudy.highlightMap = Object.assign({}, maps.highlightMap || {});
+}
+
+function captureSelectionFromStudyEl(textEl, key) {
+  if (!textEl || !key) return null;
+  const result = getSelectionOffsets(textEl);
+  if (!result) return null;
+  pendingSelection = { key, start: result.start, end: result.end, text: result.text };
+  return pendingSelection;
+}
+
+function lockStudySelection(key, textEl) {
+  let locked = null;
+  if (pendingSelection && pendingSelection.key === key && pendingSelection.end > pendingSelection.start) {
+    locked = {
+      key: pendingSelection.key,
+      start: pendingSelection.start,
+      end: pendingSelection.end,
+      text: pendingSelection.text
+    };
+  }
+  if (!locked && textEl) {
+    const live = captureSelectionFromStudyEl(textEl, key);
+    if (live) locked = live;
+  }
+  if (locked && locked.text) {
+    const plain = (textEl && textEl.textContent) || '';
+    const selText = stripLeadingVerseNum(String(locked.text)).trim();
+    if (selText && plain && selText.length < plain.length) {
+      let located = locateSelected(plain, selText, locked.start || 0);
+      if (!located && plain.startsWith(selText)) located = { start: 0, end: selText.length };
+      if (!located) located = locateSelected(plain, selText, 0);
+      if (located && (located.end - located.start) < plain.length) {
+        locked = { key, start: located.start, end: located.end, text: plain.slice(located.start, located.end) };
+      }
+    }
+  }
+  return locked;
+}
+
+async function refreshAfterChapterStudyColor(overlay) {
+  pendingSelection = null;
+  try { window.getSelection().removeAllRanges(); } catch (_) {}
+  paintChapterStudyStrip(overlay);
+  await paintChapterStudyBody(overlay);
+  try {
+    if (currentBookId && currentChapter) {
+      const main = document.getElementById('main');
+      const scrollTop = main ? main.scrollTop : 0;
+      await renderChapter(currentBookId, currentChapter, { preserveScroll: scrollTop });
+    }
+  } catch (_) {}
+}
+
+async function applyChapterStudyColor(overlay, key, colorId, sel, senseResolved) {
+  const parsed = bible.parseKey(key);
+  const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+  const planned = precision.planColorApply(plain, colorId, parsed.bookId, sel, senseResolved ? { senseResolved: true } : null);
+  if (planned.needSense) {
+    openChapterStudySensePanel(overlay, key, colorId, sel, planned);
+    return;
+  }
+  let ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
+  ranges = precision.mergeRanges(
+    planned.mode === 'whole-verse' ? [] : ranges,
+    planned.ranges,
+    plain.length
+  );
+  if (planned.mode === 'whole-verse') ranges = planned.ranges;
+  await storage.setHighlights(key, ranges);
+  if (chapterStudy) {
+    if (!chapterStudy.highlightMap) chapterStudy.highlightMap = {};
+    chapterStudy.highlightMap[key] = ranges;
+  }
+  closeChapterStudyColorPanel(overlay);
+  if (planned.note) showAppStatus(planned.note, 'ok');
+  await refreshAfterChapterStudyColor(overlay);
+}
+
+async function clearChapterStudySelection(overlay, key, sel) {
+  if (!sel || sel.end <= sel.start) {
+    showAppStatus('Select the words to clear first.', 'fail');
+    return;
+  }
+  const parsed = bible.parseKey(key);
+  const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+  const ranges = normalizeRanges(await storage.getHighlights(key), plain.length);
+  const punched = [];
+  for (const r of ranges) {
+    if (r.end <= sel.start || r.start >= sel.end) punched.push(r);
+    else {
+      if (r.start < sel.start) punched.push({ color: r.color, start: r.start, end: sel.start });
+      if (r.end > sel.end) punched.push({ color: r.color, start: sel.end, end: r.end });
+    }
+  }
+  await storage.setHighlights(key, punched);
+  if (chapterStudy) {
+    if (!chapterStudy.highlightMap) chapterStudy.highlightMap = {};
+    chapterStudy.highlightMap[key] = punched;
+  }
+  closeChapterStudyColorPanel(overlay);
+  showAppStatus('Cleared color on the selected words.', 'ok');
+  await refreshAfterChapterStudyColor(overlay);
+}
+
+async function clearChapterStudyVerse(overlay, key) {
+  await storage.setHighlights(key, []);
+  if (chapterStudy) {
+    if (!chapterStudy.highlightMap) chapterStudy.highlightMap = {};
+    chapterStudy.highlightMap[key] = [];
+  }
+  closeChapterStudyColorPanel(overlay);
+  showAppStatus('Cleared colors on this verse.', 'ok');
+  await refreshAfterChapterStudyColor(overlay);
+}
+
+function closeChapterStudyColorPanel(overlay) {
+  const old = overlay && overlay.querySelector('#cs-color-panel');
+  if (old) old.remove();
+}
+
+function openChapterStudyColorPanel(overlay, key, textEl) {
+  closeChapterStudyColorPanel(overlay);
+  const sel = lockStudySelection(key, textEl);
+  const parsed = bible.parseKey(key);
+  const book = books.find((b) => b.id === parsed.bookId);
+  const ref = (book ? book.name : parsed.bookId) + ' ' + parsed.chapter + ':' + parsed.verse;
+  const selHtml = sel
+    ? '<p class="cs-color-sel">Selected: “' + escapeHtml(sel.text.slice(0, 80)) + (sel.text.length > 80 ? '…' : '') + '”</p>'
+    : '<p class="cs-color-sel">No selection — color applies to the whole verse.</p>';
+  const chips = analyze.allColors().map((c) =>
+    '<button type="button" class="cs-color-chip" data-color="' + escapeHtml(c.id) + '" title="' + escapeHtml(c.label + ' — ' + c.meaning) + '">' +
+      '<span class="swatch" style="background:' + c.hex + '"></span>' +
+      '<span>' + escapeHtml(c.meaning) + '</span>' +
+    '</button>'
+  ).join('');
+  const panel = document.createElement('div');
+  panel.id = 'cs-color-panel';
+  panel.className = 'cs-color-panel';
+  panel.innerHTML =
+    '<div class="cs-color-top">' +
+      '<strong>' + escapeHtml(ref) + '</strong>' +
+      '<button type="button" id="cs-color-done">Done</button>' +
+    '</div>' +
+    selHtml +
+    '<div class="cs-color-chips">' + chips + '</div>' +
+    '<div class="cs-color-extra">' +
+      '<button type="button" id="cs-color-clear-sel">Clear selected</button>' +
+      '<button type="button" id="cs-color-clear-all">Clear verse</button>' +
+    '</div>';
+  const scroll = overlay.querySelector('.cs-scroll') || overlay;
+  scroll.appendChild(panel);
+  panel.querySelector('#cs-color-done').onclick = () => closeChapterStudyColorPanel(overlay);
+  panel.querySelectorAll('.cs-color-chip').forEach((btn) => {
+    btn.onclick = () => applyChapterStudyColor(overlay, key, btn.dataset.color, sel, false);
+  });
+  panel.querySelector('#cs-color-clear-sel').onclick = () => clearChapterStudySelection(overlay, key, sel);
+  panel.querySelector('#cs-color-clear-all').onclick = () => clearChapterStudyVerse(overlay, key);
+  panel.scrollIntoView({ block: 'nearest' });
+}
+
+function openChapterStudySensePanel(overlay, key, colorId, sel, planned) {
+  closeChapterStudyColorPanel(overlay);
+  const token = planned.needSense;
+  const choices = precision.senseChoices(token.key) || [];
+  const panel = document.createElement('div');
+  panel.id = 'cs-color-panel';
+  panel.className = 'cs-color-panel';
+  panel.innerHTML =
+    '<div class="cs-color-top"><strong>Pick the sense</strong><button type="button" id="cs-color-done">Cancel</button></div>' +
+    '<p class="cs-color-sel">' + escapeHtml(planned.note || 'This word has more than one sense.') + '</p>' +
+    '<div class="cs-color-extra">' +
+      choices.map((c) => '<button type="button" data-sense="' + escapeHtml(c.id) + '" data-color="' + escapeHtml(c.colorId || '') + '">' + escapeHtml(c.label) + '</button>').join('') +
+    '</div>';
+  const scroll = overlay.querySelector('.cs-scroll') || overlay;
+  scroll.appendChild(panel);
+  panel.querySelector('#cs-color-done').onclick = () => closeChapterStudyColorPanel(overlay);
+  panel.querySelectorAll('[data-sense]').forEach((btn) => {
+    btn.onclick = async () => {
+      const senseColor = btn.dataset.color;
+      if (!senseColor) {
+        closeChapterStudyColorPanel(overlay);
+        showAppStatus('Left unpainted — sense is not a color subject.', 'ok');
+        return;
+      }
+      const choice = choices.find((c) => c.id === btn.dataset.sense);
+      const parsed = bible.parseKey(key);
+      const plain = bible.getVerseText(books, parsed.bookId, parsed.chapter, parsed.verse) || '';
+      const span = precision.identifySpan(plain, token, btn.dataset.sense) || token;
+      const reason = (choice && choice.reason) || 'Sense kept';
+      const useSel = { start: span.start, end: span.end };
+      await applyChapterStudyColor(overlay, key, senseColor, useSel, true);
+    };
+  });
+}
+
+function wireChapterStudyColorButtons(overlay) {
+  overlay.querySelectorAll('.cs-color').forEach((btn) => {
+    const early = (e) => {
+      const row = btn.closest('.cs-row');
+      const textEl = row && row.querySelector('.cs-verse-text');
+      const key = btn.dataset.key;
+      if (textEl && key) captureSelectionFromStudyEl(textEl, key);
+    };
+    btn.addEventListener('pointerdown', early, { capture: true });
+    btn.addEventListener('touchstart', early, { capture: true, passive: true });
+    btn.addEventListener('mousedown', early, { capture: true });
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const row = btn.closest('.cs-row');
+      const textEl = row && row.querySelector('.cs-verse-text');
+      const key = btn.dataset.key;
+      if (!key) return;
+      if (!(pendingSelection && pendingSelection.key === key)) {
+        captureSelectionFromStudyEl(textEl, key);
+      }
+      openChapterStudyColorPanel(overlay, key, textEl);
+    };
+  });
+}
+
 function paintChapterStudyStrip(overlay) {
   const strip = overlay.querySelector('#cs-strip');
   const verseSelect = overlay.querySelector('#cs-verse-select');
@@ -8134,7 +8373,7 @@ function paintChapterStudyStrip(overlay) {
   }
   chapterStudy.verse = Number(hit.number);
   if (verseSelect) verseSelect.value = String(hit.number);
-  strip.innerHTML = '<strong>' + escapeHtml(chapterStudyLabel(hit.number)) + '</strong> ' + escapeHtml(hit.text || '');
+  strip.innerHTML = '<strong>' + escapeHtml(chapterStudyLabel(hit.number)) + '</strong> ' + chapterStudyColoredHtml(hit.text || '', chapterStudyKey(hit.number));
 }
 
 function markChapterStudyVerse(overlay, skipScroll) {
@@ -8165,8 +8404,11 @@ async function paintChapterStudyBody(overlay) {
           ? '<p class="cs-meta">Image stays on this note. The verse Note tool still edits images.</p>'
           : '');
       return '<article class="cs-row" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">' +
-        '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
-        '<p class="cs-verse-text">' + escapeHtml(v.text || '') + '</p>' +
+        '<div class="cs-row-head">' +
+          '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
+          '<button type="button" class="cs-color" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">Color</button>' +
+        '</div>' +
+        '<p class="cs-verse-text">' + chapterStudyColoredHtml(v.text || '', key) + '</p>' +
         shared +
         '<textarea class="cs-note" data-key="' + escapeHtml(key) + '" rows="4" placeholder="Verse note">' + escapeHtml(note.text || '') + '</textarea>' +
         '</article>';
@@ -8357,15 +8599,20 @@ async function paintChapterStudyBody(overlay) {
     }
   } else {
     body.innerHTML = verses.map((v) => {
-      return '<article class="cs-row" data-verse="' + v.number + '">' +
-        '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
-        '<p class="cs-verse-text">' + escapeHtml(v.text || '') + '</p>' +
+      const key = chapterStudyKey(v.number);
+      return '<article class="cs-row" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">' +
+        '<div class="cs-row-head">' +
+          '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
+          '<button type="button" class="cs-color" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">Color</button>' +
+        '</div>' +
+        '<p class="cs-verse-text">' + chapterStudyColoredHtml(v.text || '', key) + '</p>' +
         '</article>';
     }).join('');
     body.querySelectorAll('.cs-pick').forEach((btn) => {
       btn.onclick = () => setChapterStudyVerse(overlay, Number(btn.dataset.verse));
     });
   }
+  wireChapterStudyColorButtons(overlay);
   markChapterStudyVerse(overlay);
   overlay.querySelectorAll('.cs-tab').forEach((tab) => {
     tab.classList.toggle('cs-tab-on', tab.dataset.view === view);
@@ -8542,6 +8789,7 @@ async function openChapterStudy() {
     const vs = chapterStudyVerses();
     if (vs.length) setChapterStudyVerse(overlay, Number(vs[vs.length - 1].number));
   };
+  await ensureChapterStudyHighlights();
   paintChapterStudyStrip(overlay);
   await paintChapterStudyBody(overlay);
 }

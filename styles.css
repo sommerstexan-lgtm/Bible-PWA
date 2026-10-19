@@ -637,13 +637,17 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
 
 /* ===== v5.2 segment highlights – true solid fills + pure black/white text ===== */
-.verse-text {
+.verse-text,
+.cs-verse-text,
+.cs-strip {
   /* allow selection */
   -webkit-user-select: text;
   user-select: text;
 }
 
-.verse-text .hl {
+.verse-text .hl,
+.cs-verse-text .hl,
+.cs-strip .hl {
   border-radius: 3px;
   /* No negative margin: overlapping layout boxes break native selection
      (esp. after single-letter words) on WebKit / mobile. Padding kept
@@ -2714,6 +2718,34 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-row.cs-on { outline: 2px solid #f4c430; border-radius: 8px; padding: 0.55rem; }
 .cs-pick { min-height: 44px; font-weight: 700; }
 .cs-verse-text { margin: 0.35rem 0; line-height: 1.45; }
+.cs-row-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.cs-color { min-height: 40px; font-weight: 600; }
+.cs-color-panel {
+  margin: 0.8rem 0 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+.cs-color-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; }
+.cs-color-sel { margin: 0 0 0.55rem; line-height: 1.4; color: var(--text); }
+.cs-color-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+.cs-color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 40px;
+  padding: 0.25rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+.cs-color-chip .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2); }
+.cs-color-extra { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.cs-color-extra button { min-height: 40px; }
 .cs-meta { color: var(--text-dim); font-size: 0.9em; margin: 0.2rem 0 0.35rem; }
 textarea.cs-note, textarea.cs-answer {
   width: 100%;
