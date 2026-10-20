@@ -2676,12 +2676,27 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-panel {
   display: flex;
   flex-direction: column;
-  height: 88vh;
-  height: 88dvh;
-  max-height: 88vh;
-  max-height: 88dvh;
+  height: 96vh;
+  height: 96dvh;
+  max-height: 96vh;
+  max-height: 96dvh;
   overflow: hidden;
   padding: 0;
+}
+@media (min-width: 900px) {
+  .cs-panel {
+    height: 98vh;
+    height: 98dvh;
+    max-height: 98vh;
+    max-height: 98dvh;
+  }
+  .cs-float { padding: 0.55rem 1rem 0.4rem; }
+  .cs-scroll { padding: 0.5rem 1rem 2rem; }
+  textarea.cs-note, textarea.cs-answer {
+    min-height: 220px;
+    max-height: 48vh;
+    font-size: 1.05rem;
+  }
 }
 .cs-float {
   flex-shrink: 0;
@@ -2693,7 +2708,7 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 0.7rem 1.2rem 18rem;
+  padding: 0.6rem 1.1rem 3rem;
   -webkit-overflow-scrolling: touch;
 }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }

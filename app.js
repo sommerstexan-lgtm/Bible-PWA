@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.97.0
+/* app.js – Main application controller. KJV Study PWA v6.98.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.97.0';
+const APP_VERSION = '6.98.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6695,34 +6695,38 @@ function keepCaretComfortable(el) {
 
 /** Keep the caret visible above the keyboard while editing chapter-study notes/summary. */
 
-/** Force a chapter-study textarea to stay near the top of the visible area. */
-function pinChapterStudyBox(box) {
+/** Scroll the host so the bottom of the focused box (and the caret) stays visible. */
+function revealChapterStudyBoxBottom(box) {
   if (!box) return;
   const host = box.closest('.cs-scroll');
   if (!host) return;
   const vv = window.visualViewport;
-  const visibleTop = vv ? vv.offsetTop : 0;
+  const visibleBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
   const hostRect = host.getBoundingClientRect();
   const boxRect = box.getBoundingClientRect();
-  const desiredTop = Math.max(hostRect.top, visibleTop) + 8;
-  const delta = boxRect.top - desiredTop;
-  if (Math.abs(delta) > 2) {
-    host.scrollTop += delta;
+  // Keep a small margin under the box so the bottom edge and caret are not cut off
+  const margin = 16;
+  const availBottom = Math.min(hostRect.bottom, visibleBottom) - margin;
+  if (boxRect.bottom > availBottom) {
+    host.scrollTop += (boxRect.bottom - availBottom);
+  } else if (boxRect.top < hostRect.top + 8) {
+    // Box is partly above the host; bring its top into view without hiding the bottom
+    host.scrollTop -= (hostRect.top + 8 - boxRect.top);
   }
 }
 
-/** Aggressively keep the box pinned for a short time after focus / keyboard open. */
-function lockChapterStudyBox(box) {
+/** Gently correct position a few times after focus so the browser cannot hide the bottom. */
+function settleChapterStudyBox(box) {
   if (!box) return;
-  pinChapterStudyBox(box);
+  revealChapterStudyBoxBottom(box);
   let tries = 0;
   const tick = () => {
-    if (document.activeElement !== box || tries > 12) return;
-    pinChapterStudyBox(box);
+    if (document.activeElement !== box || tries > 6) return;
+    revealChapterStudyBoxBottom(box);
     tries++;
-    setTimeout(tick, 80);
+    setTimeout(tick, 120);
   };
-  setTimeout(tick, 40);
+  setTimeout(tick, 60);
 }
 
 function attachChapterStudyKeyboardFix(box) {
@@ -6731,7 +6735,7 @@ function attachChapterStudyKeyboardFix(box) {
   const isChapterStudy = !!(box.closest && box.closest('.cs-scroll'));
   const lock = () => {
     if (document.activeElement !== box) return;
-    if (isChapterStudy) lockChapterStudyBox(box);
+    if (isChapterStudy) settleChapterStudyBox(box);
     else keepCaretComfortable(box);
   };
   box.addEventListener('focus', () => {
@@ -8625,9 +8629,9 @@ async function paintChapterStudyBody(overlay) {
         rememberChapterStudySummaryCursor(box);
         // prevent the browser from yanking the scroll, then center manually
         try { box.focus({ preventScroll: true }); } catch (_) {}
-        lockChapterStudyBox(box);
-        setTimeout(() => { if (document.activeElement === box) lockChapterStudyBox(box); }, 150);
-        setTimeout(() => { if (document.activeElement === box) lockChapterStudyBox(box); }, 500);
+        settleChapterStudyBox(box);
+        setTimeout(() => { if (document.activeElement === box) settleChapterStudyBox(box); }, 150);
+        setTimeout(() => { if (document.activeElement === box) settleChapterStudyBox(box); }, 500);
       });
       box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
       box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
@@ -8883,7 +8887,7 @@ async function openChapterStudy() {
     '<div class="panel cs-panel">' +
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
-          '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + ' <span style="font-size:0.65em;color:#f4c430;font-weight:700">· pinned</span></h2>' +
+          '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
         '<div class="cs-map-row">' +
