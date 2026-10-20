@@ -2693,7 +2693,7 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 0.7rem 1.2rem 9rem;
+  padding: 0.7rem 1.2rem 18rem;
   -webkit-overflow-scrolling: touch;
 }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }

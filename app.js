@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.96.2
+/* app.js – Main application controller. KJV Study PWA v6.97.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.96.2';
+const APP_VERSION = '6.97.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6657,18 +6657,16 @@ function growSummaryBox(el) {
     const delta = el.getBoundingClientRect().top - topBefore;
     host.scrollTop = prev + delta;
   }
-  if (host && host.classList && host.classList.contains('cs-scroll')) {
-    centerChapterStudyBox(el);
-  } else {
+  // For chapter study boxes, do not fight the scroll position while the user is typing.
+  // The pin happens on focus and keyboard resize only.
+  if (!(host && host.classList && host.classList.contains('cs-scroll'))) {
     keepCaretComfortable(el);
   }
   const locked = host ? host.scrollTop : 0;
   requestAnimationFrame(() => {
     if (!host || document.activeElement !== el) return;
-    host.scrollTop = locked;
-    if (host.classList && host.classList.contains('cs-scroll')) {
-      centerChapterStudyBox(el);
-    } else {
+    if (!(host.classList && host.classList.contains('cs-scroll'))) {
+      host.scrollTop = locked;
       keepCaretComfortable(el);
     }
   });
@@ -6697,56 +6695,55 @@ function keepCaretComfortable(el) {
 
 /** Keep the caret visible above the keyboard while editing chapter-study notes/summary. */
 
-/** Center a chapter-study textarea in the visible area (above the keyboard). */
-function centerChapterStudyBox(box) {
+/** Force a chapter-study textarea to stay near the top of the visible area. */
+function pinChapterStudyBox(box) {
   if (!box) return;
   const host = box.closest('.cs-scroll');
   if (!host) return;
   const vv = window.visualViewport;
   const visibleTop = vv ? vv.offsetTop : 0;
-  const visibleBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
   const hostRect = host.getBoundingClientRect();
   const boxRect = box.getBoundingClientRect();
-
-  // Visible portion of the scroll host (above keyboard, below any sticky header)
-  const availTop = Math.max(hostRect.top, visibleTop);
-  const availBottom = Math.min(hostRect.bottom, visibleBottom);
-  const availHeight = availBottom - availTop;
-  if (availHeight < 60) return;
-
-  // Prefer centering the caret line when the box is tall; otherwise center the whole box
-  const line = parseFloat(getComputedStyle(box).lineHeight) || 24;
-  const caret = caretLineTop(box);
-  const caretInBox = caret >= boxRect.top && caret <= boxRect.bottom;
-  const targetY = caretInBox ? caret : (boxRect.top + Math.min(boxRect.height, availHeight * 0.6) / 2);
-
-  const desiredCenter = availTop + availHeight * 0.45; // slightly above true center so more of the box is visible
-  const delta = targetY - desiredCenter;
-  if (Math.abs(delta) > 4) {
+  const desiredTop = Math.max(hostRect.top, visibleTop) + 8;
+  const delta = boxRect.top - desiredTop;
+  if (Math.abs(delta) > 2) {
     host.scrollTop += delta;
   }
+}
+
+/** Aggressively keep the box pinned for a short time after focus / keyboard open. */
+function lockChapterStudyBox(box) {
+  if (!box) return;
+  pinChapterStudyBox(box);
+  let tries = 0;
+  const tick = () => {
+    if (document.activeElement !== box || tries > 12) return;
+    pinChapterStudyBox(box);
+    tries++;
+    setTimeout(tick, 80);
+  };
+  setTimeout(tick, 40);
 }
 
 function attachChapterStudyKeyboardFix(box) {
   if (!box || box._csKbFix) return;
   box._csKbFix = true;
   const isChapterStudy = !!(box.closest && box.closest('.cs-scroll'));
-  const adjust = () => {
+  const lock = () => {
     if (document.activeElement !== box) return;
-    requestAnimationFrame(() => {
-      if (isChapterStudy) centerChapterStudyBox(box);
-      else keepCaretComfortable(box);
-    });
+    if (isChapterStudy) lockChapterStudyBox(box);
+    else keepCaretComfortable(box);
   };
   box.addEventListener('focus', () => {
-    setTimeout(adjust, 60);
-    setTimeout(adjust, 280);
-    setTimeout(adjust, 650);
+    // Immediately and repeatedly force the box to the top of the visible area
+    lock();
+    setTimeout(lock, 120);
+    setTimeout(lock, 400);
+    setTimeout(lock, 800);
   });
-  box.addEventListener('input', adjust);
   if (window.visualViewport) {
     const onVV = () => {
-      if (document.activeElement === box) adjust();
+      if (document.activeElement === box) lock();
     };
     window.visualViewport.addEventListener('resize', onVV);
     window.visualViewport.addEventListener('scroll', onVV);
@@ -8628,12 +8625,9 @@ async function paintChapterStudyBody(overlay) {
         rememberChapterStudySummaryCursor(box);
         // prevent the browser from yanking the scroll, then center manually
         try { box.focus({ preventScroll: true }); } catch (_) {}
-        const centerIt = () => {
-          if (document.activeElement === box) centerChapterStudyBox(box);
-        };
-        setTimeout(centerIt, 40);
-        setTimeout(centerIt, 220);
-        setTimeout(centerIt, 580);
+        lockChapterStudyBox(box);
+        setTimeout(() => { if (document.activeElement === box) lockChapterStudyBox(box); }, 150);
+        setTimeout(() => { if (document.activeElement === box) lockChapterStudyBox(box); }, 500);
       });
       box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
       box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
@@ -8889,7 +8883,7 @@ async function openChapterStudy() {
     '<div class="panel cs-panel">' +
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
-          '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+          '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + ' <span style="font-size:0.65em;color:#f4c430;font-weight:700">· pinned</span></h2>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
         '<div class="cs-map-row">' +
