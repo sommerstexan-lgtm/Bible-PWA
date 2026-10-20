@@ -6657,12 +6657,20 @@ function growSummaryBox(el) {
     const delta = el.getBoundingClientRect().top - topBefore;
     host.scrollTop = prev + delta;
   }
-  keepCaretComfortable(el);
+  if (host && host.classList && host.classList.contains('cs-scroll')) {
+    centerChapterStudyBox(el);
+  } else {
+    keepCaretComfortable(el);
+  }
   const locked = host ? host.scrollTop : 0;
   requestAnimationFrame(() => {
     if (!host || document.activeElement !== el) return;
     host.scrollTop = locked;
-    keepCaretComfortable(el);
+    if (host.classList && host.classList.contains('cs-scroll')) {
+      centerChapterStudyBox(el);
+    } else {
+      keepCaretComfortable(el);
+    }
   });
 }
 
@@ -6688,17 +6696,52 @@ function keepCaretComfortable(el) {
 }
 
 /** Keep the caret visible above the keyboard while editing chapter-study notes/summary. */
+
+/** Center a chapter-study textarea in the visible area (above the keyboard). */
+function centerChapterStudyBox(box) {
+  if (!box) return;
+  const host = box.closest('.cs-scroll');
+  if (!host) return;
+  const vv = window.visualViewport;
+  const visibleTop = vv ? vv.offsetTop : 0;
+  const visibleBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+  const hostRect = host.getBoundingClientRect();
+  const boxRect = box.getBoundingClientRect();
+
+  // Visible portion of the scroll host (above keyboard, below any sticky header)
+  const availTop = Math.max(hostRect.top, visibleTop);
+  const availBottom = Math.min(hostRect.bottom, visibleBottom);
+  const availHeight = availBottom - availTop;
+  if (availHeight < 60) return;
+
+  // Prefer centering the caret line when the box is tall; otherwise center the whole box
+  const line = parseFloat(getComputedStyle(box).lineHeight) || 24;
+  const caret = caretLineTop(box);
+  const caretInBox = caret >= boxRect.top && caret <= boxRect.bottom;
+  const targetY = caretInBox ? caret : (boxRect.top + Math.min(boxRect.height, availHeight * 0.6) / 2);
+
+  const desiredCenter = availTop + availHeight * 0.45; // slightly above true center so more of the box is visible
+  const delta = targetY - desiredCenter;
+  if (Math.abs(delta) > 4) {
+    host.scrollTop += delta;
+  }
+}
+
 function attachChapterStudyKeyboardFix(box) {
   if (!box || box._csKbFix) return;
   box._csKbFix = true;
+  const isChapterStudy = !!(box.closest && box.closest('.cs-scroll'));
   const adjust = () => {
     if (document.activeElement !== box) return;
-    requestAnimationFrame(() => keepCaretComfortable(box));
+    requestAnimationFrame(() => {
+      if (isChapterStudy) centerChapterStudyBox(box);
+      else keepCaretComfortable(box);
+    });
   };
   box.addEventListener('focus', () => {
-    setTimeout(adjust, 50);
-    setTimeout(adjust, 300);
-    setTimeout(adjust, 700);
+    setTimeout(adjust, 60);
+    setTimeout(adjust, 280);
+    setTimeout(adjust, 650);
   });
   box.addEventListener('input', adjust);
   if (window.visualViewport) {
@@ -8583,18 +8626,14 @@ async function paintChapterStudyBody(overlay) {
     body.querySelectorAll('textarea.cs-answer').forEach((box) => {
       box.addEventListener('focus', () => {
         rememberChapterStudySummaryCursor(box);
-        setTimeout(() => {
-          const host = box.closest('.cs-scroll');
-          if (host) {
-            const br = box.getBoundingClientRect();
-            const hr = host.getBoundingClientRect();
-            const fullyVisible = br.top >= hr.top + 8 && br.bottom <= hr.bottom - 24;
-            if (!fullyVisible) {
-              box.scrollIntoView({ block: 'center', behavior: 'instant' });
-            }
-          }
-          keepCaretComfortable(box);
-        }, 40);
+        // prevent the browser from yanking the scroll, then center manually
+        try { box.focus({ preventScroll: true }); } catch (_) {}
+        const centerIt = () => {
+          if (document.activeElement === box) centerChapterStudyBox(box);
+        };
+        setTimeout(centerIt, 40);
+        setTimeout(centerIt, 220);
+        setTimeout(centerIt, 580);
       });
       box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
       box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
