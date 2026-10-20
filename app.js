@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.1
+/* app.js – Main application controller. KJV Study PWA v6.99.2
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.1';
+const APP_VERSION = '6.99.2';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1069,6 +1069,8 @@ function openPlaceMapScreen(place) {
 const APP_PASSWORD = 'KJV-Study-Private';
 
 function checkPassword() {
+  // Password gate removed — always allow entry
+  return Promise.resolve(true);
   if (localStorage.getItem('kjv-unlocked') === 'yes') return true;
 
   return new Promise((resolve) => {
