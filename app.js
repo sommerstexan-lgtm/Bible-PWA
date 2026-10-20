@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.96.0
+/* app.js – Main application controller. KJV Study PWA v6.96.2
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.96.0';
+const APP_VERSION = '6.96.2';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7964,19 +7964,19 @@ function compareSemver(a, b) {
 
 async function applyShellUpdate() {
   try {
+    // Delete every cache the app may have written
     if (window.caches) {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => String(k).startsWith('kjv-study-')).map((k) => caches.delete(k)));
+      await Promise.all(keys.map((k) => caches.delete(k)));
     }
+    // Unregister every service worker so the next load starts clean
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
-      for (const r of regs) {
-        try { await r.update(); } catch (_) {}
-        if (r.waiting) r.waiting.postMessage({ type: 'SKIP_WAITING' });
-      }
+      await Promise.all(regs.map((r) => r.unregister().catch(() => {})));
     }
   } catch (_) {}
-  location.reload();
+  // Hard reload that bypasses the HTTP cache as much as the browser allows
+  location.reload(true);
 }
 
 async function checkForAppUpdate() {
