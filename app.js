@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.98.0
+/* app.js – Main application controller. KJV Study PWA v6.99.0
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.98.0';
+const APP_VERSION = '6.99.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -9314,63 +9314,71 @@ async function openDictionary(prefill) {
         <h2 style="margin:0;border:none;padding:0">Dictionary</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      ${hasLex
-        ? `<p style="font-size:0.9em;color:var(--text-dim);margin-bottom:0.6rem">${pack.name || "Strong's"} · ${pack.entryCount || ''} entries<br>Search a word (e.g. love) or number (H1, G26)</p>
-           <input type="search" id="dict-q" placeholder="Word or Strong's number"
-             style="width:100%;padding:0.7rem;font-size:1.05rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);min-height:48px"
-             value="${escapeHtml(prefill || '')}">
-           <button type="button" id="dict-go" style="width:100%;margin-top:0.5rem;min-height:48px;background:var(--accent);color:#111;font-weight:600">Search</button>
-           <div id="dict-results" style="margin-top:1rem"></div>
-           <p style="margin-top:1rem;font-size:0.8em;color:var(--text-dim)">${escapeHtml(pack.attribution || '')}</p>`
-        : `<p style="line-height:1.55;margin-bottom:1rem">No dictionary installed yet.</p>
-           <p style="line-height:1.55;margin-bottom:1rem">Install the free <strong>Strong's</strong> pack (Hebrew &amp; Greek word meanings):</p>
-           <p style="line-height:1.55;margin-bottom:1rem">Menu → <strong>Import Dictionary (Strong's)</strong> → choose the lexicon file.</p>
-           <button type="button" id="dict-import-now" style="width:100%;min-height:52px">Import Dictionary now</button>`}
+      <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem;flex-wrap:wrap">
+        <button type="button" class="dict-tab" data-lex="strongs" style="flex:1;min-height:44px;font-weight:700">Strong\'s</button>
+        <button type="button" class="dict-tab" data-lex="bdb" style="flex:1;min-height:44px">BDB</button>
+        <button type="button" class="dict-tab" data-lex="thayer" style="flex:1;min-height:44px">Thayer\'s</button>
+      </div>
+      <input type="search" id="dict-q" placeholder="Word or number (H1, G26)"
+        style="width:100%;padding:0.7rem;font-size:1.05rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);min-height:48px"
+        value="${escapeHtml(prefill || '')}">
+      <button type="button" id="dict-go" style="width:100%;margin-top:0.5rem;min-height:48px;background:var(--accent);color:#111;font-weight:600">Search</button>
+      <div id="dict-results" style="margin-top:1rem"></div>
+      <p id="dict-note" style="margin-top:0.8rem;font-size:0.85em;color:var(--text-dim)"></p>
     </div>
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
 
-  if (!hasLex) {
-    $('#dict-import-now', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
-    return;
+
+  let currentLex = 'strongs';
+  const tabs = overlay.querySelectorAll('.dict-tab');
+  function setTab(lex) {
+    currentLex = lex;
+    tabs.forEach(t => {
+      const on = t.dataset.lex === lex;
+      t.style.fontWeight = on ? '700' : '400';
+      t.style.background = on ? 'var(--accent)' : '';
+      t.style.color = on ? '#111' : '';
+    });
+    const note = $('#dict-note', overlay);
+    if (note) note.textContent = lex === 'bdb' ? 'Brown-Driver-Briggs Hebrew Lexicon (public domain)'
+      : lex === 'thayer' ? "Thayer's Greek-English Lexicon (public domain)"
+      : "Strong's Hebrew & Greek (1890)";
   }
+  tabs.forEach(t => t.onclick = () => setTab(t.dataset.lex));
+  setTab('strongs');
 
   async function runSearch() {
-    const q = $('#dict-q', overlay).value.trim();
+    const q = ($('#dict-q', overlay).value || '').trim();
     const box = $('#dict-results', overlay);
     if (!q) { box.innerHTML = ''; return; }
     box.innerHTML = '<p style="color:var(--text-dim)">Searching…</p>';
-    const hits = await storage.searchLexicon(q);
-    if (!hits.length) {
-      box.innerHTML = '<p style="color:var(--text-dim)">No matches.</p>';
-      return;
+    let html = '';
+    const upper = q.toUpperCase();
+    if (currentLex === 'bdb') {
+      const data = await loadBDB();
+      let key = upper.startsWith('H') ? upper : ('H' + upper.replace(/\D/g,''));
+      const hit = data[key];
+      html = hit ? '<div style="line-height:1.5;white-space:pre-wrap">' + escapeHtml(hit) + '</div>' : '<p style="color:var(--text-dim)">No BDB entry. Try a number like H430.</p>';
+    } else if (currentLex === 'thayer') {
+      const data = await loadThayer();
+      let key = upper.startsWith('G') ? upper : ('G' + upper.replace(/\D/g,''));
+      const hit = data[key];
+      html = hit ? '<div style="line-height:1.5;white-space:pre-wrap">' + escapeHtml(hit) + '</div>' : '<p style="color:var(--text-dim)">No Thayer entry. Try a number like G26.</p>';
+    } else {
+      const packs = await loadStrongsPacks();
+      const gloss = packs.gloss || {};
+      const hit = gloss[upper] || gloss[upper.replace(/^H|^G/,'')];
+      const text = typeof hit === 'string' ? hit : (hit && (hit.gloss || hit.def || hit.kjv_def)) || '';
+      html = text ? '<div><strong>' + escapeHtml(upper) + '</strong><br>' + escapeHtml(text) + '</div>' : '<p style="color:var(--text-dim)">No Strong\'s match. Try H430 or G26.</p>';
     }
-    box.innerHTML = hits.map(h => `
-      <div style="padding:0.75rem 0;border-bottom:1px solid var(--border)">
-        <div style="font-weight:600;color:var(--accent)">${escapeHtml(h.id)}
-          <span style="color:var(--text);font-weight:500"> ${escapeHtml(h.lemma || '')}</span>
-          <span style="color:var(--text-dim);font-weight:400;font-size:0.9em"> ${escapeHtml(h.xlit || '')}</span>
-        </div>
-        ${h.pron ? `<div style="font-size:0.9em;color:var(--text-dim)">${escapeHtml(h.pron)}</div>` : ''}
-        <div style="margin-top:0.35rem">${escapeHtml(h.gloss || '')}</div>
-        ${h.kjv ? `<div style="margin-top:0.25rem;font-size:0.9em;color:var(--text-dim)">KJV: ${escapeHtml(h.kjv)}</div>` : ''}
-      </div>
-    `).join('');
+    box.innerHTML = html;
   }
-
   $('#dict-go', overlay).onclick = runSearch;
-  $('#dict-q', overlay).addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') runSearch();
-  });
-  if (prefill) runSearch();
-  setTimeout(() => $('#dict-q', overlay).focus(), 100);
-}
+  $('#dict-q', overlay).addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+  if (prefill) setTimeout(runSearch, 40);
 
 
-/** Load TSK cross-references for one book and merge into the stored pack.
- *  Tries (1) already-imported full pack, (2) fetch of ./crossrefs-kjv-tsk.json.
- *  Once loaded, data stays on the device.
- */
 async function loadCrossRefsForBook(bookId, bookName) {
   const prefix = bookId + '.';
   const existing = await storage.getTskPack();
@@ -9711,6 +9719,28 @@ function loadStrongsPacks() {
   return strongsPackPromise;
 }
 
+
+let bdbPromise = null;
+function loadBDB() {
+  if (!bdbPromise) {
+    bdbPromise = fetch('./bdb-clean.json').then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  }
+  return bdbPromise;
+}
+let thayerPromise = null;
+function loadThayer() {
+  if (!thayerPromise) {
+    thayerPromise = fetch('./thayers.json').then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  }
+  return thayerPromise;
+}
+async function fullerLexiconFor(id) {
+  if (!id) return '';
+  const isHeb = String(id).startsWith('H');
+  const data = isHeb ? await loadBDB() : await loadThayer();
+  return data[id] || '';
+}
+
 function wordIndexAt(text, start) {
   if (!Number.isFinite(start)) return -1;
   const re = /[A-Za-z][A-Za-z']*/g;
@@ -9875,6 +9905,19 @@ async function openWordStudy(word, verseKey, startOffset) {
       : `<button type="button" id="strong-mark-btn" class="strong-mark-btn">Mark this word</button>`)
     : '';
 
+  // Fuller lexicon (BDB for Hebrew, Thayer's for Greek)
+  let fullerBlock = '';
+  if (ids && ids.length) {
+    const fuller = await fullerLexiconFor(ids[0]);
+    if (fuller) {
+      const label = String(ids[0]).startsWith('H') ? "Brown-Driver-Briggs" : "Thayer's Greek Lexicon";
+      fullerBlock = `<div class="strongs-second" style="margin-top:0.8rem">
+        <p style="font-weight:600;margin:0 0 0.35rem">${escapeHtml(label)} · ${escapeHtml(ids[0])}</p>
+        <div style="line-height:1.5;white-space:pre-wrap">${escapeHtml(fuller)}</div>
+      </div>`;
+    }
+  }
+
   const overlay = showOverlay(`
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
@@ -9884,6 +9927,7 @@ async function openWordStudy(word, verseKey, startOffset) {
       ${englishBlock}
       ${listsBlock}
       ${strongsBlock}
+      ${fullerBlock}
       ${markHtml}
     </div>
   `);
