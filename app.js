@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.2
+/* app.js – Main application controller. KJV Study PWA v6.99.4
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.2';
+const APP_VERSION = '6.99.4';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1311,7 +1311,7 @@ function renderShell() {
         <button type="button" id="btn-colors" title="Color Index">Colors</button>
         <button type="button" id="btn-review" title="Review by color">Review</button>
         <button type="button" id="btn-help" title="Help">Help</button>
-        <button type="button" id="btn-summary" title="Chapter summary">Summary</button>
+        <button type="button" id="btn-summary" title="Chapter study">Chapter study</button>
         <button type="button" id="btn-dict" title="Dictionary">Dict</button>
         <button type="button" id="btn-research" title="Commentary / Research">Research</button>
         <button type="button" id="btn-context" title="Book / Chapter Context">Context</button>
@@ -1385,7 +1385,7 @@ function renderShell() {
   if (notesBackX) notesBackX.onclick = () => dismissVerseNotesReturn();
   updateNotesReturnBar();
   const sumBtn = document.getElementById('btn-summary');
-  if (sumBtn) sumBtn.onclick = () => openChapterSummary();
+  if (sumBtn) sumBtn.onclick = () => openChapterStudy();
   updateAnchorUI();
   const listBtn = document.getElementById('chain-bar-list');
   const nextBtn = document.getElementById('chain-bar-next');
@@ -3329,7 +3329,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <button type="button" data-act="places" data-key="${key}">Places</button>
         <button type="button" data-act="show-map" data-key="${key}">Open map</button>
         <button type="button" data-act="chapter-notes" data-key="${key}">Chapter notes</button>
-        <button type="button" data-act="chapter-summary" data-key="${key}">Chapter summary</button>
+        <button type="button" data-act="chapter-summary" data-key="${key}">Chapter study</button>
       </div>
     `;
     main.appendChild(verseEl);
@@ -3489,7 +3489,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'places') { reopenResearchPlaces = true; openResearch(); }
     else if (act === 'show-map') restoreActiveMap();
     else if (act === 'chapter-notes') openChapterNotesFromVerse(key);
-    else if (act === 'chapter-summary') openChapterSummaryFromVerse(key);
+    else if (act === 'chapter-summary') openChapterStudyFromVerse(key);
   };
 
   installSelectionWatchers(main);
@@ -6645,8 +6645,12 @@ function growSummaryBox(el) {
   el.style.overflowY = 'hidden';
   el.style.height = 'auto';
   let next = Math.max(120, (el.scrollHeight || 0) + 8);
-  // Cap so the box stays usable; switch to internal scroll if content is longer
-  const maxH = Math.min(window.innerHeight * 0.38, 420);
+  // Cap so the box stays usable; switch to internal scroll only if content is very long.
+  // Chapter-study summary boxes get a higher cap so selection is not fighting an inner scroll.
+  const isCsAnswer = el.classList && el.classList.contains('cs-answer');
+  const maxH = isCsAnswer
+    ? Math.min(window.innerHeight * 0.62, 720)
+    : Math.min(window.innerHeight * 0.38, 420);
   if (next > maxH) {
     next = maxH;
     el.style.overflowY = 'auto';
@@ -6697,9 +6701,34 @@ function keepCaretComfortable(el) {
 
 /** Keep the caret visible above the keyboard while editing chapter-study notes/summary. */
 
+/** While the user is dragging to select text inside a chapter-study box,
+ *  stop parent scroll and settle loops so the selection gesture is not stolen. */
+function pauseChapterStudySettleWhileSelecting(box) {
+  if (!box || box._csSelectPause) return;
+  box._csSelectPause = true;
+  const host = box.closest ? box.closest('.cs-scroll') : null;
+  const mark = (on) => {
+    box._csSelecting = !!on;
+    if (!host) return;
+    if (on) {
+      host.style.overflowY = 'hidden';
+      host.style.touchAction = 'none';
+    } else {
+      host.style.overflowY = '';
+      host.style.touchAction = '';
+    }
+  };
+  const end = () => mark(false);
+  box.addEventListener('pointerdown', () => mark(true));
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  box.addEventListener('blur', end);
+  box.addEventListener('lostpointercapture', end);
+}
+
 /** Scroll the host so the bottom of the focused box (and the caret) stays visible. */
 function revealChapterStudyBoxBottom(box) {
-  if (!box) return;
+  if (!box || box._csSelecting) return;
   const host = box.closest('.cs-scroll');
   if (!host) return;
   const vv = window.visualViewport;
@@ -6719,11 +6748,11 @@ function revealChapterStudyBoxBottom(box) {
 
 /** Gently correct position a few times after focus so the browser cannot hide the bottom. */
 function settleChapterStudyBox(box) {
-  if (!box) return;
+  if (!box || box._csSelecting) return;
   revealChapterStudyBoxBottom(box);
   let tries = 0;
   const tick = () => {
-    if (document.activeElement !== box || tries > 6) return;
+    if (document.activeElement !== box || tries > 6 || box._csSelecting) return;
     revealChapterStudyBoxBottom(box);
     tries++;
     setTimeout(tick, 120);
@@ -8627,6 +8656,7 @@ async function paintChapterStudyBody(overlay) {
       }).join('') +
       '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.7rem;min-height:52px">Save chapter summary</button>';
     body.querySelectorAll('textarea.cs-answer').forEach((box) => {
+      pauseChapterStudySettleWhileSelecting(box);
       box.addEventListener('focus', () => {
         rememberChapterStudySummaryCursor(box);
         // prevent the browser from yanking the scroll, then center manually
@@ -8858,7 +8888,17 @@ async function leaveChapterStudy(overlay) {
   }
 }
 
-async function openChapterStudy() {
+/** From a verse Tools button: open Chapter study for this chapter, starting at this verse. */
+async function openChapterStudyFromVerse(key) {
+  const parsed = key ? bible.parseKey(key) : null;
+  if (parsed && parsed.bookId && parsed.chapter &&
+      (parsed.bookId !== currentBookId || Number(parsed.chapter) !== Number(currentChapter))) {
+    try { await renderChapter(parsed.bookId, parsed.chapter, { scrollToKey: key }); } catch (_) {}
+  }
+  await openChapterStudy(key);
+}
+
+async function openChapterStudy(startKey) {
   const book = books.find((b) => b.id === currentBookId);
   if (!book) {
     showAppStatus('Open a chapter first.', 'fail');
@@ -8870,10 +8910,15 @@ async function openChapterStudy() {
     return;
   }
   let verse = Number(ch.verses[0].number) || 1;
-  const onScreen = verseOnScreenKey();
-  const parsed = onScreen ? bible.parseKey(onScreen) : null;
-  if (parsed && parsed.bookId === book.id && Number(parsed.chapter) === Number(currentChapter) && parsed.verse) {
-    verse = Number(parsed.verse);
+  const prefer = startKey ? bible.parseKey(startKey) : null;
+  if (prefer && prefer.bookId === book.id && Number(prefer.chapter) === Number(currentChapter) && prefer.verse) {
+    verse = Number(prefer.verse);
+  } else {
+    const onScreen = verseOnScreenKey();
+    const parsed = onScreen ? bible.parseKey(onScreen) : null;
+    if (parsed && parsed.bookId === book.id && Number(parsed.chapter) === Number(currentChapter) && parsed.verse) {
+      verse = Number(parsed.verse);
+    }
   }
   chapterStudy = {
     bookId: book.id,
@@ -11053,9 +11098,9 @@ function openHelp() {
         <p style="margin-bottom:1rem"><strong>Color precision</strong><br>
         Color and Analyze paint a speech frame (<em>God said</em>, <em>Jesus saith</em>) when that is the subject — not the whole quote. Tap a color chip for the saved span, Unpaint, or Shrink speech colors to frames. Bare <em>spirit / beast / serpent</em> ask for a sense first. Holy Spirit paints yellow, Antichrist figure paints pink, and Satan paints grey. The other choice leaves the word unpainted. Review by color lists the painted words.</p>
         <p style="margin-bottom:1rem"><strong>Verse tools</strong><br>
-        Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, Then-Now, Places, <strong>Chapter notes</strong>, and <strong>Chapter summary</strong>. Tap a green/color dot to open that tool directly.<br>
+        Each verse keeps a compact row: colored dots if a note, cross-ref, chain, or color is stored. Tap <strong>Tools</strong> for Analyze, Color, Note, Cross-refs, Chains, Then-Now, Places, <strong>Chapter notes</strong>, and <strong>Chapter study</strong>. Tap a green/color dot to open that tool directly.<br>
         <strong>Chapter notes</strong> opens this chapter’s verse-note list in one tap (filter already set). Gold <strong>Back to verse</strong> returns to the verse you left. From the list, <strong>Edit this note</strong> (in Read mode) or a row opens the note so you can correct it then and there.<br>
-        <strong>Chapter summary</strong> opens this chapter’s four-question summary from the same Tools row.</p>
+        <strong>Chapter study</strong> opens the same Chapter study screen as Menu → Chapter study, from the same Tools row.</p>
         <p style="margin-bottom:1rem"><strong>Color a few words (segment)</strong><br>
         1. Long-press the verse and drag to select only the words you want.<br>
         2. Lift your finger (keep the selection visible a moment).<br>
@@ -11076,7 +11121,7 @@ function openHelp() {
         <strong>Chapter summary</strong> opens the summary for the chapter on screen. <strong>Back to verse notes</strong> returns to the same note. <strong>Back to chapter summary</strong> returns to the same answer box.<br>
         On a verse note, <strong>Chapter summary</strong> opens that chapter’s summary. <strong>Back to</strong> the verse returns to the same cursor.<br>
         On a chapter summary, the gold <strong>Verse notes</strong> button stays on screen. It returns to the verse that was on screen, with the Note button green when that verse has a note. On verse notes, the gold <strong>Back to chapter summary</strong> button stays on screen and returns to the same answer box.<br>
-        From any verse: Tools → <strong>Chapter notes</strong> or <strong>Chapter summary</strong> without going through Menu. Gold hop buttons keep your place between verse, verse notes, and chapter summary.</p>
+        From any verse: Tools → <strong>Chapter notes</strong> or <strong>Chapter study</strong> without going through Menu. Gold hop buttons keep your place between verse, verse notes, and chapter summary.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
         Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
