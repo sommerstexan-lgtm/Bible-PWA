@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.4
+/* app.js – Main application controller. KJV Study PWA v6.99.5
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.4';
+const APP_VERSION = '6.99.5';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6639,6 +6639,9 @@ function studyScrollHost(el) {
 
 function growSummaryBox(el) {
   if (!el) return;
+  // These boxes use a stable max-height + internal scroll. Do not grow/reset them
+  // or the caret and scroll position jump.
+  if (el.id === 'gn-text' || (el.classList && (el.classList.contains('cs-answer') || el.classList.contains('cs-note')))) return;
   const host = studyScrollHost(el);
   const prev = host ? host.scrollTop : 0;
   const topBefore = el.getBoundingClientRect().top;
@@ -6748,41 +6751,26 @@ function revealChapterStudyBoxBottom(box) {
 
 /** Gently correct position a few times after focus so the browser cannot hide the bottom. */
 function settleChapterStudyBox(box) {
-  if (!box || box._csSelecting) return;
-  revealChapterStudyBoxBottom(box);
-  let tries = 0;
-  const tick = () => {
-    if (document.activeElement !== box || tries > 6 || box._csSelecting) return;
-    revealChapterStudyBoxBottom(box);
-    tries++;
-    setTimeout(tick, 120);
-  };
-  setTimeout(tick, 60);
+  // Disabled: repeated reveal calls caused the fast up-down jump.
+  // Native textarea scrolling + one-time scrollIntoView on focus is enough.
+  return;
 }
 
 function attachChapterStudyKeyboardFix(box) {
   if (!box || box._csKbFix) return;
   box._csKbFix = true;
-  const isChapterStudy = !!(box.closest && box.closest('.cs-scroll'));
-  const lock = () => {
-    if (document.activeElement !== box) return;
-    if (isChapterStudy) settleChapterStudyBox(box);
-    else keepCaretComfortable(box);
-  };
+  // Gentle one-time bring-into-view on focus only. No repeated adjustments,
+  // no visualViewport fighting — that was the source of the fast up-down motion.
   box.addEventListener('focus', () => {
-    // Immediately and repeatedly force the box to the top of the visible area
-    lock();
-    setTimeout(lock, 120);
-    setTimeout(lock, 400);
-    setTimeout(lock, 800);
+    setTimeout(() => {
+      if (document.activeElement !== box) return;
+      try {
+        box.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      } catch (_) {
+        box.scrollIntoView({ block: 'nearest' });
+      }
+    }, 50);
   });
-  if (window.visualViewport) {
-    const onVV = () => {
-      if (document.activeElement === box) lock();
-    };
-    window.visualViewport.addEventListener('resize', onVV);
-    window.visualViewport.addEventListener('scroll', onVV);
-  }
 }
 
 function installTypingScrollGuard() {
@@ -6792,7 +6780,7 @@ function installTypingScrollGuard() {
     const el = ev.target;
     if (!el || el.tagName !== 'TEXTAREA') return;
     if (!el.closest('#overlay-root, .overlay, body')) return;
-    const grow = el.classList.contains('sn-answer') || el.id === 'sn-legacy' || el.id === 'note-text' || el.id === 'gn-text' || el.id === 'chain-note';
+    const grow = el.classList.contains('sn-answer') || el.id === 'sn-legacy' || el.id === 'note-text' || el.id === 'chain-note';
     if (!grow) return;
     growSummaryBox(el);
   }, true);
@@ -7901,6 +7889,11 @@ function openGeneralNoteEditor(existing) {
       openGeneralNotesList();
     };
   }
+  const gnBox = $('#gn-text', overlay);
+  if (gnBox) {
+    // Same calm focus behavior as chapter-study boxes: one bring-into-view, internal scroll handles the rest.
+    attachChapterStudyKeyboardFix(gnBox);
+  }
   setTimeout(() => {
     const t = $('#gn-title', overlay);
     if (t) t.focus();
@@ -8627,10 +8620,9 @@ async function paintChapterStudyBody(overlay) {
             const hr = host.getBoundingClientRect();
             const fullyVisible = br.top >= hr.top + 8 && br.bottom <= hr.bottom - 24;
             if (!fullyVisible) {
-              box.scrollIntoView({ block: 'center', behavior: 'instant' });
+              box.scrollIntoView({ block: 'nearest', behavior: 'instant' });
             }
           }
-          keepCaretComfortable(box);
         }, 40);
       });
       box.addEventListener('blur', async () => {
@@ -8659,11 +8651,8 @@ async function paintChapterStudyBody(overlay) {
       pauseChapterStudySettleWhileSelecting(box);
       box.addEventListener('focus', () => {
         rememberChapterStudySummaryCursor(box);
-        // prevent the browser from yanking the scroll, then center manually
+        // One calm bring-into-view. The attachChapterStudyKeyboardFix also does this.
         try { box.focus({ preventScroll: true }); } catch (_) {}
-        settleChapterStudyBox(box);
-        setTimeout(() => { if (document.activeElement === box) settleChapterStudyBox(box); }, 150);
-        setTimeout(() => { if (document.activeElement === box) settleChapterStudyBox(box); }, 500);
       });
       box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
       box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));

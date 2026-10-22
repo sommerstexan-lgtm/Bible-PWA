@@ -2489,7 +2489,6 @@ textarea.theme-q {
 }
 textarea.sn-answer,
 textarea#note-text,
-textarea#gn-text,
 textarea#sn-legacy,
 textarea#chain-note {
   overflow-y: hidden;
@@ -2784,13 +2783,20 @@ textarea.cs-note, textarea.cs-answer {
   touch-action: pan-y;
 }
 
-/* General note editor – larger, scrollable textarea for Chromebook touchpad (v6.79.3) */
+/* General note editor – smooth internal scroll like chapter-study boxes (v6.99.5) */
 #gn-text {
-  min-height: 280px;
+  width: 100%;
+  min-height: 180px;
   max-height: 55vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   resize: vertical;
+  touch-action: pan-y;
+  scroll-margin-top: 84px;
+  scroll-margin-bottom: 28px;
+  box-sizing: border-box;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 
