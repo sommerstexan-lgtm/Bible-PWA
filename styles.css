@@ -2911,12 +2911,40 @@ textarea.cs-note, textarea.cs-answer {
 }
 .cs-map-row {
   margin: 0.45rem 0 0.2rem;
+  display: flex;
+  gap: 0.5rem;
 }
 .cs-map-row[hidden] { display: none !important; }
 .cs-map-row button {
-  width: 100%;
+  flex: 1;
+  width: auto;
   min-height: 44px;
 }
+.sw-panel { max-width: 520px; }
+.sw-section { margin: 0.6rem 0; }
+.sw-label { margin: 0 0 0.3rem; font-size: 0.88em; color: var(--text-dim); font-weight: 600; }
+.sw-start, .sw-recent, .sw-book, .sw-ch, .sw-test-btn, #sw-go, #sw-cancel {
+  min-height: 44px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sw-start { width: 100%; font-weight: 700; background: var(--accent); color: #111; }
+.sw-recent-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.sw-recent { flex: 1 1 auto; min-width: 120px; }
+.sw-none { margin: 0; font-size: 0.9em; color: var(--text-dim); }
+.sw-test { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; }
+.sw-test-btn { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.sw-test-btn.is-on { background: var(--accent); color: #111; font-weight: 700; }
+.sw-books { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.4rem; }
+.sw-book { text-align: left; padding: 0.5rem 0.7rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.sw-book.is-on { background: var(--accent); color: #111; font-weight: 700; }
+.sw-chapters { max-height: 160px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.sw-ch { min-width: 48px; padding: 0.4rem 0.5rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.sw-ch.is-on { background: var(--accent); color: #111; font-weight: 700; }
+.sw-actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+#sw-go { flex: 2; font-weight: 700; background: var(--accent); color: #111; }
+#sw-go:disabled { opacity: 0.5; cursor: not-allowed; }
+#sw-cancel { flex: 1; }
 
 .img-card-open {
   display: block;

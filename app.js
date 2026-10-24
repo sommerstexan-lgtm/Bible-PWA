@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.7
+/* app.js – Main application controller. KJV Study PWA v6.99.8
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.7';
+const APP_VERSION = '6.99.8';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -8906,6 +8906,176 @@ async function leaveChapterStudy(overlay) {
   }
 }
 
+
+function chapterStudyLabelShort(bookId, chapter) {
+  const book = books.find((b) => b.id === bookId);
+  return (book ? book.name : bookId) + ' ' + chapter;
+}
+
+function pushChapterStudyRecent(bookId, chapter) {
+  if (!chapterStudy) return;
+  const startId = chapterStudy.startingBookId;
+  const startCh = chapterStudy.startingChapter;
+  if (bookId === startId && Number(chapter) === Number(startCh)) return;
+  const rec = chapterStudy.recent || [];
+  const filtered = rec.filter((r) => !(r.bookId === bookId && Number(r.chapter) === Number(chapter)));
+  filtered.unshift({ bookId, chapter: Number(chapter) });
+  chapterStudy.recent = filtered.slice(0, 5);
+}
+
+async function applyChapterStudySwitch(studyOverlay, bookId, chapter) {
+  if (!chapterStudy || !studyOverlay) return;
+  const book = books.find((b) => b.id === bookId);
+  const ch = book && (book.chapters || []).find((c) => Number(c.number) === Number(chapter));
+  if (!book || !ch || !(ch.verses || []).length) {
+    showAppStatus('That chapter is not available.', 'fail');
+    return;
+  }
+  try {
+    if (chapterStudy.view === 'notes') await flushChapterStudyNotes(studyOverlay);
+    if (chapterStudy.view === 'summary') captureChapterStudySummary(studyOverlay);
+    if (chapterStudy.view === 'images') {
+      try { await saveChapterStudyImages(); } catch (_) {}
+    }
+  } catch (_) {
+    showAppStatus('Could not keep the last edit before switching.', 'fail');
+    return;
+  }
+  pushChapterStudyRecent(chapterStudy.bookId, chapterStudy.chapter);
+  chapterStudy.bookId = bookId;
+  chapterStudy.chapter = Number(chapter);
+  chapterStudy.verse = Number(ch.verses[0].number) || 1;
+  chapterStudy.noteMap = null;
+  chapterStudy.summaryLoaded = null;
+  chapterStudy.summaryDraft = null;
+  chapterStudy.summaryDirty = false;
+  const titleEl = studyOverlay.querySelector('.search-title');
+  if (titleEl) titleEl.textContent = 'Chapter study · ' + chapterStudyLabelShort(bookId, chapter);
+  const verseSelect = studyOverlay.querySelector('#cs-verse-select');
+  if (verseSelect) {
+    const verses = chapterStudyVerses();
+    verseSelect.innerHTML = verses.map((v) => {
+      const n = Number(v.number);
+      return '<option value="' + n + '">' + n + '</option>';
+    }).join('');
+    verseSelect.value = String(chapterStudy.verse);
+  }
+  await ensureChapterStudyHighlights(true);
+  paintChapterStudyStrip(studyOverlay);
+  await paintChapterStudyBody(studyOverlay);
+  showAppStatus('Switched to ' + chapterStudyLabelShort(bookId, chapter) + '.', 'ok');
+}
+
+function openSwitchChapter(studyOverlay) {
+  if (!chapterStudy) return;
+  const startLabel = chapterStudyLabelShort(chapterStudy.startingBookId, chapterStudy.startingChapter);
+  const recent = (chapterStudy.recent || []).slice();
+  const recentHtml = recent.length
+    ? recent.map((r, i) => '<button type="button" class="sw-recent" data-book="' + escapeHtml(r.bookId) + '" data-ch="' + r.chapter + '">' + escapeHtml(chapterStudyLabelShort(r.bookId, r.chapter)) + '</button>').join('')
+    : '<p class="sw-none">No other chapters yet.</p>';
+  const otBooks = books.filter((b) => (b.testament || '').toUpperCase() === 'OT');
+  const ntBooks = books.filter((b) => (b.testament || '').toUpperCase() === 'NT');
+  function bookButtons(list) {
+    return list.map((b) => '<button type="button" class="sw-book" data-book="' + escapeHtml(b.id) + '">' + escapeHtml(b.name) + '</button>').join('');
+  }
+  const overlay = showOverlay(
+    '<div class="panel sw-panel">' +
+      '<div class="search-header-top">' +
+        '<h2 class="search-title" style="margin:0">Switch Chapter</h2>' +
+        '<button type="button" class="close search-close" id="sw-close" aria-label="Close">×</button>' +
+      '</div>' +
+      '<div class="sw-section">' +
+        '<p class="sw-label">Starting chapter</p>' +
+        '<button type="button" id="sw-start" class="sw-start">' + escapeHtml(startLabel) + '</button>' +
+      '</div>' +
+      '<div class="sw-section">' +
+        '<p class="sw-label">Recent</p>' +
+        '<div class="sw-recent-row">' + recentHtml + '</div>' +
+      '</div>' +
+      '<div class="sw-section">' +
+        '<p class="sw-label">New chapter</p>' +
+        '<div class="sw-test">' +
+          '<button type="button" class="sw-test-btn is-on" data-test="OT">Old Testament</button>' +
+          '<button type="button" class="sw-test-btn" data-test="NT">New Testament</button>' +
+        '</div>' +
+        '<div id="sw-books" class="sw-books">' + bookButtons(otBooks) + '</div>' +
+        '<div id="sw-chapters" class="sw-chapters" hidden></div>' +
+      '</div>' +
+      '<div class="sw-actions">' +
+        '<button type="button" id="sw-go" disabled>Open this chapter</button>' +
+        '<button type="button" id="sw-cancel" class="quiet">Cancel</button>' +
+      '</div>' +
+    '</div>',
+    { center: true }
+  );
+  let pickedBook = null;
+  let pickedChapter = null;
+  function setGo() {
+    const go = overlay.querySelector('#sw-go');
+    if (go) go.disabled = !(pickedBook && pickedChapter);
+  }
+  function showBooks(test) {
+    const list = test === 'NT' ? ntBooks : otBooks;
+    const box = overlay.querySelector('#sw-books');
+    if (box) box.innerHTML = bookButtons(list);
+    const chBox = overlay.querySelector('#sw-chapters');
+    if (chBox) { chBox.innerHTML = ''; chBox.hidden = true; }
+    pickedBook = null;
+    pickedChapter = null;
+    setGo();
+    wireBooks();
+  }
+  function wireBooks() {
+    overlay.querySelectorAll('.sw-book').forEach((btn) => {
+      btn.onclick = () => {
+        pickedBook = btn.dataset.book;
+        const book = books.find((b) => b.id === pickedBook);
+        const chBox = overlay.querySelector('#sw-chapters');
+        if (book && chBox) {
+          const chs = (book.chapters || []).map((c) => Number(c.number)).filter(Boolean).sort((a, b) => a - b);
+          chBox.innerHTML = chs.map((n) => '<button type="button" class="sw-ch" data-ch="' + n + '">' + n + '</button>').join('');
+          chBox.hidden = false;
+          chBox.querySelectorAll('.sw-ch').forEach((cb) => {
+            cb.onclick = () => {
+              pickedChapter = Number(cb.dataset.ch);
+              chBox.querySelectorAll('.sw-ch').forEach((x) => x.classList.toggle('is-on', x === cb));
+              setGo();
+            };
+          });
+        }
+        overlay.querySelectorAll('.sw-book').forEach((x) => x.classList.toggle('is-on', x === btn));
+        setGo();
+      };
+    });
+  }
+  wireBooks();
+  overlay.querySelectorAll('.sw-test-btn').forEach((btn) => {
+    btn.onclick = () => {
+      overlay.querySelectorAll('.sw-test-btn').forEach((x) => x.classList.toggle('is-on', x === btn));
+      showBooks(btn.dataset.test);
+    };
+  });
+  function closeSw() { closeOverlay(overlay); }
+  overlay.querySelector('#sw-close').onclick = closeSw;
+  overlay.querySelector('#sw-cancel').onclick = closeSw;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSw(); });
+  overlay.querySelector('#sw-start').onclick = async () => {
+    closeSw();
+    await applyChapterStudySwitch(studyOverlay, chapterStudy.startingBookId, chapterStudy.startingChapter);
+  };
+  overlay.querySelectorAll('.sw-recent').forEach((btn) => {
+    btn.onclick = async () => {
+      closeSw();
+      await applyChapterStudySwitch(studyOverlay, btn.dataset.book, Number(btn.dataset.ch));
+    };
+  });
+  overlay.querySelector('#sw-go').onclick = async () => {
+    if (!pickedBook || !pickedChapter) return;
+    closeSw();
+    await applyChapterStudySwitch(studyOverlay, pickedBook, pickedChapter);
+  };
+}
+
 /** From a verse Tools button: open Chapter study for this chapter, starting at this verse. */
 async function openChapterStudyFromVerse(key) {
   const parsed = key ? bible.parseKey(key) : null;
@@ -8946,7 +9116,10 @@ async function openChapterStudy(startKey) {
     noteMap: null,
     summaryLoaded: null,
     summaryDraft: null,
-    summaryDirty: false
+    summaryDirty: false,
+    startingBookId: book.id,
+    startingChapter: Number(currentChapter),
+    recent: []
   };
   const overlay = showOverlay(
     '<div class="panel cs-panel">' +
@@ -8957,6 +9130,7 @@ async function openChapterStudy(startKey) {
         '</div>' +
         '<div class="cs-map-row">' +
           '<button type="button" id="cs-show-map">Open map</button>' +
+          '<button type="button" id="cs-switch-chapter">Switch Chapter</button>' +
         '</div>' +
         '<div class="cs-tabs">' +
           '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
@@ -8988,6 +9162,8 @@ async function openChapterStudy(startKey) {
   $('#cs-close', overlay).onclick = () => leaveChapterStudy(overlay);
   const csMapBtn = $('#cs-show-map', overlay);
   if (csMapBtn) csMapBtn.onclick = () => restoreActiveMap();
+  const csSwitchBtn = $('#cs-switch-chapter', overlay);
+  if (csSwitchBtn) csSwitchBtn.onclick = () => openSwitchChapter(overlay);
   overlay.querySelectorAll('.cs-tab').forEach((tab) => {
     tab.onclick = () => switchChapterStudyView(overlay, tab.dataset.view);
   });

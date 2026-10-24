@@ -1,4 +1,11 @@
-# KJV Study PWA – v6.79.9
+# KJV Study PWA – v6.99.8
+
+## New in 6.99.8
+
+- Chapter study has a **Switch Chapter** button beside Open map.
+- Tap it to jump to any other chapter (same book or different book, Old or New Testament).
+- Starting chapter and recent chapters stay at the top for one-tap return.
+- The chapter text area does not change size.
 
 ## New in 6.79.9
 
