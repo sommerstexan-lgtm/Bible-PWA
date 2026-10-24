@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.5
+/* app.js – Main application controller. KJV Study PWA v6.99.6
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.5';
+const APP_VERSION = '6.99.6';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6802,7 +6802,12 @@ function renderSummaryAnswerBoxes(overlay, kind, ref, answers) {
     <textarea class="note-input sn-answer" data-idx="${i}" placeholder="Answer. No length limit.">${escapeHtml(answers[i] || '')}</textarea>
   `).join('');
   host.querySelectorAll('textarea.sn-answer').forEach(el => {
-    el.addEventListener('input', () => growSummaryBox(el));
+    el.addEventListener('keydown', (e) => e.stopPropagation());
+    el.addEventListener('keyup', (e) => e.stopPropagation());
+    el.addEventListener('input', (e) => {
+      e.stopPropagation();
+      growSummaryBox(el);
+    });
     growSummaryBox(el);
   });
 }
@@ -8625,6 +8630,9 @@ async function paintChapterStudyBody(overlay) {
           }
         }, 40);
       });
+      box.addEventListener('keydown', (e) => e.stopPropagation());
+      box.addEventListener('keyup', (e) => e.stopPropagation());
+      box.addEventListener('input', (e) => e.stopPropagation());
       box.addEventListener('blur', async () => {
         try { await saveChapterStudyNote(box.dataset.key, box.value || ''); } catch (_) {
           showAppStatus('Could not save that verse note.', 'fail');
@@ -8654,10 +8662,20 @@ async function paintChapterStudyBody(overlay) {
         // One calm bring-into-view. The attachChapterStudyKeyboardFix also does this.
         try { box.focus({ preventScroll: true }); } catch (_) {}
       });
-      box.addEventListener('keyup', () => rememberChapterStudySummaryCursor(box));
+      box.addEventListener('keydown', (e) => e.stopPropagation());
+      box.addEventListener('keyup', (e) => {
+        e.stopPropagation();
+        rememberChapterStudySummaryCursor(box);
+      });
       box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
-      box.addEventListener('input', () => {
-        chapterStudy.summaryDirty = true;
+      box.addEventListener('input', (e) => {
+        e.stopPropagation();
+        if (chapterStudy) {
+          const i = Number(box.dataset.i);
+          if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = [];
+          chapterStudy.summaryDraft[i] = box.value || '';
+          chapterStudy.summaryDirty = true;
+        }
         rememberChapterStudySummaryCursor(box);
       });
       growSummaryBox(box);
