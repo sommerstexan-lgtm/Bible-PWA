@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.8
+/* app.js – Main application controller. KJV Study PWA v6.99.9
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.8';
+const APP_VERSION = '6.99.9';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -8665,7 +8665,8 @@ async function paintChapterStudyBody(overlay) {
         return '<p class="sn-q-label">' + escapeHtml(line) + '</p>' +
           '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>';
       }).join('') +
-      '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.7rem;min-height:52px">Save chapter summary</button>';
+      '<button type="button" id="cs-copy-summary" style="width:100%;margin-top:0.7rem;min-height:48px">Copy this summary</button>' +
+      '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.45rem;min-height:52px">Save chapter summary</button>';
     body.querySelectorAll('textarea.cs-answer').forEach((box) => {
       pauseChapterStudySettleWhileSelecting(box);
       box.addEventListener('focus', () => {
@@ -8695,6 +8696,26 @@ async function paintChapterStudyBody(overlay) {
     if (chapterStudy.summaryFocus) {
       setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
       setTimeout(() => restoreChapterStudySummaryFocus(overlay), 60);
+    }
+    const copyBtn = body.querySelector('#cs-copy-summary');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          captureChapterStudySummary(overlay);
+          const title = chapterStudyTitle().trim();
+          const answers = (chapterStudy.summaryDraft || []).slice();
+          const loaded = chapterStudy.summaryLoaded || {};
+          const page = {
+            title,
+            kind: 'Chapter summary',
+            blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, loaded.legacyText || '')
+          };
+          const ok = await copyText(studyPagePlain(page));
+          showAppStatus(ok ? 'Copied this summary.' : 'Could not copy.', ok ? 'ok' : 'fail');
+        } catch (_) {
+          showAppStatus('Could not copy this summary.', 'fail');
+        }
+      };
     }
     const saveBtn = body.querySelector('#cs-save-summary');
     if (saveBtn) {
