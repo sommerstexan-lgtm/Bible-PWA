@@ -2497,6 +2497,9 @@ textarea#chain-note {
 textarea.sn-answer {
   min-height: 120px;
   margin-bottom: 0.35rem;
+  touch-action: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 .sn-legacy-label {
   display: block;
@@ -2780,7 +2783,13 @@ textarea.cs-note, textarea.cs-answer {
   user-select: text;
   -webkit-user-select: text;
   caret-color: #f4c430;
-  touch-action: pan-y;
+  touch-action: auto;
+}
+/* Protect chapter-summary answer boxes from parent touch-action or selection locks */
+textarea.cs-answer {
+  touch-action: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 /* General note editor – smooth internal scroll like chapter-study boxes (v6.99.5) */

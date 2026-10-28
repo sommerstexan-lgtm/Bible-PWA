@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.9
+/* app.js – Main application controller. KJV Study PWA v6.99.10
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.9';
+const APP_VERSION = '6.99.10';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6718,26 +6718,12 @@ function keepCaretComfortable(el) {
 /** While the user is dragging to select text inside a chapter-study box,
  *  stop parent scroll and settle loops so the selection gesture is not stolen. */
 function pauseChapterStudySettleWhileSelecting(box) {
-  if (!box || box._csSelectPause) return;
-  box._csSelectPause = true;
-  const host = box.closest ? box.closest('.cs-scroll') : null;
-  const mark = (on) => {
-    box._csSelecting = !!on;
-    if (!host) return;
-    if (on) {
-      host.style.overflowY = 'hidden';
-      host.style.touchAction = 'none';
-    } else {
-      host.style.overflowY = '';
-      host.style.touchAction = '';
-    }
-  };
-  const end = () => mark(false);
-  box.addEventListener('pointerdown', () => mark(true));
-  box.addEventListener('pointerup', end);
-  box.addEventListener('pointercancel', end);
-  box.addEventListener('blur', end);
-  box.addEventListener('lostpointercapture', end);
+  // Intentionally a no-op.
+  // Previous version locked the scroll host overflow and set touch-action:none
+  // on pointerdown. That interrupted native text selection and copy gestures
+  // inside the chapter-summary answer boxes (especially on touch devices).
+  // Do not re-enable host locking while the user is interacting with these textareas.
+  if (box) box._csSelectPause = true;
 }
 
 /** Scroll the host so the bottom of the focused box (and the caret) stays visible. */
@@ -6811,6 +6797,7 @@ function renderSummaryAnswerBoxes(overlay, kind, ref, answers) {
   host.innerHTML = lines.map((line, i) => `
     <p class="sn-q-label">${escapeHtml(line)}</p>
     <textarea class="note-input sn-answer" data-idx="${i}" placeholder="Answer. No length limit.">${escapeHtml(answers[i] || '')}</textarea>
+    <button type="button" class="sn-copy-answer" data-idx="${i}" style="width:100%;margin:0.1rem 0 0.5rem;min-height:40px;font-size:0.95rem">Copy this answer</button>
   `).join('');
   host.querySelectorAll('textarea.sn-answer').forEach(el => {
     el.addEventListener('keydown', (e) => e.stopPropagation());
@@ -6820,6 +6807,23 @@ function renderSummaryAnswerBoxes(overlay, kind, ref, answers) {
       growSummaryBox(el);
     });
     growSummaryBox(el);
+  });
+  host.querySelectorAll('button.sn-copy-answer').forEach((btn) => {
+    btn.onclick = async () => {
+      const i = Number(btn.dataset.idx);
+      const box = host.querySelector('textarea.sn-answer[data-idx="' + i + '"]');
+      const text = box ? String(box.value || '') : '';
+      if (!text.trim()) {
+        showAppStatus('Nothing to copy.', 'fail');
+        return;
+      }
+      try {
+        const ok = await copyText(text);
+        showAppStatus(ok ? 'Copied this answer.' : 'Could not copy.', ok ? 'ok' : 'fail');
+      } catch (_) {
+        showAppStatus('Could not copy this answer.', 'fail');
+      }
+    };
   });
 }
 
@@ -8659,20 +8663,20 @@ async function paintChapterStudyBody(overlay) {
     const title = chapterStudyTitle().trim();
     const ref = summaryRefFromTitle(title, 'chapter');
     const lines = summaryQuestionLines('chapter', ref);
-    body.innerHTML = '<p class="cs-meta">Same four questions as this chapter’s summary. Saving here writes that summary, not a second note.</p>' +
+    body.innerHTML = '<p class="cs-meta">Same four questions as this chapter’s summary. Saving here writes that summary, not a second note. Tap “Copy this answer” under any box to copy only that answer.</p>' +
       lines.map((line, i) => {
         const val = chapterStudy.summaryDraft[i] == null ? '' : chapterStudy.summaryDraft[i];
         return '<p class="sn-q-label">' + escapeHtml(line) + '</p>' +
-          '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>';
+          '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>' +
+          '<button type="button" class="cs-copy-answer" data-i="' + i + '" style="width:100%;margin:0.1rem 0 0.55rem;min-height:40px;font-size:0.95rem">Copy this answer</button>';
       }).join('') +
       '<button type="button" id="cs-copy-summary" style="width:100%;margin-top:0.7rem;min-height:48px">Copy this summary</button>' +
       '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.45rem;min-height:52px">Save chapter summary</button>';
     body.querySelectorAll('textarea.cs-answer').forEach((box) => {
-      pauseChapterStudySettleWhileSelecting(box);
+      // Do not call pauseChapterStudySettleWhileSelecting — it previously locked touch-action
+      // and overflow on the host, which interrupted native selection and copy.
       box.addEventListener('focus', () => {
         rememberChapterStudySummaryCursor(box);
-        // One calm bring-into-view. The attachChapterStudyKeyboardFix also does this.
-        try { box.focus({ preventScroll: true }); } catch (_) {}
       });
       box.addEventListener('keydown', (e) => e.stopPropagation());
       box.addEventListener('keyup', (e) => {
@@ -8692,6 +8696,23 @@ async function paintChapterStudyBody(overlay) {
       });
       growSummaryBox(box);
       attachChapterStudyKeyboardFix(box);
+    });
+    body.querySelectorAll('button.cs-copy-answer').forEach((btn) => {
+      btn.onclick = async () => {
+        const i = Number(btn.dataset.i);
+        const box = body.querySelector('textarea.cs-answer[data-i="' + i + '"]');
+        const text = box ? String(box.value || '') : '';
+        if (!text.trim()) {
+          showAppStatus('Nothing to copy.', 'fail');
+          return;
+        }
+        try {
+          const ok = await copyText(text);
+          showAppStatus(ok ? 'Copied this answer.' : 'Could not copy.', ok ? 'ok' : 'fail');
+        } catch (_) {
+          showAppStatus('Could not copy this answer.', 'fail');
+        }
+      };
     });
     if (chapterStudy.summaryFocus) {
       setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
