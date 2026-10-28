@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.10
+/* app.js – Main application controller. KJV Study PWA v6.99.11
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.10';
+const APP_VERSION = '6.99.11';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -10610,6 +10610,8 @@ async function openResearch() {
           style="background:${preferred === "places" ? "var(--accent)" : "var(--bg)"};color:${preferred === "places" ? "#111" : "var(--text)"}">Places</button>
         <button type="button" class="research-src" data-id="people"
           style="background:var(--bg);color:var(--text)">People</button>
+        <button type="button" class="research-src" data-id="prophecy"
+          style="background:var(--bg);color:var(--text)">Prophecy</button>
       </div>
       <div id="research-status" class="research-status">Loading…</div>
       <div id="research-body" class="research-body"></div>
@@ -11157,6 +11159,28 @@ async function openResearch() {
     }
   }
 
+
+  async function showProphecyPanel() {
+    activeSource = "prophecy";
+    preferred = "prophecy";
+    overlay.querySelectorAll(".research-src").forEach(btn => {
+      const active = btn.dataset.id === "prophecy";
+      btn.style.background = active ? "var(--accent)" : "var(--bg)";
+      btn.style.color = active ? "#111" : "var(--text)";
+    });
+    statusEl.textContent = "Messianic / prophetic catalog";
+    bodyEl.innerHTML = `
+      <div style="padding:0.8rem 0;line-height:1.55">
+        <p><strong>Search recognized Messianic and prophetic passages</strong></p>
+        <p>Free, searchable collection of the 191 Messianic prophecies catalogued by J. Barton Payne (the standard scholarly list). Filter or search by book, chapter, and verse.</p>
+        <p><a href="https://www.wineofcana.com/" target="_blank" rel="noopener" style="display:inline-block;margin:0.6rem 0;padding:0.55rem 1rem;background:var(--accent);color:#111;border-radius:8px;text-decoration:none;font-weight:600">Open Messianic Prophecies Explorer</a></p>
+        <p style="color:var(--text-dim);font-size:0.92em">Current context: <strong>${escapeHtml(bookName)} ${currentChapter}</strong>. On the site, search or browse by reference (example: ${escapeHtml(bookName)} ${currentChapter}). Nothing is saved in this app; use the link for research, then return here to mark verses if you choose.</p>
+        <p style="color:var(--text-dim);font-size:0.9em;margin-top:1rem">Tip: the Light Blue (Prophecy) color suggestions on a verse-number tap have also been expanded with more prophetic language markers. Suggestions still require your explicit Keep before anything is saved.</p>
+      </div>
+    `;
+    bodyHasContent = true;
+  }
+
   async function loadSource(sourceId) {
     if (sourceId === "theme") {
       await showThemePanel();
@@ -11168,6 +11192,10 @@ async function openResearch() {
     }
     if (sourceId === "people") {
       await showPeoplePanel();
+      return;
+    }
+    if (sourceId === "prophecy") {
+      await showProphecyPanel();
       return;
     }
     // Save previous source position only if we actually had content on screen

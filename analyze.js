@@ -120,9 +120,12 @@ const BASE_RULES = {
     { re: /\b(sheol|hades|gehenna)\b/i, w: 3, reason: 'Technical term' }
   ],
   lblue: [
-    { re: /\b(prophecy|prophesy|prophet)\b/i, w: 4, reason: 'Prophecy / prophet' },
+    { re: /\b(prophecy|prophesy|prophet|prophesied)\b/i, w: 4, reason: 'Prophecy / prophet' },
     { re: /\bin\s+that\s+day\b/i, w: 2, reason: 'In that day (prophetic)' },
-    { re: /\bthe\s+days\s+are\s+coming\b/i, w: 4, reason: 'The days are coming' }
+    { re: /\bthe\s+days\s+are\s+coming\b/i, w: 4, reason: 'The days are coming' },
+    { re: /\b(shall|will)\s+(come|come\s+to\s+pass|be\s+fulfilled)\b/i, w: 3, reason: 'Future fulfillment language' },
+    { re: /\b(anointed|messiah|branch|seed\s+of)\b/i, w: 3, reason: 'Messianic title / seed' },
+    { re: /\bthus\s+saith\s+the\s+lord\b/i, w: 3, reason: 'Thus saith the LORD' }
   ],
   aqua: [
     { re: /\b(rapture|caught\s+up|caught\s+away)\b/i, w: 6, reason: 'Rapture language' },
@@ -318,7 +321,10 @@ export function suggestWordSpans(text, bookId) {
     { id: 'brown', re: /\b(firmament|begat|selah|ephod|teraphim|shibboleth)\b/gi, why: 'uncommon KJV word — look-up color' },
     { id: 'tan', re: /\bgreat\s+tribulation\b/gi, why: 'named great tribulation' },
     { id: 'tan', re: /\btribulation\b/gi, why: 'the word tribulation is in this verse' },
-    { id: 'lblue', re: /\b(prophesy|prophecy|prophet)\b/gi, why: 'prophecy word named here' },
+    { id: 'lblue', re: /\b(prophesy|prophecy|prophet|prophesied)\b/gi, why: 'prophecy word named here' },
+    { id: 'lblue', re: /\bin\s+that\s+day\b/gi, why: 'in that day — prophetic marker' },
+    { id: 'lblue', re: /\bthe\s+days\s+are\s+coming\b/gi, why: 'the days are coming' },
+    { id: 'lblue', re: /\bthus\s+saith\s+the\s+lord\b/gi, why: 'thus saith the LORD' },
     { id: 'aqua', re: /\bcaught\s+up\b/gi, why: 'caught up — rapture-color token only' },
     { id: 'aqua', re: /\bmeet\s+the\s+lord\s+in\s+the\s+air\b/gi, why: 'meet the Lord in the air named here' },
     { id: 'pink', re: /\bantichrist\b/gi, why: 'antichrist named here' },
