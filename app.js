@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.11
+/* app.js – Main application controller. KJV Study PWA v6.99.12
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.11';
+const APP_VERSION = '6.99.12';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1128,6 +1128,7 @@ let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
 let reopenResearchTheme = false; // after a Theme verse hop, Back reopens Theme
 let reopenResearchPlaces = false; // Tools → Places opens the chapter place list
+let resumeGeneralNote = null; // draft to restore when returning from Chapter study / Research
 let activeMapSession = null;
 
 function mapSessionLabel() {
@@ -7869,6 +7870,72 @@ function openGeneralNoteEditor(existing) {
   `);
   const gnImgs = mountNoteImages(overlay, existing && existing.imageIds);
   const close = () => closeOverlay(overlay);
+
+  // Chapter study / Research buttons next to Add image
+  (function addChapterTools() {
+    const addLabel = overlay.querySelector('.note-add-image');
+    if (!addLabel || !addLabel.parentNode) return;
+    const row = document.createElement('div');
+    row.className = 'note-tools-row';
+    row.style.display = 'flex';
+    row.style.flexWrap = 'wrap';
+    row.style.gap = '0.5rem';
+    row.style.alignItems = 'center';
+    row.style.marginTop = '0.35rem';
+    addLabel.parentNode.insertBefore(row, addLabel);
+    row.appendChild(addLabel);
+
+    function captureDraft() {
+      return {
+        id: existing && existing.id,
+        title: ($('#gn-title', overlay).value || '').trim(),
+        text: $('#gn-text', overlay).value || '',
+        imageIds: gnImgs.getIds(),
+        createdAt: existing && existing.createdAt
+      };
+    }
+
+    function goChapterStudy() {
+      if (!currentBookId || !currentChapter) {
+        showAppStatus('Open a chapter first.', 'fail');
+        return;
+      }
+      resumeGeneralNote = captureDraft();
+      close();
+      openChapterStudy();
+    }
+
+    function goResearch() {
+      if (!currentBookId || !currentChapter) {
+        showAppStatus('Open a chapter first.', 'fail');
+        return;
+      }
+      resumeGeneralNote = captureDraft();
+      close();
+      openResearch();
+    }
+
+    const csBtn = document.createElement('button');
+    csBtn.type = 'button';
+    csBtn.textContent = 'Chapter study';
+    csBtn.title = 'Chapter study for the open chapter';
+    csBtn.style.minHeight = '48px';
+    csBtn.style.padding = '0.4rem 0.9rem';
+    csBtn.style.borderRadius = '8px';
+    csBtn.onclick = goChapterStudy;
+    row.appendChild(csBtn);
+
+    const resBtn = document.createElement('button');
+    resBtn.type = 'button';
+    resBtn.textContent = 'Research';
+    resBtn.title = 'Research for the open chapter';
+    resBtn.style.minHeight = '48px';
+    resBtn.style.padding = '0.4rem 0.9rem';
+    resBtn.style.borderRadius = '8px';
+    resBtn.onclick = goResearch;
+    row.appendChild(resBtn);
+  })();
+
   async function liveGeneralPage() {
     return pageGeneralNote({
       title: ($('#gn-title', overlay).value || '').trim() || 'Untitled note',
@@ -8942,6 +9009,12 @@ async function leaveChapterStudy(overlay) {
   }
   chapterStudy = null;
   closeOverlay(overlay);
+  if (resumeGeneralNote) {
+    const draft = resumeGeneralNote;
+    resumeGeneralNote = null;
+    openGeneralNoteEditor(draft);
+    return;
+  }
   if (place && place.bookId) {
     const key = bible.verseKey(place.bookId, place.chapter, place.verse);
     try { await renderChapter(place.bookId, place.chapter, { scrollToKey: key }); } catch (_) {}
@@ -10648,6 +10721,11 @@ async function openResearch() {
   function doClose() {
     persistCurrentScroll();
     closeOverlay(overlay);
+    if (resumeGeneralNote) {
+      const draft = resumeGeneralNote;
+      resumeGeneralNote = null;
+      openGeneralNoteEditor(draft);
+    }
   }
 
   if (closeBtn) {
@@ -10660,10 +10738,11 @@ async function openResearch() {
     closeBtn.addEventListener('touchend', onClose, { passive: false });
   }
 
-  // Backdrop tap: save first (showOverlay also closes on backdrop)
+  // Backdrop tap: save then close (and resume note if needed)
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) {
-      persistCurrentScroll();
+      e.stopImmediatePropagation();
+      doClose();
     }
   }, true);
 
