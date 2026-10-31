@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.12
+/* app.js – Main application controller. KJV Study PWA v6.99.13
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.12';
+const APP_VERSION = '6.99.13';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -9336,7 +9336,7 @@ function openMenu() {
       <button type="button" id="menu-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Verse notes</button>
       <button type="button" id="menu-chapter-study" style="width:100%;margin-bottom:0.5rem;min-height:52px">Chapter study</button>
       <button type="button" id="menu-general-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">General notes</button>
-      <button type="button" id="menu-shekel" style="width:100%;margin-bottom:0.5rem;min-height:52px">Shekel weight</button>
+      <button type="button" id="menu-measures" style="width:100%;margin-bottom:0.5rem;min-height:52px">Biblical measures</button>
       <button type="button" id="menu-summary-notes" style="width:100%;margin-bottom:0.5rem;min-height:52px">Summary notes</button>
       <button type="button" id="menu-book-summary" style="width:100%;margin-bottom:0.5rem;min-height:52px">Book summary</button>
       <button type="button" id="menu-print-copy" style="width:100%;margin-bottom:0.5rem;min-height:52px">Print or copy</button>
@@ -9362,7 +9362,7 @@ function openMenu() {
   $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
   $('#menu-chapter-study', overlay).onclick = () => { closeOverlay(overlay); openChapterStudy(); };
   $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
-  $('#menu-shekel', overlay).onclick = () => { closeOverlay(overlay); openShekelConverter(); };
+  $('#menu-measures', overlay).onclick = () => { closeOverlay(overlay); openBiblicalMeasures(); };
   $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
   $('#menu-book-summary', overlay).onclick = () => { closeOverlay(overlay); openBookSummary(); };
   $('#menu-print-copy', overlay).onclick = () => { closeOverlay(overlay); openPrintCopyMenu(); };
@@ -9477,63 +9477,174 @@ function openImport() {
 }
 
 
-// ---------- Shekel weight converter (1 shekel = 11.33 g) ----------
-function openShekelConverter() {
+// ---------- Biblical measures converter (length + weight) ----------
+function openBiblicalMeasures() {
+  const UNITS = [
+    // Length
+    { id: 'cubit_common', name: 'Cubit (common)', type: 'length', inches: 18, note: '≈18 in (45.7 cm). Common scholarly/popular estimate. Siloam tunnel suggests ~17.5 in.' },
+    { id: 'cubit_long', name: 'Cubit (long / royal)', type: 'length', inches: 20.4, note: '≈20.4 in (51.8 cm). Cubit + handbreadth (Ezek 40:5). Often used for temple / royal building.' },
+    { id: 'span', name: 'Span', type: 'length', inches: 9, note: 'Half a common cubit; thumb to little finger (≈9 in).' },
+    { id: 'handbreadth', name: 'Handbreadth', type: 'length', inches: 3, note: 'Width of four fingers; ≈1/6 cubit (≈3 in).' },
+    { id: 'finger', name: 'Finger', type: 'length', inches: 0.75, note: 'Width of a finger (≈0.75 in).' },
+    { id: 'reed', name: 'Reed', type: 'length', inches: 108, note: '6 common cubits (≈9 ft). Ezekiel uses 6 long cubits.' },
+    { id: 'fathom', name: 'Fathom', type: 'length', inches: 72, note: 'Outstretched arms (≈6 ft). NT measure of depth.' },
+    { id: 'stadion', name: 'Stadion / Furlong', type: 'length', inches: 7284, note: 'Greek stadion ≈607 ft (185 m). KJV often “furlong”.' },
+    { id: 'mile_roman', name: 'Roman mile', type: 'length', inches: 58320, note: '≈4,860 ft (1.48 km). NT “mile” (Matt 5:41).' },
+    { id: 'sabbath', name: "Sabbath day's journey", type: 'length', inches: 36000, note: '2,000 common cubits ≈3,000 ft (≈0.57 mi).' },
+    // Weight
+    { id: 'shekel', name: 'Shekel', type: 'weight', grams: 11.33, note: 'Judahite archaeological standard ≈11.33 g.' },
+    { id: 'beka', name: 'Beka (½ shekel)', type: 'weight', grams: 5.665, note: 'Half shekel.' },
+    { id: 'gerah', name: 'Gerah (1/20 shekel)', type: 'weight', grams: 0.5665, note: '1/20 shekel.' },
+    { id: 'mina', name: 'Mina (50 shekels)', type: 'weight', grams: 566.5, note: '50 shekels.' },
+    { id: 'talent', name: 'Talent (3,000 shekels)', type: 'weight', grams: 33990, note: '60 minas = 3,000 shekels ≈75 lb.' }
+  ];
+
   const overlay = showOverlay(`
-    <div class="panel">
+    <div class="panel" style="max-width:480px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
-        <h2 style="margin:0;border:none;padding:0">Shekel weight</h2>
+        <h2 style="margin:0;border:none;padding:0">Biblical measures</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      <p style="margin:0 0 0.8rem;font-size:0.95em;color:var(--text-dim);line-height:1.45">
-        1 shekel = 11.33 grams (Judahite archaeological standard).
+      <p style="margin:0 0 0.8rem;font-size:0.9em;color:var(--text-dim);line-height:1.4">
+        Approximate modern equivalents. Standards varied by time and place; values shown are common scholarly estimates.
       </p>
-      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Number of shekels</label>
-      <input type="number" id="shekel-input" class="search-box" inputmode="decimal" step="any" min="0" placeholder="e.g. 50" style="margin-bottom:1rem" autocomplete="off">
-      <div id="shekel-result" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.9rem 1rem;line-height:1.6;min-height:8rem">
-        Enter a number of shekels.
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Unit</label>
+      <select id="measure-unit" class="search-box" style="margin-bottom:0.8rem;width:100%;min-height:48px">
+        ${UNITS.map(u => '<option value="' + u.id + '">' + escapeHtml(u.name) + '</option>').join('')}
+      </select>
+      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Quantity</label>
+      <input type="number" id="measure-input" class="search-box" inputmode="decimal" step="any" min="0" placeholder="e.g. 60" style="margin-bottom:0.8rem" autocomplete="off">
+      <div id="measure-result" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.9rem 1rem;line-height:1.55;min-height:10rem;font-size:0.95em">
+        Select a unit and enter a quantity.
       </div>
-      <button type="button" id="shekel-clear" style="width:100%;margin-top:0.8rem;min-height:48px">Clear</button>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button type="button" id="measure-copy" style="flex:1;min-height:48px">Copy results</button>
+        <button type="button" id="measure-clear" style="flex:1;min-height:48px">Clear</button>
+      </div>
     </div>
   `);
+
   const close = () => closeOverlay(overlay);
   $('.close', overlay).onclick = close;
-  const input = $('#shekel-input', overlay);
-  const result = $('#shekel-result', overlay);
+
+  const unitSel = $('#measure-unit', overlay);
+  const input = $('#measure-input', overlay);
+  const result = $('#measure-result', overlay);
+
+  function fmt(v, d) {
+    if (!isFinite(v)) return '—';
+    const n = Math.round(v * Math.pow(10, d)) / Math.pow(10, d);
+    return n.toFixed(d).replace(/\.?0+$/, '') || '0';
+  }
+
   function update() {
+    const unitId = unitSel.value;
+    const unit = UNITS.find(u => u.id === unitId) || UNITS[0];
     const raw = (input.value || '').trim();
     if (!raw) {
-      result.innerHTML = 'Enter a number of shekels.';
+      result.innerHTML = 'Enter a quantity.';
       return;
     }
     const n = parseFloat(raw);
     if (!isFinite(n) || n < 0) {
-      result.innerHTML = 'Enter a valid number of shekels.';
+      result.innerHTML = 'Enter a valid non-negative number.';
       return;
     }
-    const grams = n * 11.33;
-    const ounces = grams / 28.349523125;
-    const pounds = ounces / 16;
-    const wholePounds = Math.floor(pounds);
-    const remOunces = ounces - wholePounds * 16;
-    const fmt = (v, d) => (Math.round(v * Math.pow(10, d)) / Math.pow(10, d)).toFixed(d);
-    result.innerHTML =
-      '<div><strong>' + escapeHtml(String(n)) + ' shekel' + (n === 1 ? '' : 's') + '</strong></div>' +
-      '<div style="margin-top:0.5rem">Grams: ' + fmt(grams, 2) + ' g</div>' +
-      '<div>Ounces: ' + fmt(ounces, 3) + ' oz</div>' +
-      '<div>Pounds: ' + fmt(pounds, 4) + ' lb</div>' +
-      (wholePounds > 0
-        ? '<div style="margin-top:0.4rem">Combination: ' + wholePounds + ' lb ' + fmt(remOunces, 2) + ' oz</div>'
-        : '');
+
+    let html = '<div><strong>' + escapeHtml(String(n)) + ' ' + escapeHtml(unit.name.toLowerCase()) + (n === 1 ? '' : 's') + '</strong></div>';
+    html += '<div style="margin-top:0.35rem;font-size:0.88em;color:var(--text-dim)">' + escapeHtml(unit.note) + '</div>';
+
+    let plain = n + ' ' + unit.name + (n === 1 ? '' : 's') + '\n' + unit.note + '\n\n';
+
+    if (unit.type === 'length') {
+      const totalInches = n * unit.inches;
+      const feet = totalInches / 12;
+      const yards = feet / 3;
+      const miles = feet / 5280;
+      const meters = totalInches * 0.0254;
+      const cm = meters * 100;
+
+      const wholeFeet = Math.floor(feet);
+      const remInches = totalInches - wholeFeet * 12;
+
+      html += '<div style="margin-top:0.6rem">Inches: ' + fmt(totalInches, 2) + ' in</div>';
+      html += '<div>Feet: ' + fmt(feet, 2) + ' ft';
+      if (wholeFeet > 0 || remInches > 0.05) {
+        html += '  (' + wholeFeet + ' ft ' + fmt(remInches, 1) + ' in)';
+      }
+      html += '</div>';
+      html += '<div>Yards: ' + fmt(yards, 2) + ' yd</div>';
+      if (miles >= 0.01) html += '<div>Miles: ' + fmt(miles, 3) + ' mi</div>';
+      html += '<div>Meters: ' + fmt(meters, 2) + ' m</div>';
+      html += '<div>Centimeters: ' + fmt(cm, 1) + ' cm</div>';
+
+      plain += 'Inches: ' + fmt(totalInches, 2) + ' in\n';
+      plain += 'Feet: ' + fmt(feet, 2) + ' ft';
+      if (wholeFeet > 0 || remInches > 0.05) plain += ' (' + wholeFeet + ' ft ' + fmt(remInches, 1) + ' in)';
+      plain += '\n';
+      plain += 'Yards: ' + fmt(yards, 2) + ' yd\n';
+      if (miles >= 0.01) plain += 'Miles: ' + fmt(miles, 3) + ' mi\n';
+      plain += 'Meters: ' + fmt(meters, 2) + ' m\n';
+      plain += 'Centimeters: ' + fmt(cm, 1) + ' cm\n';
+    } else {
+      const grams = n * unit.grams;
+      const ounces = grams / 28.349523125;
+      const pounds = ounces / 16;
+      const wholePounds = Math.floor(pounds);
+      const remOunces = ounces - wholePounds * 16;
+      const kg = grams / 1000;
+
+      html += '<div style="margin-top:0.6rem">Grams: ' + fmt(grams, 2) + ' g</div>';
+      html += '<div>Ounces: ' + fmt(ounces, 3) + ' oz</div>';
+      html += '<div>Pounds: ' + fmt(pounds, 4) + ' lb</div>';
+      if (wholePounds > 0) {
+        html += '<div>Combination: ' + wholePounds + ' lb ' + fmt(remOunces, 2) + ' oz</div>';
+      }
+      if (kg >= 0.1) html += '<div>Kilograms: ' + fmt(kg, 3) + ' kg</div>';
+
+      plain += 'Grams: ' + fmt(grams, 2) + ' g\n';
+      plain += 'Ounces: ' + fmt(ounces, 3) + ' oz\n';
+      plain += 'Pounds: ' + fmt(pounds, 4) + ' lb\n';
+      if (wholePounds > 0) plain += 'Combination: ' + wholePounds + ' lb ' + fmt(remOunces, 2) + ' oz\n';
+      if (kg >= 0.1) plain += 'Kilograms: ' + fmt(kg, 3) + ' kg\n';
+    }
+
+    result.innerHTML = html;
+    result.dataset.plain = plain.trim();
   }
+
+  unitSel.onchange = update;
   input.oninput = update;
   input.onkeyup = update;
-  $('#shekel-clear', overlay).onclick = () => {
+
+  $('#measure-clear', overlay).onclick = () => {
     input.value = '';
     update();
     input.focus();
   };
+
+  $('#measure-copy', overlay).onclick = () => {
+    const text = result.dataset.plain || '';
+    if (!text) {
+      alert('Enter a quantity first.');
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = $('#measure-copy', overlay);
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      }).catch(() => {
+        alert('Could not copy. Select the results and copy manually.');
+      });
+    } else {
+      alert('Clipboard not available. Select the results and copy manually.');
+    }
+  };
+
   setTimeout(() => { if (input) input.focus(); }, 80);
+  update();
 }
 
 function openSettings() {
