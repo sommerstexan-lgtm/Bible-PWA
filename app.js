@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.13
+/* app.js – Main application controller. KJV Study PWA v6.99.14
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.13';
+const APP_VERSION = '6.99.14';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1159,6 +1159,11 @@ let searchSession = {
   selectedBookId: null,
   selectedSubjectId: null
 };
+let lastDictTerm = '';
+try {
+  const rawD = sessionStorage.getItem('kjv-last-dict');
+  if (rawD) lastDictTerm = String(JSON.parse(rawD) || '');
+} catch (_) {}
 /** Ordered study trail workbench. Session only. Named saves go to IndexedDB. */
 let studyTrail = { nodes: [], undo: [] };
 try {
@@ -1328,10 +1333,15 @@ function renderShell() {
         <button type="button" id="btn-undo-anchor" hidden>Undo</button>
       </div>
     </div>
-    <button type="button" id="chrome-reveal" class="chrome-reveal" aria-label="Show controls" hidden>☰ Controls</button>
+    <div id="left-pills" class="left-pills" hidden>
+      <button type="button" id="chrome-reveal" class="pill-btn chrome-reveal" aria-label="Show controls">☰ Controls</button>
+      <button type="button" id="nav-back" class="pill-btn nav-back" aria-label="Back to previous verse" hidden>← Back</button>
+      <button type="button" id="anchor-chip" class="pill-btn anchor-chip" hidden title="Return to Anchor">Anchor</button>
+      <button type="button" id="last-search-chip" class="pill-btn" hidden title="Return to last search">Search</button>
+      <button type="button" id="last-dict-chip" class="pill-btn" hidden title="Return to last dictionary">Dict</button>
+      <button type="button" id="last-trail-chip" class="pill-btn" hidden title="Open study trail">Trail</button>
+    </div>
     <button type="button" id="summary-chip" class="summary-chip" hidden title="Open minimized summary">Summary</button>
-    <button type="button" id="anchor-chip" class="anchor-chip" hidden title="Return to Anchor">Anchor</button>
-    <button type="button" id="nav-back" class="nav-back" aria-label="Back to previous verse" hidden>← Back</button>
     <div id="chain-read-bar" class="chain-read-bar" hidden>
       <button type="button" id="chain-bar-list">List</button>
       <span id="chain-bar-label">Chain</span>
@@ -1378,6 +1388,12 @@ function renderShell() {
   if (setA) setA.onclick = () => setAnchorHere();
   if (undoA) undoA.onclick = () => undoAnchor();
   if (chipA) chipA.onclick = () => goAnchor();
+  const searchChip = document.getElementById('last-search-chip');
+  const dictChip = document.getElementById('last-dict-chip');
+  const trailChip = document.getElementById('last-trail-chip');
+  if (searchChip) searchChip.onclick = () => { if ((searchSession.query || '').trim()) openSearch(); };
+  if (dictChip) dictChip.onclick = () => { if (lastDictTerm) openDictionary(lastDictTerm); };
+  if (trailChip) trailChip.onclick = () => { if (studyTrail.nodes.length) openStudyTrail(); };
   const sumChip = document.getElementById('summary-chip');
   if (sumChip) sumChip.onclick = () => reopenMinimizedSummary();
   const notesBack = document.getElementById('notes-return-btn');
@@ -1417,11 +1433,11 @@ function pauseChromeHide(ms) {
 
 function showChrome() {
   const chrome = document.getElementById('chrome');
-  const reveal = document.getElementById('chrome-reveal');
+  const left = document.getElementById('left-pills');
   if (!chrome) return;
   chrome.classList.remove('chrome-hidden');
   document.body.classList.remove('chrome-is-hidden');
-  if (reveal) reveal.hidden = true;
+  if (left) left.hidden = true;
   chromeHidden = false;
   updateAnchorUI();
 }
@@ -1444,12 +1460,13 @@ function hideChrome() {
   // Never hide while an overlay panel is open
   if (document.querySelector('.overlay')) return;
   const chrome = document.getElementById('chrome');
-  const reveal = document.getElementById('chrome-reveal');
+  const left = document.getElementById('left-pills');
   if (!chrome) return;
   chrome.classList.add('chrome-hidden');
   document.body.classList.add('chrome-is-hidden');
-  if (reveal) reveal.hidden = false;
+  if (left) left.hidden = false;
   chromeHidden = true;
+  updateLeftPills();
   updateAnchorUI();
 }
 
@@ -1485,6 +1502,7 @@ function updateNavBackButton() {
   } else {
     btn.hidden = true;
   }
+  updateLeftPills();
 }
 
 function persistAnchor() {
@@ -1547,6 +1565,34 @@ function updateAnchorUI() {
     chip.disabled = !readingAnchor;
   }
   if (undoBtn) undoBtn.hidden = !previousAnchor;
+  updateLeftPills();
+}
+
+function updateLeftPills() {
+  const left = document.getElementById('left-pills');
+  if (!left) return;
+  left.hidden = !chromeHidden;
+
+  const searchBtn = document.getElementById('last-search-chip');
+  const dictBtn = document.getElementById('last-dict-chip');
+  const trailBtn = document.getElementById('last-trail-chip');
+
+  const q = (searchSession.query || '').trim();
+  if (searchBtn) {
+    searchBtn.hidden = !q || q.length < 2;
+    searchBtn.textContent = q ? ('Search · ' + (q.length > 18 ? q.slice(0, 16) + '…' : q)) : 'Search';
+  }
+
+  if (dictBtn) {
+    dictBtn.hidden = !lastDictTerm;
+    dictBtn.textContent = lastDictTerm ? ('Dict · ' + lastDictTerm) : 'Dict';
+  }
+
+  if (trailBtn) {
+    const n = studyTrail.nodes.length;
+    trailBtn.hidden = !n;
+    trailBtn.textContent = n ? ('Trail · ' + n) : 'Trail';
+  }
 }
 
 async function goAnchor() {
@@ -1616,6 +1662,7 @@ function undoAnchor() {
 
 function persistSearchSession() {
   try { sessionStorage.setItem('kjv-search-session', JSON.stringify(searchSession)); } catch (_) {}
+  updateLeftPills();
 }
 
 function persistTrail() {
@@ -1761,6 +1808,7 @@ function trailPush(key, source) {
   });
   persistTrail();
   updateTrailChip();
+  updateLeftPills();
 }
 
 function trailRemove(id) {
@@ -1771,6 +1819,7 @@ function trailRemove(id) {
   studyTrail.nodes.splice(idx, 1);
   persistTrail();
   updateTrailChip();
+  updateLeftPills();
 }
 
 function trailReplace(id, newKey) {
@@ -1786,6 +1835,7 @@ function trailReplace(id, newKey) {
   };
   persistTrail();
   updateTrailChip();
+  updateLeftPills();
 }
 
 function trailUndo() {
@@ -1803,6 +1853,7 @@ function trailUndo() {
   }
   persistTrail();
   updateTrailChip();
+  updateLeftPills();
   return true;
 }
 
@@ -5637,6 +5688,7 @@ function openSearch() {
   $('.search-close', overlay).onclick = () => {
     searchSession.query = ($('#search-input', overlay).value || '').trim();
     persistSearchSession();
+    updateLeftPills();
     closeOverlay(overlay);
   };
 
@@ -9819,6 +9871,9 @@ async function openDictionary(prefill) {
     const q = ($('#dict-q', overlay).value || '').trim();
     const box = $('#dict-results', overlay);
     if (!q) { box.innerHTML = ''; return; }
+    lastDictTerm = q;
+    try { sessionStorage.setItem('kjv-last-dict', JSON.stringify(lastDictTerm)); } catch (_) {}
+    updateLeftPills();
     box.innerHTML = '<p style="color:var(--text-dim)">Searching…</p>';
     let html = '';
     const upper = q.toUpperCase();
