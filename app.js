@@ -9548,7 +9548,9 @@ function openBiblicalMeasures() {
     { id: 'beka', name: 'Beka (½ shekel)', type: 'weight', grams: 5.665, note: 'Half shekel.' },
     { id: 'gerah', name: 'Gerah (1/20 shekel)', type: 'weight', grams: 0.5665, note: '1/20 shekel.' },
     { id: 'mina', name: 'Mina (50 shekels)', type: 'weight', grams: 566.5, note: '50 shekels.' },
-    { id: 'talent', name: 'Talent (3,000 shekels)', type: 'weight', grams: 33990, note: '60 minas = 3,000 shekels ≈75 lb.' }
+    { id: 'talent', name: 'Talent (3,000 shekels)', type: 'weight', grams: 33990, note: '60 minas = 3,000 shekels ≈75 lb.' },
+    // Volume
+    { id: 'bath', name: 'Bath', type: 'volume', liters: 22, note: 'Liquid measure equal to the ephah (Ezek. 45:11); ≈22 L (5.8 US gal). Absolute size is approximate. For the molten sea, 1 Kings 7:26 gives the ordinary contents (2,000 baths); 2 Chronicles 4:5 gives the full capacity to the brim (3,000 baths).' }
   ];
 
   const overlay = showOverlay(`
@@ -9638,7 +9640,7 @@ function openBiblicalMeasures() {
       if (miles >= 0.01) plain += 'Miles: ' + fmt(miles, 3) + ' mi\n';
       plain += 'Meters: ' + fmt(meters, 2) + ' m\n';
       plain += 'Centimeters: ' + fmt(cm, 1) + ' cm\n';
-    } else {
+    } else if (unit.type === 'weight') {
       const grams = n * unit.grams;
       const ounces = grams / 28.349523125;
       const pounds = ounces / 16;
@@ -9659,6 +9661,21 @@ function openBiblicalMeasures() {
       plain += 'Pounds: ' + fmt(pounds, 4) + ' lb\n';
       if (wholePounds > 0) plain += 'Combination: ' + wholePounds + ' lb ' + fmt(remOunces, 2) + ' oz\n';
       if (kg >= 0.1) plain += 'Kilograms: ' + fmt(kg, 3) + ' kg\n';
+    } else if (unit.type === 'volume') {
+      const liters = n * unit.liters;
+      const usGal = liters / 3.785411784;
+      const impGal = liters / 4.54609;
+      const ml = liters * 1000;
+
+      html += '<div style="margin-top:0.6rem">Liters: ' + fmt(liters, 1) + ' L</div>';
+      html += '<div>US gallons: ' + fmt(usGal, 1) + ' gal</div>';
+      html += '<div>Imperial gallons: ' + fmt(impGal, 1) + ' gal</div>';
+      html += '<div>Milliliters: ' + fmt(ml, 0) + ' mL</div>';
+
+      plain += 'Liters: ' + fmt(liters, 1) + ' L\n';
+      plain += 'US gallons: ' + fmt(usGal, 1) + ' gal\n';
+      plain += 'Imperial gallons: ' + fmt(impGal, 1) + ' gal\n';
+      plain += 'Milliliters: ' + fmt(ml, 0) + ' mL\n';
     }
 
     result.innerHTML = html;
