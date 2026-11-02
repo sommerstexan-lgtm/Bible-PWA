@@ -1,4 +1,4 @@
-/* bible.js – Book loading, navigation helpers, search. v6.59.0 */
+/* bible.js – Book loading, navigation helpers, search. v6.99.18 */
 
 import { getAllBooks, getBook, putBook } from './storage.js';
 
@@ -228,12 +228,106 @@ export async function loadBundledTestament(testament, loadedBooks) {
   return { imported: toStore, skipped: packBooks.length - toStore.length, url };
 }
 
+// Helpers to insert before wordHit or after it.
+
+function escapeReg(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function wordHit(text, word) {
   const q = String(word || '').trim();
   if (!q) return false;
-  const re = new RegExp(`(^|[^A-Za-z])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z]|$)`, 'i');
+  const re = new RegExp(`(^|[^A-Za-z])${escapeReg(q)}([^A-Za-z]|$)`, 'i');
   return re.test(text);
 }
+
+/** Basic KJV-style number spelling for digit queries (1–9999 range is enough). */
+function spellNumber(n) {
+  if (!Number.isFinite(n) || n < 0 || n > 9999) return [];
+  const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  const ord = {
+    one: 'first', two: 'second', three: 'third', four: 'fourth', five: 'fifth',
+    six: 'sixth', seven: 'seventh', eight: 'eighth', nine: 'ninth', ten: 'tenth',
+    eleven: 'eleventh', twelve: 'twelfth', thirteen: 'thirteenth', fourteen: 'fourteenth',
+    fifteen: 'fifteenth', sixteen: 'sixteenth', seventeen: 'seventeenth', eighteen: 'eighteenth',
+    nineteen: 'nineteenth', twenty: 'twentieth', thirty: 'thirtieth', forty: 'fortieth',
+    fifty: 'fiftieth', sixty: 'sixtieth', seventy: 'seventieth', eighty: 'eightieth', ninety: 'ninetieth'
+  };
+
+  function under100(x) {
+    if (x < 20) return ones[x];
+    const t = Math.floor(x / 10);
+    const o = x % 10;
+    return tens[t] + (o ? '-' + ones[o] : '');
+  }
+
+  function card(x) {
+    if (x === 0) return 'zero';
+    if (x < 100) return under100(x);
+    if (x < 1000) {
+      const h = Math.floor(x / 100);
+      const r = x % 100;
+      return ones[h] + ' hundred' + (r ? ' and ' + under100(r) : '');
+    }
+    const th = Math.floor(x / 1000);
+    const r = x % 1000;
+    let s = ones[th] + ' thousand';
+    if (r) {
+      if (r < 100) s += ' and ' + under100(r);
+      else s += ' ' + card(r);
+    }
+    return s;
+  }
+
+  const c = card(n);
+  const forms = [c];
+  // ordinal on the last word
+  const parts = c.split(/[\s-]+/);
+  const last = parts[parts.length - 1];
+  if (ord[last]) {
+    const ordForm = c.replace(new RegExp(last + '$'), ord[last]);
+    forms.push(ordForm);
+  }
+  // also without "and"
+  if (c.includes(' and ')) forms.push(c.replace(/ and /g, ' '));
+  return [...new Set(forms)];
+}
+
+function numberVariants(q) {
+  const s = String(q || '').trim();
+  const m = s.match(/^(\d+)(st|nd|rd|th)?$/i);
+  if (!m) return [];
+  const n = parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n < 1 || n > 9999) return [];
+  return spellNumber(n);
+}
+
+function isExactMatch(text, q) {
+  if (!text || !q) return false;
+  const query = String(q).trim();
+  if (!query) return false;
+  if (wordHit(text, query)) return true;
+  const nums = numberVariants(query);
+  for (const form of nums) {
+    if (wordHit(text, form)) return true;
+  }
+  return false;
+}
+
+function matchesQuery(text, q) {
+  if (!text || !q) return false;
+  const query = String(q).trim();
+  if (!query) return false;
+  if (isExactMatch(text, query)) return true;
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1) {
+    return tokens.every((tok) => wordHit(text, tok));
+  }
+  return false;
+}
+
 
 function booksInCanonOrder(bookList) {
   const idx = new Map(CANONICAL_BOOKS.map((b, i) => [b.id, i]));
@@ -262,7 +356,8 @@ export async function searchBooks(query, books, onProgress) {
       if (!ch || !Array.isArray(ch.verses)) continue;
       for (const v of ch.verses) {
         const text = v && v.text;
-        if (!text || !wordHit(text, q)) continue;
+        if (!text || !matchesQuery(text, q)) continue;
+        const exact = isExactMatch(text, q);
         results.push({
           key: verseKey(book.id, ch.number, v.number),
           bookId: book.id,
@@ -270,7 +365,8 @@ export async function searchBooks(query, books, onProgress) {
           chapter: ch.number,
           verse: v.number,
           text,
-          snippet: highlightSnippet(text, q.toLowerCase())
+          snippet: highlightSnippet(text, q.toLowerCase()),
+          exact
         });
       }
     }
@@ -278,6 +374,8 @@ export async function searchBooks(query, books, onProgress) {
       await new Promise((r) => setTimeout(r, 0));
     }
   }
+  // Exact phrase (or number form) first, then all-words; both keep Bible order.
+  results.sort((a, b) => (b.exact ? 1 : 0) - (a.exact ? 1 : 0));
   return results;
 }
 
