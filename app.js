@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.18
+/* app.js – Main application controller. KJV Study PWA v6.99.19
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.18';
+const APP_VERSION = '6.99.19';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -9533,24 +9533,44 @@ function openImport() {
 function openBiblicalMeasures() {
   const UNITS = [
     // Length
-    { id: 'cubit_common', name: 'Cubit (common)', type: 'length', inches: 18, note: '≈18 in (45.7 cm). Common scholarly/popular estimate. Siloam tunnel suggests ~17.5 in.' },
-    { id: 'cubit_long', name: 'Cubit (long / royal)', type: 'length', inches: 20.4, note: '≈20.4 in (51.8 cm). Cubit + handbreadth (Ezek 40:5). Often used for temple / royal building.' },
-    { id: 'span', name: 'Span', type: 'length', inches: 9, note: 'Half a common cubit; thumb to little finger (≈9 in).' },
-    { id: 'handbreadth', name: 'Handbreadth', type: 'length', inches: 3, note: 'Width of four fingers; ≈1/6 cubit (≈3 in).' },
-    { id: 'finger', name: 'Finger', type: 'length', inches: 0.75, note: 'Width of a finger (≈0.75 in).' },
-    { id: 'reed', name: 'Reed', type: 'length', inches: 108, note: '6 common cubits (≈9 ft). Ezekiel uses 6 long cubits.' },
-    { id: 'fathom', name: 'Fathom', type: 'length', inches: 72, note: 'Outstretched arms (≈6 ft). NT measure of depth.' },
-    { id: 'stadion', name: 'Stadion / Furlong', type: 'length', inches: 7284, note: 'Greek stadion ≈607 ft (185 m). KJV often “furlong”.' },
-    { id: 'mile_roman', name: 'Roman mile', type: 'length', inches: 58320, note: '≈4,860 ft (1.48 km). NT “mile” (Matt 5:41).' },
-    { id: 'sabbath', name: "Sabbath day's journey", type: 'length', inches: 36000, note: '2,000 common cubits ≈3,000 ft (≈0.57 mi).' },
+    { id: 'cubit_common', name: 'Cubit (common)', type: 'length', inches: 18, note: 'Common cubit ≈18 in (45.7 cm). From elbow to fingertip. Siloam tunnel suggests ~17.5 in. Used for most building and height descriptions (Noah’s ark, tabernacle, Goliath).' },
+    { id: 'cubit_long', name: 'Cubit (long / royal)', type: 'length', inches: 20.4, note: 'Long or royal cubit ≈20.4 in (51.8 cm). Common cubit + one handbreadth (Ezek 40:5). Often used for temple and royal construction.' },
+    { id: 'span', name: 'Span', type: 'length', inches: 9, note: 'Span ≈9 in (half a common cubit). Thumb to little finger outstretched. Used for smaller measurements (e.g., breastplate, Goliath’s height “and a span”).' },
+    { id: 'handbreadth', name: 'Handbreadth', type: 'length', inches: 3, note: 'Handbreadth ≈3 in (width of four fingers). ≈1/6 cubit. Used for table borders, wall thicknesses, etc.' },
+    { id: 'finger', name: 'Finger / Fingerbreadth', type: 'length', inches: 0.75, note: 'Fingerbreadth ≈0.75 in. Smallest common length unit (Jer 52:21).' },
+    { id: 'reed', name: 'Reed', type: 'length', inches: 108, note: 'Reed ≈9 ft (6 common cubits). Ezekiel’s measuring reed is 6 long cubits. Used for larger architectural measurements.' },
+    { id: 'fathom', name: 'Fathom', type: 'length', inches: 72, note: 'Fathom ≈6 ft (outstretched arms). NT measure of depth (Acts 27:28).' },
+    { id: 'stadion', name: 'Stadion / Furlong', type: 'length', inches: 7284, note: 'Stadion ≈607 ft (185 m). Greek length; KJV often translates as “furlong.”' },
+    { id: 'mile_roman', name: 'Roman mile', type: 'length', inches: 58320, note: 'Roman mile ≈4,860 ft (1.48 km). NT “mile” (Matt 5:41).' },
+    { id: 'sabbath', name: "Sabbath day's journey", type: 'length', inches: 36000, note: 'Sabbath day’s journey ≈2,000 common cubits ≈3,000 ft (≈0.57 mi). Traditional maximum travel distance on the Sabbath (Acts 1:12).' },
+    { id: 'days_journey', name: "Day's journey", type: 'length', inches: 1267200, note: 'Approximate day’s journey ≈20–25 miles (often taken as ~20 mi / 32 km for estimation). Varies by terrain and mode of travel.' },
+
     // Weight
-    { id: 'shekel', name: 'Shekel', type: 'weight', grams: 11.33, note: 'Judahite archaeological standard ≈11.33 g.' },
-    { id: 'beka', name: 'Beka (½ shekel)', type: 'weight', grams: 5.665, note: 'Half shekel.' },
-    { id: 'gerah', name: 'Gerah (1/20 shekel)', type: 'weight', grams: 0.5665, note: '1/20 shekel.' },
-    { id: 'mina', name: 'Mina (50 shekels)', type: 'weight', grams: 566.5, note: '50 shekels.' },
-    { id: 'talent', name: 'Talent (3,000 shekels)', type: 'weight', grams: 33990, note: '60 minas = 3,000 shekels ≈75 lb.' },
-    // Volume
-    { id: 'bath', name: 'Bath', type: 'volume', liters: 22, note: 'Liquid measure equal to the ephah (Ezek. 45:11); ≈22 L (5.8 US gal). Absolute size is approximate. For the molten sea, 1 Kings 7:26 gives the ordinary contents (2,000 baths); 2 Chronicles 4:5 gives the full capacity to the brim (3,000 baths).' }
+    { id: 'gerah', name: 'Gerah (1/20 shekel)', type: 'weight', grams: 0.5665, note: 'Gerah = 1/20 shekel ≈0.57 g. Smallest standard weight unit (Ex 30:13).' },
+    { id: 'beka', name: 'Beka (½ shekel)', type: 'weight', grams: 5.665, note: 'Beka = half shekel ≈5.7 g. Used for temple tax and jewelry (Ex 38:26; Gen 24:22).' },
+    { id: 'pim', name: 'Pim (≈⅔ shekel)', type: 'weight', grams: 7.55, note: 'Pim ≈⅔ shekel ≈7.6 g. Appears in 1 Sam 13:21 (price of sharpening). Archaeological weights confirm the value.' },
+    { id: 'shekel', name: 'Shekel', type: 'weight', grams: 11.33, note: 'Shekel ≈11.33 g (Judahite archaeological standard). Basic weight unit. Sanctuary shekel is the reference for many calculations (Ex 30:13).' },
+    { id: 'mina', name: 'Mina (50 shekels)', type: 'weight', grams: 566.5, note: 'Mina = 50 shekels ≈0.57 kg (most OT contexts). Ezekiel 45:12 uses 60 shekels. Greek/NT mina is larger.' },
+    { id: 'talent', name: 'Talent (3,000 shekels)', type: 'weight', grams: 33990, note: 'Talent = 60 minas = 3,000 shekels ≈34 kg (≈75 lb). Largest common weight unit for gold, silver, and bulk goods.' },
+    { id: 'litra', name: 'Litra / Pound (NT)', type: 'weight', grams: 340, note: 'Litra (Roman pound) ≈340 g (≈12 oz). NT unit (John 12:3; 19:39).' },
+
+    // Volume – dry
+    { id: 'kab', name: 'Kab / Cab', type: 'volume', liters: 1.2, note: 'Kab ≈1.2 L (≈1.3 dry qt). Small dry measure (2 Kgs 6:25).' },
+    { id: 'omer', name: 'Omer', type: 'volume', liters: 2.2, note: 'Omer = 1/10 ephah ≈2.2 L (≈2 dry qt). Explicitly defined (Ex 16:36).' },
+    { id: 'seah', name: 'Seah', type: 'volume', liters: 7.3, note: 'Seah = 1/3 ephah ≈7.3 L (≈7 dry qt). Used for flour and grain (Gen 18:6).' },
+    { id: 'ephah', name: 'Ephah', type: 'volume', liters: 22, note: 'Ephah ≈22 L (≈5.8 US gal / 20 dry qt). Standard dry measure equal to the bath (Ezek 45:11).' },
+    { id: 'lethech', name: 'Lethech', type: 'volume', liters: 110, note: 'Lethech = 5 ephahs ≈110 L (half a homer). Rare unit (Hos 3:2).' },
+    { id: 'homer', name: 'Homer / Cor (dry)', type: 'volume', liters: 220, note: 'Homer (or cor) = 10 ephahs ≈220 L (≈6.25 US bushels). Largest common dry measure.' },
+
+    // Volume – liquid
+    { id: 'log', name: 'Log', type: 'volume', liters: 0.3, note: 'Log ≈0.3 L (≈0.63 US pt). Smallest liquid measure (Lev 14:10).' },
+    { id: 'hin', name: 'Hin', type: 'volume', liters: 3.7, note: 'Hin = 1/6 bath ≈3.7 L (≈1 US gal). Used for oil and wine in offerings (Ex 29:40).' },
+    { id: 'bath', name: 'Bath', type: 'volume', liters: 22, note: 'Bath ≈22 L (≈5.8 US gal). Liquid equivalent of the ephah (Ezek 45:11). For the molten sea: 1 Kings 7:26 gives ordinary contents (2,000 baths); 2 Chronicles 4:5 gives full capacity to the brim (3,000 baths).' },
+    { id: 'cor_liquid', name: 'Cor / Homer (liquid)', type: 'volume', liters: 220, note: 'Cor (or homer) = 10 baths ≈220 L. Large liquid measure.' },
+    { id: 'metretes', name: 'Metretes / Firkin (NT)', type: 'volume', liters: 39, note: 'Metretes ≈39 L (≈10.3 US gal). NT unit (John 2:6 – the waterpots at Cana).' },
+
+    // Counting term (KJV English)
+    { id: 'score', name: 'Score', type: 'count', factor: 20, note: 'Score = 20. KJV English counting term (not a Hebrew/Greek weight or length unit). “Sixscore” = 120, “threescore” = 60, “fourscore” = 80. Used for ages, quantities, and talents (e.g., 1 Kings 9:14 “sixscore talents”).' }
   ];
 
   const overlay = showOverlay(`
@@ -9560,7 +9580,7 @@ function openBiblicalMeasures() {
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
       <p style="margin:0 0 0.8rem;font-size:0.9em;color:var(--text-dim);line-height:1.4">
-        Approximate modern equivalents. Standards varied by time and place; values shown are common scholarly estimates.
+        Approximate modern equivalents for biblical length, weight, and volume units. Absolute values varied by time and place; the figures used here are common scholarly/archaeological estimates. “Score” is a KJV English counting term (= 20), not an ancient weight or length unit.
       </p>
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Unit</label>
       <select id="measure-unit" class="search-box" style="margin-bottom:0.8rem;width:100%;min-height:48px">
@@ -9676,6 +9696,12 @@ function openBiblicalMeasures() {
       plain += 'US gallons: ' + fmt(usGal, 1) + ' gal\n';
       plain += 'Imperial gallons: ' + fmt(impGal, 1) + ' gal\n';
       plain += 'Milliliters: ' + fmt(ml, 0) + ' mL\n';
+    } else if (unit.type === 'count') {
+      const total = n * unit.factor;
+      html += '<div style="margin-top:0.6rem"><strong>Equals: ' + fmt(total, 0) + '</strong></div>';
+      html += '<div style="font-size:0.9em;color:var(--text-dim);margin-top:0.3rem">Useful for KJV phrases such as “sixscore talents” (= 120 talents).</div>';
+      plain += 'Equals: ' + fmt(total, 0) + '\n';
+      plain += 'Useful for KJV phrases such as “sixscore talents” (= 120 talents).\n';
     }
 
     result.innerHTML = html;
