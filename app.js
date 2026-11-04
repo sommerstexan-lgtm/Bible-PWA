@@ -7900,24 +7900,88 @@ async function openSummaryNotesList(resume) {
 }
 
 // ---------- General notes (titled, not tied to a verse) ----------
+const GN_REF_ORDER = [1, 0, 2, 3]; // before, key, after, unresolved
+const GN_REF_TITLES = [
+  'What happened before the key?',
+  'What is the key verse in this chapter?',
+  'What happened after the key?',
+  'What is still unresolved?'
+];
+
+function cleanNoteSpacing(text) {
+  return String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s+|\s+$/g, '');
+}
+
+function startsWithVerseMarker(text) {
+  const t = String(text || '').trim();
+  if (!t) return true;
+  const re = /^(?:(?:v|vv|verse|verses)\.?\s*\d+(?:\s*[-–to]+\s*\d+)?|\d{1,3}[:.]\d+(?:\s*[-–to]+\s*\d+)?)\b/i;
+  return re.test(t);
+}
+
+function renderRefNotes(cleaned) {
+  const paras = String(cleaned || '').split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+  if (!paras.length) return '<p class="gn-ref-empty">Empty</p>';
+  return paras.map(p => {
+    const flag = !startsWithVerseMarker(p);
+    const warn = flag
+      ? '<span class="gn-warn" title="Missing verse marker at start of this note" aria-label="Missing verse marker">⚠</span> '
+      : '';
+    return '<div class="gn-ref-note">' + warn + escapeHtml(p).replace(/\n/g, '<br>') + '</div>';
+  }).join('');
+}
+
+async function loadCurrentChapterSummary() {
+  const book = openChapterBook();
+  if (!book || currentChapter == null) return null;
+  const title = book.name + ' ' + currentChapter;
+  let list = [];
+  try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
+  const found = (list || []).find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === title.toLowerCase());
+  const answers = found && Array.isArray(found.answers) ? found.answers.slice(0, 4) : ['', '', '', ''];
+  while (answers.length < 4) answers.push('');
+  return {
+    title,
+    answers,
+    id: found ? found.id : null,
+    createdAt: found ? found.createdAt : null,
+    legacyText: found ? (found.legacyText || '') : '',
+    chapterImages: found ? (found.chapterImages || []) : []
+  };
+}
+
 function openGeneralNoteEditor(existing) {
   const isNew = !existing || !existing.id;
   const overlay = showOverlay(`
-    <div class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+    <div class="panel gn-split-panel">
+      <div class="gn-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
         <h2 style="margin:0;border:none;padding:0">${isNew ? 'New general note' : 'Edit general note'}</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
-      <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
-      <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
-      <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
-      ${noteImagesMarkup()}
-      <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
-      <button type="button" id="gn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
-      <button type="button" id="gn-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy</button>
-      ${isNew ? '' : '<button type="button" id="gn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
-      <button type="button" id="gn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
+      <div class="gn-body">
+        <div class="gn-ref" id="gn-ref">
+          <button type="button" id="gn-toggle-ref" class="gn-toggle-ref">Show verse notes</button>
+          <div id="gn-ref-content" class="gn-ref-content">
+            <p class="gn-ref-loading">Loading chapter notes…</p>
+          </div>
+        </div>
+        <div class="gn-editor">
+          <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
+          <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
+          <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
+          <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+          ${noteImagesMarkup()}
+          <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
+          <button type="button" id="gn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
+          <button type="button" id="gn-copy" style="width:100%;margin-top:0.45rem;min-height:52px">Copy</button>
+          ${isNew ? '' : '<button type="button" id="gn-delete" style="width:100%;margin-top:0.45rem;min-height:48px;color:var(--danger)">Delete note</button>'}
+          <button type="button" id="gn-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
+        </div>
+      </div>
     </div>
   `);
   const gnImgs = mountNoteImages(overlay, existing && existing.imageIds);
@@ -7988,6 +8052,107 @@ function openGeneralNoteEditor(existing) {
     row.appendChild(resBtn);
   })();
 
+  let refData = null;
+  const refContent = overlay.querySelector('#gn-ref-content');
+  const toggleBtn = overlay.querySelector('#gn-toggle-ref');
+  const refPane = overlay.querySelector('#gn-ref');
+
+  if (toggleBtn && refPane) {
+    toggleBtn.onclick = () => {
+      const open = refPane.classList.toggle('gn-ref-open');
+      toggleBtn.textContent = open ? 'Hide verse notes' : 'Show verse notes';
+    };
+  }
+
+  function paintRef() {
+    if (!refContent) return;
+    if (!refData) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter open.</p>';
+      return;
+    }
+    if (!refData.id && refData.answers.every(a => !String(a || '').trim())) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter summary yet for this chapter.</p>';
+      return;
+    }
+    const parts = GN_REF_ORDER.map((srcIdx, displayIdx) => {
+      const title = GN_REF_TITLES[displayIdx];
+      const raw = refData.answers[srcIdx] || '';
+      const cleaned = cleanNoteSpacing(raw);
+      const body = renderRefNotes(cleaned);
+      return `
+        <section class="gn-ref-section" data-src="${srcIdx}">
+          <div class="gn-ref-head">
+            <h3>${escapeHtml(title)}</h3>
+            <button type="button" class="gn-ref-edit" data-src="${srcIdx}">Edit</button>
+          </div>
+          <div class="gn-ref-body" data-src="${srcIdx}">${body}</div>
+        </section>`;
+    });
+    refContent.innerHTML = parts.join('');
+    refContent.querySelectorAll('.gn-ref-edit').forEach(btn => {
+      btn.onclick = () => startEditSection(Number(btn.dataset.src));
+    });
+  }
+
+  function startEditSection(srcIdx) {
+    if (!refData || !refContent) return;
+    const body = refContent.querySelector(`.gn-ref-body[data-src="${srcIdx}"]`);
+    if (!body) return;
+    const current = refData.answers[srcIdx] || '';
+    body.innerHTML = `
+      <textarea class="gn-ref-editbox" data-src="${srcIdx}" rows="8">${escapeHtml(current)}</textarea>
+      <div style="display:flex;gap:0.4rem;margin-top:0.4rem">
+        <button type="button" class="gn-ref-save" data-src="${srcIdx}" style="flex:1;min-height:44px;background:var(--accent);color:#111;font-weight:600">Save to chapter summary</button>
+        <button type="button" class="gn-ref-cancel-edit" data-src="${srcIdx}" style="flex:1;min-height:44px">Cancel</button>
+      </div>`;
+    const box = body.querySelector('textarea');
+    if (box) box.focus();
+    body.querySelector('.gn-ref-save').onclick = () => saveSection(srcIdx, box.value);
+    body.querySelector('.gn-ref-cancel-edit').onclick = paintRef;
+  }
+
+  async function saveSection(srcIdx, newText) {
+    if (!refData) return;
+    const answers = refData.answers.slice();
+    answers[srcIdx] = newText;
+    const title = refData.title;
+    const ref = summaryRefFromTitle(title, 'chapter');
+    const lines = summaryQuestionLines('chapter', ref);
+    const joined = joinSummaryText(lines, answers);
+    const text = String(refData.legacyText || '').trim()
+      ? (String(refData.legacyText).replace(/\s+$/g, '') + '\n\n' + joined)
+      : joined;
+    try {
+      const saved = await storage.saveSummaryNote({
+        id: refData.id,
+        kind: 'chapter',
+        title,
+        ref,
+        answers,
+        legacyText: refData.legacyText || '',
+        text,
+        createdAt: refData.createdAt,
+        chapterImages: refData.chapterImages || []
+      });
+      refData.answers = answers;
+      if (saved && saved.id) refData.id = saved.id;
+      if (saved && saved.createdAt) refData.createdAt = saved.createdAt;
+      paintRef();
+      showAppStatus('Section saved to chapter summary.', 'ok');
+    } catch (_) {
+      alert('Could not save that section.');
+    }
+  }
+
+  (async function initRef() {
+    try {
+      refData = await loadCurrentChapterSummary();
+    } catch (_) {
+      refData = null;
+    }
+    paintRef();
+  })();
+
   async function liveGeneralPage() {
     return pageGeneralNote({
       title: ($('#gn-title', overlay).value || '').trim() || 'Untitled note',
@@ -8030,7 +8195,6 @@ function openGeneralNoteEditor(existing) {
   }
   const gnBox = $('#gn-text', overlay);
   if (gnBox) {
-    // Same calm focus behavior as chapter-study boxes: one bring-into-view, internal scroll handles the rest.
     attachChapterStudyKeyboardFix(gnBox);
   }
   setTimeout(() => {
