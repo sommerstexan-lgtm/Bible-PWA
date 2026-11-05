@@ -2737,6 +2737,7 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
 .cs-verse-text { margin: 0.35rem 0; line-height: 1.45; }
 .cs-row-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .cs-color { min-height: 40px; font-weight: 600; }
+.cs-copy-note { min-height: 40px; font-weight: 600; }
 .cs-color-panel {
   margin: 0.8rem 0 1rem;
   padding: 0.75rem;

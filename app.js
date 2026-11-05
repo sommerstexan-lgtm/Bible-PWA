@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.21
+/* app.js – Main application controller. KJV Study PWA v6.99.22
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.21';
+const APP_VERSION = '6.99.22';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -8903,6 +8903,7 @@ async function paintChapterStudyBody(overlay) {
         '<div class="cs-row-head">' +
           '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
           '<button type="button" class="cs-color" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">Color</button>' +
+          '<button type="button" class="cs-copy-note" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">Copy</button>' +
         '</div>' +
         '<p class="cs-verse-text">' + chapterStudyColoredHtml(v.text || '', key) + '</p>' +
         shared +
@@ -8911,6 +8912,20 @@ async function paintChapterStudyBody(overlay) {
     }).join('') + '<button type="button" id="cs-copy-notes" style="width:100%;margin-top:0.6rem;min-height:48px">Copy these verse notes</button>';
     body.querySelectorAll('.cs-pick').forEach((btn) => {
       btn.onclick = () => setChapterStudyVerse(overlay, Number(btn.dataset.verse));
+    });
+    body.querySelectorAll('.cs-copy-note').forEach((btn) => {
+      btn.onclick = async () => {
+        const key = btn.dataset.key;
+        if (!key) return;
+        const box = body.querySelector('textarea.cs-note[data-key="' + key + '"]');
+        const text = (box ? box.value : ((chapterStudy.noteMap && chapterStudy.noteMap[key] && chapterStudy.noteMap[key].text) || '')).trim();
+        if (!text) {
+          showAppStatus('No note on this verse.', 'fail');
+          return;
+        }
+        const ok = await copyText(text);
+        showAppStatus(ok ? 'Copied note.' : 'Could not copy.', ok ? 'ok' : 'fail');
+      };
     });
     body.querySelectorAll('textarea.cs-note').forEach((box) => {
       box.addEventListener('focus', () => {
@@ -9475,6 +9490,8 @@ async function openChapterStudy(startKey) {
           '<select id="cs-verse-select" class="cs-verse-select" aria-label="Select verse"></select>' +
           '<button type="button" id="cs-last" title="Jump to last verse">Last</button>' +
           '<button type="button" id="cs-next">Next verse</button>' +
+          '<button type="button" id="cs-prev-note" title="Previous verse with a note">▲</button>' +
+          '<button type="button" id="cs-next-note" title="Next verse with a note">▼</button>' +
         '</div>' +
       '</div>' +
       '<div class="cs-scroll">' +
@@ -9500,6 +9517,10 @@ async function openChapterStudy(startKey) {
   });
   $('#cs-prev', overlay).onclick = () => stepChapterStudyVerse(overlay, -1);
   $('#cs-next', overlay).onclick = () => stepChapterStudyVerse(overlay, 1);
+  const prevNoteBtn = $('#cs-prev-note', overlay);
+  if (prevNoteBtn) prevNoteBtn.onclick = () => stepChapterStudyNote(overlay, -1);
+  const nextNoteBtn = $('#cs-next-note', overlay);
+  if (nextNoteBtn) nextNoteBtn.onclick = () => stepChapterStudyNote(overlay, 1);
   const verseSelect = $('#cs-verse-select', overlay);
   const versesForSelect = chapterStudyVerses();
   if (verseSelect && versesForSelect.length) {
@@ -9540,6 +9561,38 @@ function stepChapterStudyVerse(overlay, dir) {
     return;
   }
   setChapterStudyVerse(overlay, nums[next]);
+}
+
+async function stepChapterStudyNote(overlay, dir) {
+  const verses = chapterStudyVerses();
+  if (!verses.length || !chapterStudy) return;
+  if (!chapterStudy.noteMap) {
+    try { chapterStudy.noteMap = await loadChapterStudyNoteMap(); } catch (_) { chapterStudy.noteMap = {}; }
+  }
+  // Prefer live textarea values when present (unsaved edits).
+  const live = {};
+  if (overlay) {
+    overlay.querySelectorAll('textarea.cs-note').forEach((box) => {
+      if (box.dataset.key) live[box.dataset.key] = box.value || '';
+    });
+  }
+  const nums = verses.map((v) => Number(v.number));
+  let idx = nums.indexOf(Number(chapterStudy.verse));
+  if (idx < 0) idx = 0;
+  let found = -1;
+  for (let i = idx + dir; i >= 0 && i < nums.length; i += dir) {
+    const key = chapterStudyKey(nums[i]);
+    const text = (live[key] != null ? live[key] : ((chapterStudy.noteMap && chapterStudy.noteMap[key] && chapterStudy.noteMap[key].text) || '')).trim();
+    if (text) {
+      found = i;
+      break;
+    }
+  }
+  if (found < 0) {
+    showAppStatus(dir < 0 ? 'No earlier note in this chapter.' : 'No later note in this chapter.', 'ok');
+    return;
+  }
+  setChapterStudyVerse(overlay, nums[found]);
 }
 
 function openMenu() {
