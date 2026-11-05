@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.23
+/* app.js – Main application controller. KJV Study PWA v6.99.25
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.23';
+const APP_VERSION = '6.99.25';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6823,13 +6823,80 @@ function attachChapterStudyKeyboardFix(box) {
   });
 }
 
+
+// ---------- Note dash guard (v6.99.25) ----------
+// Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
+// (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
+function isNoteDashGuardField(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return false;
+  return el.id === 'note-text' || el.id === 'chain-note' || el.id === 'sn-legacy' || el.id === 'gn-text' ||
+    (el.classList && (el.classList.contains('sn-answer') || el.classList.contains('cs-note')));
+}
+
+function guardNoteVNumberDash(el) {
+  if (!el || el._vGuardBusy) return;
+  const cur = String(el.value || '');
+  const prev = el._vGuardPrev;
+  el._vGuardPrev = cur;
+  if (prev == null || prev === cur) return;
+
+  if (!el._vGuardOnce) el._vGuardOnce = new Set();
+  // Drop once-marks whose undashed form is gone from both prev and cur
+  // so a later fresh typing of the same token gets one reverse again.
+  for (const c of [...el._vGuardOnce]) {
+    if (prev.indexOf(c) === -1 && cur.indexOf(c) === -1) el._vGuardOnce.delete(c);
+  }
+
+  // Reverse only when the sole difference is a dash inserted inside a
+  // bare "v" + digits token, and that token has not already been reversed once.
+  // Intentional "v1-5" typing never matches (prev was "v1-", not "v15").
+  // After one reverse, re-inserting the dash on that same token is left alone.
+  const re = /v(\d)-(\d+)/gi;
+  const matches = [];
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(cur)) !== null) {
+    const full = m[0];
+    if (seen.has(full)) continue;
+    seen.add(full);
+    matches.push({ full: full, concat: full.charAt(0) + m[1] + m[2] });
+  }
+  if (!matches.length) return;
+
+  let fixed = cur;
+  const toMark = [];
+  for (const item of matches) {
+    if (el._vGuardOnce.has(item.concat)) continue;
+    if (prev.indexOf(item.concat) === -1) continue;
+    fixed = fixed.split(item.full).join(item.concat);
+    toMark.push(item.concat);
+  }
+  if (!toMark.length || fixed !== prev) return;
+
+  el._vGuardBusy = true;
+  const pos = typeof el.selectionStart === 'number' ? el.selectionStart : fixed.length;
+  el.value = fixed;
+  const dashesBefore = (cur.slice(0, pos).match(/v\d-\d+/gi) || []).length;
+  const nextPos = Math.max(0, Math.min(fixed.length, pos - dashesBefore));
+  try { el.setSelectionRange(nextPos, nextPos); } catch (_) {}
+  el._vGuardPrev = fixed;
+  for (const c of toMark) el._vGuardOnce.add(c);
+  el._vGuardBusy = false;
+}
+
 function installTypingScrollGuard() {
   if (installTypingScrollGuard.done) return;
   installTypingScrollGuard.done = true;
+  document.addEventListener('focusin', (ev) => {
+    const el = ev.target;
+    if (!isNoteDashGuardField(el)) return;
+    el._vGuardPrev = String(el.value || '');
+  }, true);
   document.addEventListener('input', (ev) => {
     const el = ev.target;
     if (!el || el.tagName !== 'TEXTAREA') return;
     if (!el.closest('#overlay-root, .overlay, body')) return;
+    if (isNoteDashGuardField(el)) guardNoteVNumberDash(el);
     const grow = el.classList.contains('sn-answer') || el.id === 'sn-legacy' || el.id === 'note-text' || el.id === 'chain-note';
     if (!grow) return;
     growSummaryBox(el);
