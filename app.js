@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.22
+/* app.js – Main application controller. KJV Study PWA v6.99.23
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.22';
+const APP_VERSION = '6.99.23';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -9169,6 +9169,11 @@ async function paintChapterStudyBody(overlay) {
   overlay.querySelectorAll('.cs-tab').forEach((tab) => {
     tab.classList.toggle('cs-tab-on', tab.dataset.view === view);
   });
+  const viewLabel = overlay.querySelector('#cs-view-label');
+  if (viewLabel) {
+    const labels = { verses: 'Verses', notes: 'Verse notes', summary: 'Chapter summary', images: 'Images' };
+    viewLabel.textContent = labels[view] || view;
+  }
 }
 
 function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
@@ -9484,13 +9489,14 @@ async function openChapterStudy(startKey) {
           '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
           '<button type="button" class="cs-tab" data-view="images">Images</button>' +
         '</div>' +
+        '<div id="cs-view-label" class="cs-view-label">Verses</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
           '<button type="button" id="cs-first" title="Jump to first verse">First</button>' +
           '<select id="cs-verse-select" class="cs-verse-select" aria-label="Select verse"></select>' +
           '<button type="button" id="cs-last" title="Jump to last verse">Last</button>' +
-          '<button type="button" id="cs-next">Next verse</button>' +
           '<button type="button" id="cs-prev-note" title="Previous verse with a note">▲</button>' +
+          '<button type="button" id="cs-next">Next verse</button>' +
           '<button type="button" id="cs-next-note" title="Next verse with a note">▼</button>' +
         '</div>' +
       '</div>' +
