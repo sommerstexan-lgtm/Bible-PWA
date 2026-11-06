@@ -183,19 +183,28 @@ export async function getNoteRecord(key) {
   });
 }
 
-export async function setNote(key, text, imageIds) {
+export async function setNote(key, text, imageIds, range) {
   await openDB();
   const ids = Array.isArray(imageIds) ? imageIds.filter(Boolean) : null;
+  const hasRangeArg = arguments.length >= 4;
+  const rangeStr = hasRangeArg ? String(range || '').trim() : null;
   return new Promise((res, rej) => {
-    const emptyText = !text || !String(text).trim();
-    const emptyImgs = !ids || !ids.length;
     const transaction = db.transaction('notes', 'readwrite');
     transaction.oncomplete = () => res();
     transaction.onerror = () => rej(transaction.error);
     transaction.onabort = () => rej(transaction.error || new Error('Note save did not finish'));
     const store = transaction.objectStore('notes');
-    if (emptyText && emptyImgs) store.delete(key);
-    else store.put({ key, text: text || '', imageIds: ids || [] });
+    const getReq = store.get(key);
+    getReq.onsuccess = () => {
+      const existing = getReq.result || {};
+      const finalRange = hasRangeArg ? rangeStr : (existing.range || '');
+      const emptyText = !text || !String(text).trim();
+      const emptyImgs = !ids || !ids.length;
+      const emptyRange = !finalRange;
+      if (emptyText && emptyImgs && emptyRange) store.delete(key);
+      else store.put({ key, text: text || '', imageIds: ids || [], range: finalRange });
+    };
+    getReq.onerror = () => rej(getReq.error);
   });
 }
 

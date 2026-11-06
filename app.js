@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.25
+/* app.js – Main application controller. KJV Study PWA v6.99.28
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.25';
+const APP_VERSION = '6.99.28';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1415,6 +1415,7 @@ function renderShell() {
   updateNavBackButton();
   updateTrailChip();
   updateChainReadBar();
+  migrateExistingNoteRanges().catch(() => {});
 }
 
 let chromeHidden = false;
@@ -2312,7 +2313,7 @@ function openSaveChainDialog(existing) {
       <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
       <input id="chain-title" class="search-box" value="${escapeHtml(seedTitle)}" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
-      <textarea id="chain-note" class="note-input" placeholder="What this chain shows you">${escapeHtml(seedNote)}</textarea>
+      <textarea id="chain-note" class="note-input" placeholder="What this chain shows you" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(seedNote)}</textarea>
       ${noteImagesMarkup()}
       <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-top:0.9rem">
         <button type="button" id="chain-save-go">${isUpdate ? 'Save' : 'Save chain'}</button>
@@ -2608,7 +2609,7 @@ async function openChainWorkshop(id) {
       <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
       <input id="chain-title" class="search-box" value="${escapeHtml(chain.title || '')}" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
-      <textarea id="chain-note" class="note-input">${escapeHtml(chain.note || '')}</textarea>
+      <textarea id="chain-note" class="note-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(chain.note || '')}</textarea>
       ${noteImagesMarkup()}
       <p style="margin:0.8rem 0 0.35rem;font-weight:700">Hops</p>
       <div id="ws-hops"></div>
@@ -2697,7 +2698,7 @@ function openStartChainFromVerse(key) {
       <label style="display:block;margin:0.4rem 0 0.25rem">Title</label>
       <input id="chain-title" class="search-box" value="" placeholder="Name this chain">
       <label style="display:block;margin:0.7rem 0 0.25rem">Your explanation</label>
-      <textarea id="chain-note" class="note-input" placeholder="What this chain shows you"></textarea>
+      <textarea id="chain-note" class="note-input" placeholder="What this chain shows you" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       ${noteImagesMarkup()}
       <div style="margin-top:0.9rem"><button type="button" id="chain-start-go">Save chain</button></div>
     </div>
@@ -3284,11 +3285,12 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const xrefMap = {};
   const wordMarkMap = {};
   const chainCountMap = {};
-  const [maps, sharedNotes, savedChains, pack] = await Promise.all([
+  const [maps, sharedNotes, savedChains, pack, allNotes] = await Promise.all([
     storage.getChapterVerseMaps(keys),
     storage.getAllSharedNotes().catch(() => []),
     storage.getAllChains().catch(() => []),
-    storage.getTskPack().catch(() => null)
+    storage.getTskPack().catch(() => null),
+    storage.getAllNotes().catch(() => [])
   ]);
   Object.assign(highlightMap, maps.highlightMap || {});
   Object.assign(noteMap, maps.noteMap || {});
@@ -3319,6 +3321,24 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   }
   const enableTap = true;
 
+  const bracketByVerse = new Map();
+  const addBracket = (rangeStr) => {
+    const span = parseNoteRange(rangeStr, chapterNum);
+    if (!span) return;
+    for (let v = span.start; v <= span.end; v++) {
+      if (!bracketByVerse.has(v)) bracketByVerse.set(v, { start: span.start, end: span.end });
+    }
+  };
+  for (const n of (allNotes || [])) {
+    if (n && n.range) {
+      const p = bible.parseKey(n.key);
+      if (p.bookId === bookId && p.chapter === chapterNum) addBracket(n.range);
+    }
+  }
+  for (const n of (sharedNotes || [])) {
+    if (n && n.range) addBracket(n.range);
+  }
+
   for (const v of ch.verses) {
     const key = bible.verseKey(bookId, chapterNum, v.number);
     const raw = highlightMap[key];
@@ -3336,6 +3356,13 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
 
     if (colors.length) {
       verseEl.classList.add('has-' + colors[0]);
+    }
+    const br = bracketByVerse.get(v.number);
+    if (br) {
+      verseEl.classList.add('note-bracket');
+      if (v.number === br.start) verseEl.classList.add('note-bracket-start');
+      if (v.number === br.end) verseEl.classList.add('note-bracket-end');
+      verseEl.title = 'Note range ' + formatNoteRange(chapterNum, br);
     }
 
     const chips = colors.map(c => {
@@ -5108,6 +5135,147 @@ function mountNoteImages(root, imageIds) {
   return { getIds: () => ids.slice() };
 }
 
+
+function extractLeadingRange(text, chapter) {
+  const head = String(text || '').trim().slice(0, 160);
+  if (!head) return null;
+
+  // Book or chapter:verse at the start (optional book name)
+  let m = head.match(/^(?:[1-3]?\s*[A-Za-z][A-Za-z\s]*\s+)?(\d+)\s*:\s*(\d+)(?:\s*-\s*(\d+))?/);
+  if (m) {
+    const ch = +m[1];
+    const a = +m[2];
+    const b = m[3] ? +m[3] : a;
+    if (ch === chapter && a >= 1 && b >= a && b - a < 80) return { start: a, end: b };
+  }
+
+  // v1-2 / v.1 / verses 1-3 / vv.1-2
+  m = head.match(/^(?:v(?:v|erses?)?\.?\s*)(\d+)(?:\s*-\s*(\d+))?/i);
+  if (m) {
+    const a = +m[1];
+    const b = m[2] ? +m[2] : a;
+    if (a >= 1 && b >= a && b - a < 80) return { start: a, end: b };
+  }
+
+  // bare 1-2 or 1 at the very start
+  m = head.match(/^(\d+)(?:\s*-\s*(\d+))?(?:\s|$|[,.:;])/);
+  if (m) {
+    const a = +m[1];
+    const b = m[2] ? +m[2] : a;
+    if (a >= 1 && b >= a && b - a < 50) return { start: a, end: b };
+  }
+  return null;
+}
+
+async function migrateExistingNoteRanges() {
+  const FLAG = 'kjv-note-range-migrated-v1';
+  try {
+    if (localStorage.getItem(FLAG) === 'yes') return;
+  } catch (_) { return; }
+
+  let filled = 0;
+  let blank = 0;
+  let skipped = 0;
+
+  const notes = await storage.getAllNotes().catch(() => []);
+  for (const n of (notes || [])) {
+    if (!n || !n.key) continue;
+    if (n.range) continue;
+    const p = bible.parseKey(n.key);
+    if (!p || !p.chapter) { blank++; continue; }
+    const span = extractLeadingRange(n.text || '', p.chapter);
+    if (!span) { blank++; continue; }
+    const conflict = await findRangeConflict(p.bookId, p.chapter, span, { privateKey: n.key });
+    if (conflict) { skipped++; continue; }
+    const rangeNorm = formatNoteRange(p.chapter, span);
+    await storage.setNote(n.key, n.text || '', n.imageIds || [], rangeNorm);
+    filled++;
+  }
+
+  const shared = await storage.getAllSharedNotes().catch(() => []);
+  for (const n of (shared || [])) {
+    if (!n || n.range) continue;
+    const firstKey = (n.verseKeys || n.keys || [])[0];
+    if (!firstKey) { blank++; continue; }
+    const p = bible.parseKey(firstKey);
+    if (!p || !p.chapter) { blank++; continue; }
+    const span = extractLeadingRange(n.text || n.body || n.note || '', p.chapter);
+    if (!span) { blank++; continue; }
+    const conflict = await findRangeConflict(p.bookId, p.chapter, span, { sharedId: n.id });
+    if (conflict) { skipped++; continue; }
+    n.range = formatNoteRange(p.chapter, span);
+    await storage.saveSharedNote(n);
+    filled++;
+  }
+
+  try { localStorage.setItem(FLAG, 'yes'); } catch (_) {}
+  if (filled || blank || skipped) {
+    const parts = [];
+    parts.push('Ranges filled from ' + filled + ' note' + (filled === 1 ? '' : 's'));
+    parts.push(blank + ' left blank');
+    if (skipped) parts.push(skipped + ' skipped (overlap)');
+    showAppStatus(parts.join('; ') + '.', 'ok');
+  }
+  if (filled && currentBookId && currentChapter) {
+    try { await renderChapter(currentBookId, currentChapter, { preserveScroll: true }); } catch (_) {}
+  }
+}
+
+function parseNoteRange(raw, chapter) {
+  const t = String(raw || '').trim().replace(/[–—]/g, '-');
+  if (!t) return null;
+  let m = t.match(/^(?:(\d+)\s*:\s*)?(\d+)\s*-\s*(\d+)$/);
+  if (m) {
+    const ch = m[1] ? +m[1] : chapter;
+    if (ch !== chapter) return null;
+    const a = +m[2], b = +m[3];
+    if (a < 1 || b < a) return null;
+    return { start: a, end: b };
+  }
+  m = t.match(/^(?:(\d+)\s*:\s*)?(\d+)$/);
+  if (m) {
+    const ch = m[1] ? +m[1] : chapter;
+    if (ch !== chapter) return null;
+    const v = +m[2];
+    if (v < 1) return null;
+    return { start: v, end: v };
+  }
+  return null;
+}
+
+function formatNoteRange(chapter, span) {
+  if (!span) return '';
+  if (span.start === span.end) return chapter + ':' + span.start;
+  return chapter + ':' + span.start + '-' + span.end;
+}
+
+async function findRangeConflict(bookId, chapter, span, exclude) {
+  const notes = await storage.getAllNotes().catch(() => []);
+  const shared = await storage.getAllSharedNotes().catch(() => []);
+  const check = (rangeStr, label, isSelf) => {
+    if (isSelf || !rangeStr) return null;
+    const other = parseNoteRange(rangeStr, chapter);
+    if (!other) return null;
+    if (span.start <= other.end && other.start <= span.end) return { label };
+    return null;
+  };
+  for (const n of notes) {
+    if (!n || !n.key || !n.range) continue;
+    const p = bible.parseKey(n.key);
+    if (p.bookId !== bookId || p.chapter !== chapter) continue;
+    const isSelf = exclude && exclude.privateKey && n.key === exclude.privateKey;
+    const hit = check(n.range, (n.range), isSelf);
+    if (hit) return hit;
+  }
+  for (const n of shared) {
+    if (!n || !n.range) continue;
+    const isSelf = exclude && exclude.sharedId && n.id === exclude.sharedId;
+    const hit = check(n.range, n.range, isSelf);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 async function openNote(key, place) {
   const { bookId, chapter, verse } = bible.parseKey(key);
   const refLabel = `${bookId.toUpperCase()} ${chapter}:${verse}`;
@@ -5121,6 +5289,7 @@ async function openNote(key, place) {
   let workingImageIds = shared
     ? (Array.isArray(shared.imageIds) ? shared.imageIds.slice() : [])
     : (privateRec && Array.isArray(privateRec.imageIds) ? privateRec.imageIds.slice() : []);
+  const initialRange = shared ? (shared.range || '') : (privateRec && privateRec.range ? privateRec.range : '');
 
   function linkedListHtml(note) {
     if (!note || !note.verseKeys || !note.verseKeys.length) return '<p style="color:var(--text-dim);font-size:0.9em">No other verses linked.</p>';
@@ -5149,7 +5318,9 @@ async function openNote(key, place) {
       </p>
       ${activeMapSession ? '<button type="button" id="note-show-map" style="width:100%;margin:0 0 0.4rem;min-height:44px">Show map</button>' : ''}
       <button type="button" id="note-chapter-summary" class="hop-gold" style="width:100%;margin:0 0 0.7rem;min-height:52px;background:#f4c430;color:#111;font-weight:800">Chapter summary</button>
-      <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…">${escapeHtml(text)}</textarea>
+      <label style="display:block;margin:0 0 0.25rem;font-size:0.9em;color:var(--text-dim)">Range (optional — blank while researching)</label>
+      <input type="text" id="note-range" class="search-box" placeholder="17:1 or 17:1-2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(initialRange)}" style="width:100%;margin-bottom:0.6rem">
+      <textarea class="note-input" id="note-text" placeholder="Your notes stay on this device only…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(text)}</textarea>
       ${noteImagesMarkup()}
 
       <div style="margin-top:0.9rem;padding-top:0.7rem;border-top:1px solid var(--border)">
@@ -5199,16 +5370,34 @@ async function openNote(key, place) {
   async function saveOpenNote() {
     const body = $('#note-text', overlay).value || '';
     const imgs = noteImgs.getIds();
+    const rangeRaw = ($('#note-range', overlay).value || '').trim();
+    let rangeNorm = '';
+    let span = null;
+    if (rangeRaw) {
+      span = parseNoteRange(rangeRaw, chapter);
+      if (!span) {
+        alert('Could not read that range. Use 17:1 or 17:1-2 (or just 1-2).');
+        return false;
+      }
+      const conflict = await findRangeConflict(bookId, chapter, span, { privateKey: shared ? null : key, sharedId: shared ? shared.id : null });
+      if (conflict) {
+        alert('Overlaps note on ' + conflict.label + '. Change the Range, clear it, or adjust the other note first. Your text is still here.');
+        return false;
+      }
+      rangeNorm = formatNoteRange(chapter, span);
+    }
     if (shared) {
       shared.text = body;
       shared.imageIds = imgs;
+      shared.range = rangeNorm;
       if (!shared.verseKeys.includes(key)) shared.verseKeys.push(key);
       await storage.saveSharedNote(shared);
       await storage.setNote(key, '', []);
     } else {
-      await storage.setNote(key, body, imgs);
+      await storage.setNote(key, body, imgs, rangeNorm);
     }
     await paintVerseNoteState(key);
+    return true;
   }
   async function openSummaryFromVerseNote() {
     if (!chapterTitle) {
@@ -5216,8 +5405,10 @@ async function openNote(key, place) {
       return;
     }
     const versePlace = captureVerseNotePlace(overlay, key);
-    try { await saveOpenNote(); }
+    let ok = false;
+    try { ok = await saveOpenNote(); }
     catch (_) { alert('Could not save the note.'); return; }
+    if (!ok) return;
     const same = summaryHop && String(summaryHop.title || '').toLowerCase() === chapterTitle.toLowerCase();
     summaryHop = {
       title: chapterTitle,
@@ -5317,8 +5508,10 @@ async function openNote(key, place) {
   };
 
   $('#save-note', overlay).onclick = async () => {
-    try { await saveOpenNote(); }
+    let ok = false;
+    try { ok = await saveOpenNote(); }
     catch (_) { alert('Could not save the note.'); return; }
+    if (!ok) return;
     closeOverlay(overlay);
     if (currentBookId) await renderChapter(currentBookId, currentChapter, { scrollToKey: key });
   };
@@ -6824,7 +7017,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.25) ----------
+// ---------- Note dash guard (v6.99.28) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
@@ -6833,7 +7026,7 @@ function isNoteDashGuardField(el) {
     (el.classList && (el.classList.contains('sn-answer') || el.classList.contains('cs-note')));
 }
 
-function guardNoteVNumberDash(el) {
+function guardNoteVNumberDash(el, ev) {
   if (!el || el._vGuardBusy) return;
   const cur = String(el.value || '');
   const prev = el._vGuardPrev;
@@ -6841,16 +7034,13 @@ function guardNoteVNumberDash(el) {
   if (prev == null || prev === cur) return;
 
   if (!el._vGuardOnce) el._vGuardOnce = new Set();
-  // Drop once-marks whose undashed form is gone from both prev and cur
-  // so a later fresh typing of the same token gets one reverse again.
   for (const c of [...el._vGuardOnce]) {
     if (prev.indexOf(c) === -1 && cur.indexOf(c) === -1) el._vGuardOnce.delete(c);
   }
 
-  // Reverse only when the sole difference is a dash inserted inside a
-  // bare "v" + digits token, and that token has not already been reversed once.
-  // Intentional "v1-5" typing never matches (prev was "v1-", not "v15").
-  // After one reverse, re-inserting the dash on that same token is left alone.
+  const inputType = ev && ev.inputType ? ev.inputType : '';
+  const isReplacement = /replacement|composition|fromComposition/i.test(inputType);
+
   const re = /v(\d)-(\d+)/gi;
   const matches = [];
   const seen = new Set();
@@ -6867,11 +7057,14 @@ function guardNoteVNumberDash(el) {
   const toMark = [];
   for (const item of matches) {
     if (el._vGuardOnce.has(item.concat)) continue;
-    if (prev.indexOf(item.concat) === -1) continue;
-    fixed = fixed.split(item.full).join(item.concat);
-    toMark.push(item.concat);
+    // Reverse if undashed form was present, or if this looks like a system replacement
+    // that introduced the dash (covers keyboard rewriting "v15" or completing "v1-" -> "v1-6").
+    if (prev.indexOf(item.concat) !== -1 || isReplacement) {
+      fixed = fixed.split(item.full).join(item.concat);
+      toMark.push(item.concat);
+    }
   }
-  if (!toMark.length || fixed !== prev) return;
+  if (!toMark.length || fixed === cur) return;
 
   el._vGuardBusy = true;
   const pos = typeof el.selectionStart === 'number' ? el.selectionStart : fixed.length;
@@ -6896,7 +7089,7 @@ function installTypingScrollGuard() {
     const el = ev.target;
     if (!el || el.tagName !== 'TEXTAREA') return;
     if (!el.closest('#overlay-root, .overlay, body')) return;
-    if (isNoteDashGuardField(el)) guardNoteVNumberDash(el);
+    if (isNoteDashGuardField(el)) guardNoteVNumberDash(el, ev);
     const grow = el.classList.contains('sn-answer') || el.id === 'sn-legacy' || el.id === 'note-text' || el.id === 'chain-note';
     if (!grow) return;
     growSummaryBox(el);
@@ -6916,7 +7109,7 @@ function renderSummaryAnswerBoxes(overlay, kind, ref, answers) {
   const lines = summaryQuestionLines(kind, ref);
   host.innerHTML = lines.map((line, i) => `
     <p class="sn-q-label">${escapeHtml(line)}</p>
-    <textarea class="note-input sn-answer" data-idx="${i}" placeholder="Answer. No length limit.">${escapeHtml(answers[i] || '')}</textarea>
+    <textarea class="note-input sn-answer" data-idx="${i}" placeholder="Answer. No length limit." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(answers[i] || '')}</textarea>
     <button type="button" class="sn-copy-answer" data-idx="${i}" style="width:100%;margin:0.1rem 0 0.5rem;min-height:40px;font-size:0.95rem">Copy this answer</button>
   `).join('');
   host.querySelectorAll('textarea.sn-answer').forEach(el => {
@@ -8040,7 +8233,7 @@ function openGeneralNoteEditor(existing) {
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
           <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
-          <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+          <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
           ${noteImagesMarkup()}
           <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
           <button type="button" id="gn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
@@ -8974,7 +9167,7 @@ async function paintChapterStudyBody(overlay) {
         '</div>' +
         '<p class="cs-verse-text">' + chapterStudyColoredHtml(v.text || '', key) + '</p>' +
         shared +
-        '<textarea class="cs-note" data-key="' + escapeHtml(key) + '" rows="4" placeholder="Verse note">' + escapeHtml(note.text || '') + '</textarea>' +
+        '<textarea class="cs-note" data-key="' + escapeHtml(key) + '" rows="4" placeholder="Verse note" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + escapeHtml(note.text || '') + '</textarea>' +
         '</article>';
     }).join('') + '<button type="button" id="cs-copy-notes" style="width:100%;margin-top:0.6rem;min-height:48px">Copy these verse notes</button>';
     body.querySelectorAll('.cs-pick').forEach((btn) => {

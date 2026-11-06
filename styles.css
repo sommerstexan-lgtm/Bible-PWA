@@ -229,6 +229,28 @@ main#main {
 .verse.has-lblue   { border-left-color: #add8e6; }
 .verse.has-aqua    { border-left-color: #00ced1; }
 .verse.has-pink    { border-left-color: #ff69b4; }
+
+.verse.note-bracket {
+  position: relative;
+}
+.verse.note-bracket::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #fff;
+}
+.verse.note-bracket-start::before {
+  box-shadow: 0 -2px 0 0 #fff, 6px 0 0 -1px #fff;
+}
+.verse.note-bracket-end::before {
+  box-shadow: 0 2px 0 0 #fff, 6px 0 0 -1px #fff;
+}
+.verse.note-bracket-start.note-bracket-end::before {
+  box-shadow: 0 -2px 0 0 #fff, 0 2px 0 0 #fff, 6px 0 0 -1px #fff;
+}
 .verse.has-grey    { border-left-color: #808080; }
 .verse.has-violet  { border-left-color: #8a2be2; }
 
