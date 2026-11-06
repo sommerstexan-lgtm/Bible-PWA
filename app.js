@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.28
+/* app.js – Main application controller. KJV Study PWA v6.99.29
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.28';
+const APP_VERSION = '6.99.29';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3354,16 +3354,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     verseEl.dataset.key = key;
     verseEl.id = `v-${key.replace(/\./g, '-')}`;
 
-    if (colors.length) {
-      verseEl.classList.add('has-' + colors[0]);
-    }
     const br = bracketByVerse.get(v.number);
-    if (br) {
-      verseEl.classList.add('note-bracket');
-      if (v.number === br.start) verseEl.classList.add('note-bracket-start');
-      if (v.number === br.end) verseEl.classList.add('note-bracket-end');
-      verseEl.title = 'Note range ' + formatNoteRange(chapterNum, br);
-    }
 
     const chips = colors.map(c => {
       const meta = analyze.getColorMeta(c);
@@ -3411,7 +3402,39 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         <button type="button" data-act="chapter-summary" data-key="${key}">Chapter study</button>
       </div>
     `;
-    main.appendChild(verseEl);
+    const rangeInfo = bracketByVerse.get(v.number);
+    if (rangeInfo && v.number === rangeInfo.start) {
+      const group = document.createElement('div');
+      group.className = 'note-range-group';
+      group.title = 'Note range ' + formatNoteRange(chapterNum, rangeInfo);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'note-brace-svg');
+      svg.setAttribute('viewBox', '0 0 20 100');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      svg.setAttribute('aria-hidden', 'true');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M16 2 C10 2 10 10 10 18 L10 42 C10 48 4 50 4 50 C4 50 10 52 10 58 L10 82 C10 90 10 98 16 98');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#ffffff');
+      path.setAttribute('stroke-width', '2.2');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
+      svg.appendChild(path);
+      group.appendChild(svg);
+      const inner = document.createElement('div');
+      inner.className = 'note-range-verses';
+      group.appendChild(inner);
+      group._inner = inner;
+      group._end = rangeInfo.end;
+      main.appendChild(group);
+      main._openRange = group;
+    }
+    if (main._openRange && v.number <= main._openRange._end) {
+      main._openRange._inner.appendChild(verseEl);
+      if (v.number === main._openRange._end) main._openRange = null;
+    } else {
+      main.appendChild(verseEl);
+    }
   }
 
   mountSuggestBar(main);
@@ -7017,7 +7040,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.28) ----------
+// ---------- Note dash guard (v6.99.29) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
