@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.29
+/* app.js – Main application controller. KJV Study PWA v6.99.31
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.29';
+const APP_VERSION = '6.99.31';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -2141,9 +2141,10 @@ async function pageChapterNotes() {
     const key = bible.verseKey(book.id, currentChapter, v.number);
     const priv = (notes || []).find((n) => n && n.key === key);
     if (priv && (String(priv.text || '').trim() || (priv.imageIds || []).length)) {
+      const rangeLabel = priv.range ? fullRangeLabel(book.id, currentChapter, priv.range) : (title + ':' + v.number);
       blocks.push({
-        heading: title + ':' + v.number,
-        body: priv.text || '',
+        heading: '',
+        body: noteCopyWithRange(rangeLabel, priv.text || ''),
         images: await printImageUrls(priv.imageIds)
       });
     }
@@ -2155,9 +2156,10 @@ async function pageChapterNotes() {
         const meta = bible.CANONICAL_BOOKS.find((b) => b.id === p.bookId);
         return (meta ? meta.name : p.bookId) + ' ' + p.chapter + ':' + p.verse;
       });
+      const sharedRange = sh.range ? fullRangeLabel(book.id, currentChapter, sh.range) : ('Shared note — ' + refs.join(', '));
       blocks.push({
-        heading: 'Shared note — ' + refs.join(', '),
-        body: sh.text || '',
+        heading: '',
+        body: noteCopyWithRange(sharedRange, sh.text || ''),
         images: await printImageUrls(sh.imageIds)
       });
     }
@@ -6181,7 +6183,7 @@ function notesReadingPlain(blocks) {
   return (blocks || []).map((b) => {
     const heading = String(b && b.heading || 'Note').trim() || 'Note';
     const body = String(b && b.body || '').replace(/\s+$/g, '');
-    return body ? (heading + '\n' + body) : heading;
+    return body ? (heading + ' ' + body) : heading;
   }).join('\n\n').trim() + '\n';
 }
 
@@ -6428,6 +6430,7 @@ async function openNotesList(resume) {
       openKey: keys[0] || '',
       keys,
       labels: keys.map(formatNoteRefLabel),
+      range: String(n.range || ''),
       text
     });
   });
@@ -6440,6 +6443,7 @@ async function openNotesList(resume) {
       openKey: n.key,
       keys: [n.key],
       labels: [formatNoteRefLabel(n.key)],
+      range: String(n.range || ''),
       text
     });
   });
@@ -6599,10 +6603,16 @@ async function openNotesList(resume) {
   }
 
   function notesPlain(shown) {
-    return notesReadingPlain(shown.map((it) => ({
-      heading: (it.labels && it.labels.length) ? it.labels.join(', ') : 'Note',
-      body: String(it.text || '').replace(/\s+$/g, '')
-    })));
+    return notesReadingPlain(shown.map((it) => {
+      const p = bible.parseKey(it.openKey || (it.keys && it.keys[0]) || '');
+      const rangeLabel = it.range && p
+        ? fullRangeLabel(p.bookId, p.chapter, it.range)
+        : ((it.labels && it.labels.length) ? it.labels.join(', ') : 'Note');
+      return {
+        heading: rangeLabel,
+        body: String(it.text || '').replace(/\s+$/g, '')
+      };
+    }));
   }
 
   function chapterFromKey(key) {
@@ -7040,7 +7050,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.29) ----------
+// ---------- Note dash guard (v6.99.31) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
@@ -8672,6 +8682,25 @@ function chapterStudyTitle() {
   return (book ? book.name : '') + ' ' + (chapterStudy ? chapterStudy.chapter : '');
 }
 
+
+function noteCopyWithRange(rangeLabel, body) {
+  const range = String(rangeLabel || '').trim();
+  const text = String(body || '').replace(/\s+$/g, '');
+  if (!text) return '';
+  if (!range) return text;
+  return range + ' ' + text;
+}
+
+function fullRangeLabel(bookId, chapter, rangeStr) {
+  const r = String(rangeStr || '').trim();
+  if (!r) return '';
+  const meta = bible.CANONICAL_BOOKS.find((b) => b.id === bookId);
+  const name = meta ? meta.name : (bookId || '');
+  if (/^\d+:/.test(r)) return (name ? name + ' ' : '') + r;
+  if (chapter && /^\d+/.test(r)) return (name ? name + ' ' : '') + chapter + ':' + r;
+  return r;
+}
+
 async function loadChapterStudyNoteMap() {
   const verses = chapterStudyVerses();
   let privateNotes = [];
@@ -8687,6 +8716,7 @@ async function loadChapterStudyNoteMap() {
       map[key] = {
         mode: 'shared',
         text: String(shared.text || ''),
+        range: String(shared.range || ''),
         imageIds: Array.isArray(shared.imageIds) ? shared.imageIds.slice() : [],
         sharedId: shared.id,
         linkCount: (shared.verseKeys || []).length
@@ -8695,6 +8725,7 @@ async function loadChapterStudyNoteMap() {
       map[key] = {
         mode: 'private',
         text: priv ? String(priv.text || '') : '',
+        range: priv ? String(priv.range || '') : '',
         imageIds: priv && Array.isArray(priv.imageIds) ? priv.imageIds.slice() : [],
         sharedId: '',
         linkCount: 0
@@ -9206,7 +9237,11 @@ async function paintChapterStudyBody(overlay) {
           showAppStatus('No note on this verse.', 'fail');
           return;
         }
-        const ok = await copyText(text);
+        const note = chapterStudy.noteMap && chapterStudy.noteMap[key];
+        const rangeLabel = note && note.range
+          ? fullRangeLabel(chapterStudy.bookId, chapterStudy.chapter, note.range)
+          : '';
+        const ok = await copyText(noteCopyWithRange(rangeLabel, text));
         showAppStatus(ok ? 'Copied note.' : 'Could not copy.', ok ? 'ok' : 'fail');
       };
     });
@@ -9498,8 +9533,10 @@ async function copyChapterStudyNotes(overlay) {
     const note = chapterStudy.noteMap && chapterStudy.noteMap[key];
     const text = note ? String(note.text || '').trim() : '';
     if (!text) return;
-    lines.push(chapterStudyLabel(v.number));
-    lines.push(text);
+    const rangeLabel = note && note.range
+      ? fullRangeLabel(chapterStudy.bookId, chapterStudy.chapter, note.range)
+      : chapterStudyLabel(v.number);
+    lines.push(noteCopyWithRange(rangeLabel, text));
     lines.push('');
   });
   if (!lines.length) {
