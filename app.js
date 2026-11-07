@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.31
+/* app.js – Main application controller. KJV Study PWA v6.99.32
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.31';
+const APP_VERSION = '6.99.32';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7050,7 +7050,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.31) ----------
+// ---------- Note dash guard (v6.99.32) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
@@ -8257,7 +8257,12 @@ function openGeneralNoteEditor(existing) {
       </div>
       <div class="gn-body">
         <div class="gn-ref" id="gn-ref">
-          <button type="button" id="gn-toggle-ref" class="gn-toggle-ref">Show verse notes</button>
+          <button type="button" id="gn-toggle-ref" class="gn-toggle-ref">Show reference</button>
+          <div class="gn-ref-tabs" id="gn-ref-tabs">
+            <button type="button" class="gn-ref-tab gn-tab-on" data-view="summary">Chapter summary</button>
+            <button type="button" class="gn-ref-tab" data-view="verses">Verses</button>
+            <button type="button" class="gn-ref-tab" data-view="notes">Verse notes</button>
+          </div>
           <div id="gn-ref-content" class="gn-ref-content">
             <p class="gn-ref-loading">Loading chapter notes…</p>
           </div>
@@ -8346,15 +8351,97 @@ function openGeneralNoteEditor(existing) {
   })();
 
   let refData = null;
+  let leftView = 'summary';
   const refContent = overlay.querySelector('#gn-ref-content');
   const toggleBtn = overlay.querySelector('#gn-toggle-ref');
   const refPane = overlay.querySelector('#gn-ref');
+  const tabBtns = overlay.querySelectorAll('.gn-ref-tab');
+
+  function setLeftView(view) {
+    leftView = view || 'summary';
+    tabBtns.forEach(btn => {
+      btn.classList.toggle('gn-tab-on', btn.dataset.view === leftView);
+    });
+    if (leftView === 'summary') paintRef();
+    else if (leftView === 'verses') paintVerses();
+    else if (leftView === 'notes') paintVerseNotes();
+  }
 
   if (toggleBtn && refPane) {
     toggleBtn.onclick = () => {
       const open = refPane.classList.toggle('gn-ref-open');
-      toggleBtn.textContent = open ? 'Hide verse notes' : 'Show verse notes';
+      toggleBtn.textContent = open ? 'Hide reference' : 'Show reference';
     };
+  }
+
+  tabBtns.forEach(btn => {
+    btn.onclick = () => setLeftView(btn.dataset.view);
+  });
+
+  async function paintVerses() {
+    if (!refContent) return;
+    const book = openChapterBook();
+    if (!book || currentChapter == null) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter open.</p>';
+      return;
+    }
+    const ch = (book.chapters || []).find(c => Number(c.number) === Number(currentChapter));
+    const verses = ch && ch.verses ? ch.verses : [];
+    if (!verses.length) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No verses in this chapter.</p>';
+      return;
+    }
+    const html = verses.map(v =>
+      '<div class="gn-verse-item"><span class="gn-verse-num">' + escapeHtml(String(v.number)) + '</span>' +
+      escapeHtml(v.text || '') + '</div>'
+    ).join('');
+    refContent.innerHTML = html;
+  }
+
+  async function paintVerseNotes() {
+    if (!refContent) return;
+    const book = openChapterBook();
+    if (!book || currentChapter == null) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter open.</p>';
+      return;
+    }
+    let notes = [];
+    let shared = [];
+    try {
+      notes = await storage.getAllNotes() || [];
+      shared = await storage.getAllSharedNotes() || [];
+    } catch (_) {}
+    const ch = (book.chapters || []).find(c => Number(c.number) === Number(currentChapter));
+    const verses = ch && ch.verses ? ch.verses : [];
+    const items = [];
+    const usedShared = new Set();
+    for (const v of verses) {
+      const key = bible.verseKey(book.id, currentChapter, v.number);
+      const priv = notes.find(n => n && n.key === key);
+      if (priv && String(priv.text || '').trim()) {
+        const ref = book.name + ' ' + currentChapter + ':' + v.number;
+        items.push({ ref, text: priv.text });
+      }
+      const sh = shared.find(n => n && Array.isArray(n.verseKeys) && n.verseKeys.includes(key));
+      if (sh && sh.id && !usedShared.has(sh.id) && String(sh.text || '').trim()) {
+        usedShared.add(sh.id);
+        const refs = (sh.verseKeys || []).map(k => {
+          const p = bible.parseKey(k);
+          const meta = bible.CANONICAL_BOOKS.find(b => b.id === p.bookId);
+          return (meta ? meta.name : p.bookId) + ' ' + p.chapter + ':' + p.verse;
+        }).join(', ');
+        items.push({ ref: 'Shared — ' + refs, text: sh.text });
+      }
+    }
+    if (!items.length) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No verse notes for this chapter.</p>';
+      return;
+    }
+    const html = items.map(it =>
+      '<div class="gn-note-item"><div class="gn-note-ref">' + escapeHtml(it.ref) + '</div>' +
+      '<div class="gn-note-text">' + escapeHtml(it.text).replace(/\n/g, '<br>') + '</div></div>'
+    ).join('');
+    refContent.innerHTML = html;
   }
 
   function paintRef() {
@@ -8443,7 +8530,7 @@ function openGeneralNoteEditor(existing) {
     } catch (_) {
       refData = null;
     }
-    paintRef();
+    setLeftView('summary');
   })();
 
   async function liveGeneralPage() {

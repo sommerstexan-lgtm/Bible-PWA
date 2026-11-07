@@ -3049,6 +3049,49 @@ textarea.cs-answer {
   max-width: 1180px;
   width: min(96vw, 1180px);
 }
+.gn-ref-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.gn-ref-tab {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+  border: 1px solid transparent;
+}
+.gn-ref-tab.gn-tab-on {
+  background: var(--accent);
+  color: #111;
+  font-weight: 700;
+  border-color: var(--accent);
+}
+.gn-verse-item {
+  margin: 0 0 0.7rem;
+  line-height: 1.45;
+}
+.gn-verse-num {
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 0.4rem;
+}
+.gn-note-item {
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.gn-note-ref {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+  max-width: 1180px;
+  width: min(96vw, 1180px);
+}
 .gn-body {
   display: flex;
   gap: 1rem;
