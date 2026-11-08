@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.32
+/* app.js – Main application controller. KJV Study PWA v6.99.33
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -14,7 +14,7 @@ import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.32';
+const APP_VERSION = '6.99.33';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6337,6 +6337,113 @@ function summaryBookMatch(title) {
   return best;
 }
 
+/** Parse a free-text title for a leading book + chapter.
+ *  Returns { bookId, chapter, name } or null.
+ *  Handles full canonical names and common abbreviations / singular forms.
+ */
+function parseChapterFromTitle(title) {
+  const raw = String(title || '').trim();
+  if (!raw) return null;
+
+  // 1. Full canonical name
+  const m = summaryBookMatch(raw);
+  if (m && m.meta) {
+    const rest = raw.slice(m.nameLen).trim();
+    const chm = /^(\d+)/.exec(rest);
+    if (chm) {
+      const ch = Number(chm[1]);
+      if (ch > 0) return { bookId: m.meta.id, chapter: ch, name: m.meta.name };
+    }
+  }
+
+  // 2. Common abbreviations and singular forms (longest first)
+  const aliasList = [
+    ['song of solomon', 'sng'], ['song of songs', 'sng'], ['song', 'sng'],
+    ['1 samuel', '1sa'], ['1 sam', '1sa'], ['1sa', '1sa'],
+    ['2 samuel', '2sa'], ['2 sam', '2sa'], ['2sa', '2sa'],
+    ['1 kings', '1ki'], ['1 kgs', '1ki'], ['1ki', '1ki'],
+    ['2 kings', '2ki'], ['2 kgs', '2ki'], ['2ki', '2ki'],
+    ['1 chronicles', '1ch'], ['1 chr', '1ch'], ['1ch', '1ch'],
+    ['2 chronicles', '2ch'], ['2 chr', '2ch'], ['2ch', '2ch'],
+    ['1 corinthians', '1co'], ['1 cor', '1co'], ['1co', '1co'],
+    ['2 corinthians', '2co'], ['2 cor', '2co'], ['2co', '2co'],
+    ['1 thessalonians', '1th'], ['1 thess', '1th'], ['1th', '1th'],
+    ['2 thessalonians', '2th'], ['2 thess', '2th'], ['2th', '2th'],
+    ['1 timothy', '1ti'], ['1 tim', '1ti'], ['1ti', '1ti'],
+    ['2 timothy', '2ti'], ['2 tim', '2ti'], ['2ti', '2ti'],
+    ['1 peter', '1pe'], ['1 pet', '1pe'], ['1pe', '1pe'],
+    ['2 peter', '2pe'], ['2 pet', '2pe'], ['2pe', '2pe'],
+    ['1 john', '1jn'], ['1 jn', '1jn'], ['1jn', '1jn'],
+    ['2 john', '2jn'], ['2 jn', '2jn'], ['2jn', '2jn'],
+    ['3 john', '3jn'], ['3 jn', '3jn'], ['3jn', '3jn'],
+    ['psalms', 'psa'], ['psalm', 'psa'], ['ps', 'psa'], ['psa', 'psa'],
+    ['genesis', 'gen'], ['gen', 'gen'],
+    ['exodus', 'exo'], ['exo', 'exo'],
+    ['leviticus', 'lev'], ['lev', 'lev'],
+    ['numbers', 'num'], ['num', 'num'],
+    ['deuteronomy', 'deu'], ['deut', 'deu'],
+    ['joshua', 'jos'], ['josh', 'jos'],
+    ['judges', 'jdg'], ['judg', 'jdg'],
+    ['ruth', 'rut'],
+    ['ezra', 'ezr'],
+    ['nehemiah', 'neh'],
+    ['esther', 'est'],
+    ['job', 'job'],
+    ['proverbs', 'pro'], ['prov', 'pro'],
+    ['ecclesiastes', 'ecc'], ['eccl', 'ecc'],
+    ['isaiah', 'isa'],
+    ['jeremiah', 'jer'],
+    ['lamentations', 'lam'],
+    ['ezekiel', 'eze'], ['ezek', 'eze'],
+    ['daniel', 'dan'],
+    ['hosea', 'hos'],
+    ['joel', 'joe'],
+    ['amos', 'amo'],
+    ['obadiah', 'oba'],
+    ['jonah', 'jon'],
+    ['micah', 'mic'],
+    ['nahum', 'nah'],
+    ['habakkuk', 'hab'],
+    ['zephaniah', 'zep'],
+    ['haggai', 'hag'],
+    ['zechariah', 'zec'], ['zech', 'zec'],
+    ['malachi', 'mal'],
+    ['matthew', 'mat'], ['matt', 'mat'],
+    ['mark', 'mrk'],
+    ['luke', 'luk'],
+    ['john', 'jhn'], ['jn', 'jhn'],
+    ['acts', 'act'],
+    ['romans', 'rom'],
+    ['galatians', 'gal'],
+    ['ephesians', 'eph'],
+    ['philippians', 'php'], ['phil', 'php'],
+    ['colossians', 'col'],
+    ['titus', 'tit'],
+    ['philemon', 'phm'],
+    ['hebrews', 'heb'],
+    ['james', 'jas'],
+    ['jude', 'jud'],
+    ['revelation', 'rev'], ['rev', 'rev']
+  ];
+  // longest alias first
+  aliasList.sort((a, b) => b[0].length - a[0].length);
+  const lower = raw.toLowerCase();
+  for (const [alias, bookId] of aliasList) {
+    if (lower === alias || lower.startsWith(alias + ' ') || lower.startsWith(alias + ':')) {
+      const rest = raw.slice(alias.length).trim();
+      const chm = /^(\d+)/.exec(rest);
+      if (chm) {
+        const ch = Number(chm[1]);
+        if (ch > 0) {
+          const meta = bible.CANONICAL_BOOKS.find(b => b.id === bookId);
+          if (meta) return { bookId, chapter: ch, name: meta.name };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function compareSummaryNotes(a, b) {
   const ta = String(a && a.title || '').trim();
   const tb = String(b && b.title || '').trim();
@@ -7050,7 +7157,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.32) ----------
+// ---------- Note dash guard (v6.99.33) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
@@ -8228,10 +8335,10 @@ function renderRefNotes(cleaned) {
   }).join('');
 }
 
-async function loadCurrentChapterSummary() {
-  const book = openChapterBook();
-  if (!book || currentChapter == null) return null;
-  const title = book.name + ' ' + currentChapter;
+async function loadChapterSummaryFor(bookId, chapter) {
+  const book = books.find(b => b.id === bookId);
+  if (!book || chapter == null) return null;
+  const title = book.name + ' ' + chapter;
   let list = [];
   try { list = await storage.getAllSummaryNotes(); } catch (_) { list = []; }
   const found = (list || []).find((n) => n && n.kind !== 'book' && String(n.title || '').trim().toLowerCase() === title.toLowerCase());
@@ -8243,8 +8350,15 @@ async function loadCurrentChapterSummary() {
     id: found ? found.id : null,
     createdAt: found ? found.createdAt : null,
     legacyText: found ? (found.legacyText || '') : '',
-    chapterImages: found ? (found.chapterImages || []) : []
+    chapterImages: found ? (found.chapterImages || []) : [],
+    bookId,
+    chapter
   };
+}
+
+async function loadCurrentChapterSummary() {
+  if (!currentBookId || currentChapter == null) return null;
+  return loadChapterSummaryFor(currentBookId, currentChapter);
 }
 
 function openGeneralNoteEditor(existing) {
@@ -8258,6 +8372,12 @@ function openGeneralNoteEditor(existing) {
       <div class="gn-body">
         <div class="gn-ref" id="gn-ref">
           <button type="button" id="gn-toggle-ref" class="gn-toggle-ref">Show reference</button>
+          <div class="gn-ref-controls" id="gn-ref-controls" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin:0.4rem 0 0.5rem;align-items:center">
+            <span id="gn-ref-label" style="font-weight:700;font-size:0.95em">…</span>
+            <button type="button" id="gn-ref-pick" style="min-height:40px;padding:0.3rem 0.7rem;border-radius:8px">Change</button>
+            <button type="button" id="gn-ref-jump" style="min-height:40px;padding:0.3rem 0.7rem;border-radius:8px">Open in main</button>
+            <button type="button" id="gn-ref-back" hidden style="min-height:40px;padding:0.3rem 0.7rem;border-radius:8px">Back</button>
+          </div>
           <div class="gn-ref-tabs" id="gn-ref-tabs">
             <button type="button" class="gn-ref-tab gn-tab-on" data-view="summary">Chapter summary</button>
             <button type="button" class="gn-ref-tab" data-view="verses">Verses</button>
@@ -8352,10 +8472,44 @@ function openGeneralNoteEditor(existing) {
 
   let refData = null;
   let leftView = 'summary';
+  let refBookId = null;
+  let refChapter = null;
+  const refStack = []; // previous {bookId, chapter} for in-pane Back
   const refContent = overlay.querySelector('#gn-ref-content');
   const toggleBtn = overlay.querySelector('#gn-toggle-ref');
   const refPane = overlay.querySelector('#gn-ref');
   const tabBtns = overlay.querySelectorAll('.gn-ref-tab');
+  const refLabel = overlay.querySelector('#gn-ref-label');
+  const pickBtn = overlay.querySelector('#gn-ref-pick');
+  const jumpBtn = overlay.querySelector('#gn-ref-jump');
+  const backBtn = overlay.querySelector('#gn-ref-back');
+
+  function refLabelText() {
+    if (!refBookId || refChapter == null) return 'No chapter';
+    const book = books.find(b => b.id === refBookId);
+    return (book ? book.name : refBookId) + ' ' + refChapter;
+  }
+
+  function updateRefChrome() {
+    if (refLabel) refLabel.textContent = refLabelText();
+    if (backBtn) backBtn.hidden = !refStack.length;
+  }
+
+  async function setRefChapter(bookId, chapter, pushPrev) {
+    if (!bookId || chapter == null) return;
+    if (pushPrev && refBookId && (refBookId !== bookId || Number(refChapter) !== Number(chapter))) {
+      refStack.push({ bookId: refBookId, chapter: refChapter });
+    }
+    refBookId = bookId;
+    refChapter = Number(chapter);
+    updateRefChrome();
+    try {
+      refData = await loadChapterSummaryFor(refBookId, refChapter);
+    } catch (_) {
+      refData = null;
+    }
+    setLeftView(leftView);
+  }
 
   function setLeftView(view) {
     leftView = view || 'summary';
@@ -8380,12 +8534,12 @@ function openGeneralNoteEditor(existing) {
 
   async function paintVerses() {
     if (!refContent) return;
-    const book = openChapterBook();
-    if (!book || currentChapter == null) {
-      refContent.innerHTML = '<p class="gn-ref-empty">No chapter open.</p>';
+    const book = books.find(b => b.id === refBookId);
+    if (!book || refChapter == null) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter selected.</p>';
       return;
     }
-    const ch = (book.chapters || []).find(c => Number(c.number) === Number(currentChapter));
+    const ch = (book.chapters || []).find(c => Number(c.number) === Number(refChapter));
     const verses = ch && ch.verses ? ch.verses : [];
     if (!verses.length) {
       refContent.innerHTML = '<p class="gn-ref-empty">No verses in this chapter.</p>';
@@ -8400,9 +8554,9 @@ function openGeneralNoteEditor(existing) {
 
   async function paintVerseNotes() {
     if (!refContent) return;
-    const book = openChapterBook();
-    if (!book || currentChapter == null) {
-      refContent.innerHTML = '<p class="gn-ref-empty">No chapter open.</p>';
+    const book = books.find(b => b.id === refBookId);
+    if (!book || refChapter == null) {
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter selected.</p>';
       return;
     }
     let notes = [];
@@ -8411,15 +8565,15 @@ function openGeneralNoteEditor(existing) {
       notes = await storage.getAllNotes() || [];
       shared = await storage.getAllSharedNotes() || [];
     } catch (_) {}
-    const ch = (book.chapters || []).find(c => Number(c.number) === Number(currentChapter));
+    const ch = (book.chapters || []).find(c => Number(c.number) === Number(refChapter));
     const verses = ch && ch.verses ? ch.verses : [];
     const items = [];
     const usedShared = new Set();
     for (const v of verses) {
-      const key = bible.verseKey(book.id, currentChapter, v.number);
+      const key = bible.verseKey(book.id, refChapter, v.number);
       const priv = notes.find(n => n && n.key === key);
       if (priv && String(priv.text || '').trim()) {
-        const ref = book.name + ' ' + currentChapter + ':' + v.number;
+        const ref = book.name + ' ' + refChapter + ':' + v.number;
         items.push({ ref, text: priv.text });
       }
       const sh = shared.find(n => n && Array.isArray(n.verseKeys) && n.verseKeys.includes(key));
@@ -8447,7 +8601,7 @@ function openGeneralNoteEditor(existing) {
   function paintRef() {
     if (!refContent) return;
     if (!refData) {
-      refContent.innerHTML = '<p class="gn-ref-empty">No chapter open.</p>';
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter selected.</p>';
       return;
     }
     if (!refData.id && refData.answers.every(a => !String(a || '').trim())) {
@@ -8524,9 +8678,90 @@ function openGeneralNoteEditor(existing) {
     }
   }
 
+  function openRefPicker() {
+    const currentLabel = refLabelText();
+    const picker = showOverlay(`
+      <div class="panel" style="max-width:420px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+          <h2 style="margin:0;border:none;padding:0">Reference chapter</h2>
+          <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+        </div>
+        <p style="color:var(--text-dim);font-size:0.92em;margin:0 0 0.6rem">Currently: ${escapeHtml(currentLabel)}</p>
+        <input type="text" id="gn-ref-pick-input" class="search-box" placeholder="e.g. Psalms 91 or Ps 91" autocomplete="off" style="margin-bottom:0.7rem">
+        <button type="button" id="gn-ref-pick-ok" style="width:100%;min-height:48px;background:var(--accent);color:#111;font-weight:600">Use this chapter</button>
+        <button type="button" id="gn-ref-pick-cancel" style="width:100%;margin-top:0.45rem;min-height:48px">Cancel</button>
+      </div>
+    `);
+    const closePicker = () => closeOverlay(picker);
+    $('.close', picker).onclick = closePicker;
+    $('#gn-ref-pick-cancel', picker).onclick = closePicker;
+    const input = $('#gn-ref-pick-input', picker);
+    $('#gn-ref-pick-ok', picker).onclick = async () => {
+      const parsed = parseChapterFromTitle(input.value || '');
+      if (!parsed) {
+        showAppStatus('Could not read a book and chapter from that.', 'fail');
+        return;
+      }
+      closePicker();
+      await setRefChapter(parsed.bookId, parsed.chapter, true);
+    };
+    setTimeout(() => { if (input) input.focus(); }, 60);
+  }
+
+  if (pickBtn) pickBtn.onclick = openRefPicker;
+  if (backBtn) {
+    backBtn.onclick = async () => {
+      const prev = refStack.pop();
+      if (!prev) { updateRefChrome(); return; }
+      refBookId = prev.bookId;
+      refChapter = prev.chapter;
+      updateRefChrome();
+      try {
+        refData = await loadChapterSummaryFor(refBookId, refChapter);
+      } catch (_) {
+        refData = null;
+      }
+      setLeftView(leftView);
+    };
+  }
+  if (jumpBtn) {
+    jumpBtn.onclick = async () => {
+      if (!refBookId || refChapter == null) {
+        showAppStatus('No reference chapter selected.', 'fail');
+        return;
+      }
+      if (currentBookId) {
+        const main = document.getElementById('main');
+        const book = books.find(b => b.id === currentBookId);
+        const label = book ? (book.name + ' ' + currentChapter) : (currentBookId + ' ' + currentChapter);
+        navStack.push({
+          bookId: currentBookId,
+          chapter: currentChapter,
+          verseKey: (typeof getNearestVerseKey === 'function' ? getNearestVerseKey() : null) || null,
+          scrollTop: main ? main.scrollTop : 0,
+          label
+        });
+        updateNavBackButton();
+      }
+      close();
+      await renderChapter(refBookId, refChapter);
+    };
+  }
+
+  // Initial reference chapter: title parse first, then fall back to open chapter
   (async function initRef() {
+    const noteTitle = existing && existing.title ? existing.title : '';
+    const parsed = parseChapterFromTitle(noteTitle);
+    if (parsed) {
+      refBookId = parsed.bookId;
+      refChapter = parsed.chapter;
+    } else if (currentBookId && currentChapter != null) {
+      refBookId = currentBookId;
+      refChapter = currentChapter;
+    }
+    updateRefChrome();
     try {
-      refData = await loadCurrentChapterSummary();
+      refData = refBookId ? await loadChapterSummaryFor(refBookId, refChapter) : null;
     } catch (_) {
       refData = null;
     }
