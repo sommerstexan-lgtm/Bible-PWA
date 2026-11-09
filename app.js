@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.33
+/* app.js – Main application controller. KJV Study PWA v6.99.34
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -12,9 +12,10 @@ import { kjvEnglishSense, phraseUnitAt } from './kjv-english.js';
 import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './subject-aliases.js';
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
+import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.33';
+const APP_VERSION = '6.99.34';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3239,6 +3240,49 @@ function installSelectionWatchers(main) {
   });
 }
 
+
+function openChapterStructure(bookName, chapter) {
+  const data = getLiteraryStructure(bookName, chapter);
+  let body = '';
+  if (!data || !Array.isArray(data.outline) || !data.outline.length) {
+    body = '<p class="theme-note">No structure note for this chapter yet.</p>';
+  } else {
+    const rows = data.outline.map((item) => {
+      const label = escapeHtml(item.label || '');
+      const range = escapeHtml(item.range || '');
+      const note = escapeHtml(item.note || '');
+      return '<div style="margin:0.35rem 0;padding:0.3rem 0;border-bottom:1px solid #333"><strong>' + label + '</strong> ' + range + (note ? '<br><span style="color:#aaa">' + note + '</span>' : '') + '</div>';
+    }).join('');
+    body = '<div>' + rows + '</div>';
+  }
+  const overlay = showOverlay(
+    '<div class="panel" style="max-width:520px">' +
+      '<div class="search-header"><div class="search-header-top"><h2 class="search-title">Structure — ' + escapeHtml(bookName) + ' ' + chapter + '</h2>' +
+      '<button type="button" class="close search-close" aria-label="Close">×</button></div></div>' +
+      '<div class="search-body" style="padding:0.6rem 0.8rem">' + body +
+      '<button type="button" id="struct-copy" style="width:100%;margin-top:0.6rem;min-height:48px">Copy outline</button>' +
+      '</div></div>'
+  );
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+  const copyBtn = $('#struct-copy', overlay);
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      let text = bookName + ' ' + chapter + ' — Structure\n';
+      if (data && Array.isArray(data.outline)) {
+        text += data.outline.map(item => (item.label || '') + ' ' + (item.range || '') + (item.note ? ' — ' + item.note : '')).join('\n');
+      } else {
+        text += 'No structure note for this chapter yet.';
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showAppStatus('Outline copied.', 'ok');
+      } catch (_) {
+        showAppStatus('Could not copy.', 'fail');
+      }
+    };
+  }
+}
+
 async function renderChapter(bookId, chapterNum, opts = {}) {
   const book = books.find(b => b.id === bookId);
   if (!book) return;
@@ -3273,6 +3317,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     : '';
   main.innerHTML = `
     <div class="chapter-header">${book.name} ${chapterNum}</div>
+    <div style="margin:0.4rem 0 0.6rem"><button type="button" id="btn-chapter-structure" class="quiet">Structure</button></div>
     ${kjvBanner}
     ${loadBanner}
     <div id="xref-load-bar" class="xref-load-bar">
@@ -3441,6 +3486,13 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
 
   mountSuggestBar(main);
   mountColorTray(main);
+
+
+  // Structure button — shows literary outline for this chapter if present
+  const structBtn = document.getElementById('btn-chapter-structure');
+  if (structBtn) {
+    structBtn.onclick = () => openChapterStructure(book.name, chapterNum);
+  }
 
   // Wire "Load Cross-References for this book" — clear permanent states only
   const loadBtn = document.getElementById('btn-load-book-xrefs');
@@ -7157,7 +7209,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.33) ----------
+// ---------- Note dash guard (v6.99.34) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
