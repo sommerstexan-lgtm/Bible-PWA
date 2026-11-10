@@ -3,7 +3,7 @@
 */
 
 const DB_NAME = 'nasb-study-db';
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 
 let db = null;
 
@@ -69,6 +69,10 @@ export function openDB() {
       if (!database.objectStoreNames.contains('summaryNotes')) {
         // Chapter and book summaries. Not tied to a verse.
         database.createObjectStore('summaryNotes', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('literaryStructures')) {
+        // User-saved literary structure outlines for chapters. key = "bookId.chapter"
+        database.createObjectStore('literaryStructures', { keyPath: 'key' });
       }
     };
     req.onsuccess = (e) => {
@@ -1031,6 +1035,39 @@ async function importNoteImage(row) {
     if (!db.objectStoreNames.contains('noteImages')) return res();
     const r = tx('noteImages', 'readwrite').put(rec);
     r.onsuccess = () => res(rec);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// ---------- Literary structures (user-saved chapter outlines) ----------
+export async function saveLiteraryStructure(key, outlineText) {
+  await openDB();
+  const rec = {
+    key,
+    outlineText: String(outlineText || '').trim(),
+    savedAt: new Date().toISOString()
+  };
+  return new Promise((res, rej) => {
+    const r = tx('literaryStructures', 'readwrite').put(rec);
+    r.onsuccess = () => res(rec);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function getLiteraryStructureUser(key) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('literaryStructures').get(key);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+export async function deleteLiteraryStructure(key) {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('literaryStructures', 'readwrite').delete(key);
+    r.onsuccess = () => res();
     r.onerror = () => rej(r.error);
   });
 }

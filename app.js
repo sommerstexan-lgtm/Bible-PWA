@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.34
+/* app.js – Main application controller. KJV Study PWA v6.99.35
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.34';
+const APP_VERSION = '6.99.35';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3241,46 +3241,147 @@ function installSelectionWatchers(main) {
 }
 
 
-function openChapterStructure(bookName, chapter) {
-  const data = getLiteraryStructure(bookName, chapter);
-  let body = '';
-  if (!data || !Array.isArray(data.outline) || !data.outline.length) {
-    body = '<p class="theme-note">No structure note for this chapter yet.</p>';
-  } else {
-    const rows = data.outline.map((item) => {
-      const label = escapeHtml(item.label || '');
-      const range = escapeHtml(item.range || '');
-      const note = escapeHtml(item.note || '');
-      return '<div style="margin:0.35rem 0;padding:0.3rem 0;border-bottom:1px solid #333"><strong>' + label + '</strong> ' + range + (note ? '<br><span style="color:#aaa">' + note + '</span>' : '') + '</div>';
-    }).join('');
-    body = '<div>' + rows + '</div>';
+async function openChapterStructure(book, chapterNum) {
+  if (!book) return;
+  const bookName = book.name;
+  const chapter = chapterNum;
+  const userKey = book.id + '.' + chapter;
+  const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  const staticData = getLiteraryStructure(bookName, chapter);
+
+  let displayText = '';
+  let isUser = false;
+  if (userRec && userRec.outlineText) {
+    displayText = userRec.outlineText;
+    isUser = true;
+  } else if (staticData && Array.isArray(staticData.outline) && staticData.outline.length) {
+    displayText = staticData.outline.map(item =>
+      (item.label || '') + '  ' + (item.range || '') + (item.note ? '  —  ' + item.note : '')
+    ).join('\n');
   }
+
+  const hasOutline = !!displayText;
+
+  let body = '';
+  if (hasOutline) {
+    body = '<pre style="white-space:pre-wrap;font-family:inherit;margin:0 0 0.8rem;line-height:1.4">' + escapeHtml(displayText) + '</pre>' +
+      '<div style="display:flex;gap:0.4rem;flex-wrap:wrap">' +
+        '<button type="button" id="struct-edit" style="flex:1;min-height:48px">Edit</button>' +
+        (isUser ? '<button type="button" id="struct-delete" class="quiet" style="flex:1;min-height:48px">Delete</button>' : '') +
+        '<button type="button" id="struct-copy" style="flex:1;min-height:48px">Copy outline</button>' +
+      '</div>';
+  } else {
+    body = '<p class="theme-note">No structure note for this chapter yet.</p>' +
+      '<textarea id="struct-input" style="width:100%;min-height:160px;margin:0.5rem 0;font-family:inherit;font-size:1rem;padding:0.4rem" placeholder="Paste or type an outline here…\n\nA  1:1-4  note\nB  1:5-8  note\nX  1:9-12  center\nB′ 1:13-16 note\nA′ 1:17-18 note"></textarea>' +
+      '<div style="display:flex;gap:0.4rem;flex-wrap:wrap">' +
+        '<button type="button" id="struct-save" style="flex:1;min-height:48px">Save outline</button>' +
+        '<button type="button" id="struct-prompt" class="quiet" style="flex:1;min-height:48px">Copy AI prompt</button>' +
+      '</div>';
+  }
+
   const overlay = showOverlay(
-    '<div class="panel" style="max-width:520px">' +
+    '<div class="panel" style="max-width:540px">' +
       '<div class="search-header"><div class="search-header-top"><h2 class="search-title">Structure — ' + escapeHtml(bookName) + ' ' + chapter + '</h2>' +
       '<button type="button" class="close search-close" aria-label="Close">×</button></div></div>' +
-      '<div class="search-body" style="padding:0.6rem 0.8rem">' + body +
-      '<button type="button" id="struct-copy" style="width:100%;margin-top:0.6rem;min-height:48px">Copy outline</button>' +
+      '<div class="search-body" style="padding:0.6rem 0.8rem">' + body + '</div></div>'
+  );
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+
+  const copyOutline = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showAppStatus('Copied.', 'ok');
+    } catch (_) {
+      showAppStatus('Could not copy.', 'fail');
+    }
+  };
+
+  if (hasOutline) {
+    const copyBtn = $('#struct-copy', overlay);
+    if (copyBtn) copyBtn.onclick = () => copyOutline(bookName + ' ' + chapter + ' — Structure\n' + displayText);
+    const editBtn = $('#struct-edit', overlay);
+    if (editBtn) {
+      editBtn.onclick = () => {
+        closeOverlay(overlay);
+        openChapterStructureEditor(book, chapterNum, displayText);
+      };
+    }
+    const delBtn = $('#struct-delete', overlay);
+    if (delBtn) {
+      delBtn.onclick = async () => {
+        if (!confirm('Delete this structure outline?')) return;
+        await storage.deleteLiteraryStructure(userKey);
+        showAppStatus('Structure deleted.', 'ok');
+        closeOverlay(overlay);
+      };
+    }
+  } else {
+    const saveBtn = $('#struct-save', overlay);
+    const input = $('#struct-input', overlay);
+    if (saveBtn && input) {
+      saveBtn.onclick = async () => {
+        const text = (input.value || '').trim();
+        if (!text) {
+          showAppStatus('Nothing to save.', 'fail');
+          return;
+        }
+        await storage.saveLiteraryStructure(userKey, text);
+        showAppStatus('Structure saved.', 'ok');
+        closeOverlay(overlay);
+      };
+    }
+    const promptBtn = $('#struct-prompt', overlay);
+    if (promptBtn) {
+      promptBtn.onclick = async () => {
+        const ch = book.chapters.find(c => c.number === chapterNum);
+        let chapterText = '';
+        if (ch && ch.verses) {
+          chapterText = ch.verses.map(v => v.number + ' ' + (v.text || '')).join('\n');
+        }
+        const prompt = 'You are a careful biblical literary analyst. Study the following KJV chapter for literary structure (concentric / chiastic / other clear patterns).\n\n' +
+          'Output ONLY a clean outline in this format, one item per line, no extra commentary:\n' +
+          'A  verses  short note\n' +
+          'B  verses  short note\n' +
+          'X  verses  center note\n' +
+          'B′ verses  short note\n' +
+          'A′ verses  short note\n\n' +
+          'If the structure is not concentric, use whatever labels best fit (A, B, C… or sections). Keep notes short.\n\n' +
+          'Chapter: ' + bookName + ' ' + chapter + '\n\n' +
+          chapterText;
+        await copyOutline(prompt);
+        showAppStatus('AI prompt copied. Paste it into any AI, then paste the result back here and Save.', 'ok');
+      };
+    }
+  }
+}
+
+function openChapterStructureEditor(book, chapterNum, initialText) {
+  const bookName = book.name;
+  const userKey = book.id + '.' + chapterNum;
+  const overlay = showOverlay(
+    '<div class="panel" style="max-width:540px">' +
+      '<div class="search-header"><div class="search-header-top"><h2 class="search-title">Edit Structure — ' + escapeHtml(bookName) + ' ' + chapterNum + '</h2>' +
+      '<button type="button" class="close search-close" aria-label="Close">×</button></div></div>' +
+      '<div class="search-body" style="padding:0.6rem 0.8rem">' +
+        '<textarea id="struct-edit-input" style="width:100%;min-height:200px;margin:0.5rem 0;font-family:inherit;font-size:1rem;padding:0.4rem">' + escapeHtml(initialText) + '</textarea>' +
+        '<div style="display:flex;gap:0.4rem">' +
+          '<button type="button" id="struct-edit-save" style="flex:1;min-height:48px">Save</button>' +
+          '<button type="button" id="struct-edit-cancel" class="quiet" style="flex:1;min-height:48px">Cancel</button>' +
+        '</div>' +
       '</div></div>'
   );
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
-  const copyBtn = $('#struct-copy', overlay);
-  if (copyBtn) {
-    copyBtn.onclick = async () => {
-      let text = bookName + ' ' + chapter + ' — Structure\n';
-      if (data && Array.isArray(data.outline)) {
-        text += data.outline.map(item => (item.label || '') + ' ' + (item.range || '') + (item.note ? ' — ' + item.note : '')).join('\n');
-      } else {
-        text += 'No structure note for this chapter yet.';
-      }
-      try {
-        await navigator.clipboard.writeText(text);
-        showAppStatus('Outline copied.', 'ok');
-      } catch (_) {
-        showAppStatus('Could not copy.', 'fail');
-      }
-    };
-  }
+  $('#struct-edit-cancel', overlay).onclick = () => closeOverlay(overlay);
+  $('#struct-edit-save', overlay).onclick = async () => {
+    const text = ($('#struct-edit-input', overlay).value || '').trim();
+    if (!text) {
+      showAppStatus('Nothing to save.', 'fail');
+      return;
+    }
+    await storage.saveLiteraryStructure(userKey, text);
+    showAppStatus('Structure saved.', 'ok');
+    closeOverlay(overlay);
+  };
 }
 
 async function renderChapter(bookId, chapterNum, opts = {}) {
@@ -3491,7 +3592,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   // Structure button — shows literary outline for this chapter if present
   const structBtn = document.getElementById('btn-chapter-structure');
   if (structBtn) {
-    structBtn.onclick = () => openChapterStructure(book.name, chapterNum);
+    structBtn.onclick = () => openChapterStructure(book, chapterNum);
   }
 
   // Wire "Load Cross-References for this book" — clear permanent states only
@@ -7209,7 +7310,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.34) ----------
+// ---------- Note dash guard (v6.99.35) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
