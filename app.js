@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.35
+/* app.js – Main application controller. KJV Study PWA v6.99.37
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.35';
+const APP_VERSION = '6.99.37';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3241,6 +3241,51 @@ function installSelectionWatchers(main) {
 }
 
 
+
+function structDraftKey(userKey) {
+  return 'kjv-struct-draft:' + userKey;
+}
+function loadStructDraft(userKey) {
+  try { return localStorage.getItem(structDraftKey(userKey)) || ''; } catch (_) { return ''; }
+}
+function saveStructDraft(userKey, text) {
+  try {
+    const key = structDraftKey(userKey);
+    if (text && String(text).trim()) localStorage.setItem(key, text);
+    else localStorage.removeItem(key);
+  } catch (_) {}
+}
+function clearStructDraft(userKey) {
+  try { localStorage.removeItem(structDraftKey(userKey)); } catch (_) {}
+}
+function wireStructDraftAutosave(textarea, userKey, overlay) {
+  if (!textarea) return;
+  let timer = null;
+  const persist = () => saveStructDraft(userKey, textarea.value || '');
+  const debounced = () => {
+    clearTimeout(timer);
+    timer = setTimeout(persist, 350);
+  };
+  textarea.addEventListener('input', debounced);
+  textarea.addEventListener('blur', persist);
+  const onVis = () => { if (document.visibilityState === 'hidden') persist(); };
+  const onUnload = () => persist();
+  document.addEventListener('visibilitychange', onVis);
+  window.addEventListener('beforeunload', onUnload);
+  // clean up when overlay closes
+  const origClose = overlay.querySelector('.search-close');
+  if (origClose) {
+    const prev = origClose.onclick;
+    origClose.onclick = (e) => {
+      persist();
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('beforeunload', onUnload);
+      if (prev) prev(e);
+    };
+  }
+  // also persist on any overlay removal via MutationObserver or just leave listeners (they are cheap)
+}
+
 async function openChapterStructure(book, chapterNum) {
   if (!book) return;
   const bookName = book.name;
@@ -3260,6 +3305,8 @@ async function openChapterStructure(book, chapterNum) {
     ).join('\n');
   }
 
+  const draft = loadStructDraft(userKey);
+  const hasDraft = !!(draft && draft.trim());
   const hasOutline = !!displayText;
 
   let body = '';
@@ -3272,7 +3319,8 @@ async function openChapterStructure(book, chapterNum) {
       '</div>';
   } else {
     body = '<p class="theme-note">No structure note for this chapter yet.</p>' +
-      '<textarea id="struct-input" style="width:100%;min-height:160px;margin:0.5rem 0;font-family:inherit;font-size:1rem;padding:0.4rem" placeholder="Paste or type an outline here…\n\nA  1:1-4  note\nB  1:5-8  note\nX  1:9-12  center\nB′ 1:13-16 note\nA′ 1:17-18 note"></textarea>' +
+      (hasDraft ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved outline.</p>' : '') +
+      '<textarea id="struct-input" style="width:100%;min-height:160px;margin:0.5rem 0;font-family:inherit;font-size:1rem;padding:0.4rem" placeholder="Paste or type an outline here…\n\nA  1:1-4  note\nB  1:5-8  note\nX  1:9-12  center\nB′ 1:13-16 note\nA′ 1:17-18 note">' + escapeHtml(hasDraft ? draft : '') + '</textarea>' +
       '<div style="display:flex;gap:0.4rem;flex-wrap:wrap">' +
         '<button type="button" id="struct-save" style="flex:1;min-height:48px">Save outline</button>' +
         '<button type="button" id="struct-prompt" class="quiet" style="flex:1;min-height:48px">Copy AI prompt</button>' +
@@ -3303,7 +3351,7 @@ async function openChapterStructure(book, chapterNum) {
     if (editBtn) {
       editBtn.onclick = () => {
         closeOverlay(overlay);
-        openChapterStructureEditor(book, chapterNum, displayText);
+        openChapterStructureEditor(book, chapterNum, hasDraft ? draft : displayText);
       };
     }
     const delBtn = $('#struct-delete', overlay);
@@ -3311,6 +3359,7 @@ async function openChapterStructure(book, chapterNum) {
       delBtn.onclick = async () => {
         if (!confirm('Delete this structure outline?')) return;
         await storage.deleteLiteraryStructure(userKey);
+        clearStructDraft(userKey);
         showAppStatus('Structure deleted.', 'ok');
         closeOverlay(overlay);
       };
@@ -3319,6 +3368,7 @@ async function openChapterStructure(book, chapterNum) {
     const saveBtn = $('#struct-save', overlay);
     const input = $('#struct-input', overlay);
     if (saveBtn && input) {
+      wireStructDraftAutosave(input, userKey, overlay);
       saveBtn.onclick = async () => {
         const text = (input.value || '').trim();
         if (!text) {
@@ -3326,6 +3376,7 @@ async function openChapterStructure(book, chapterNum) {
           return;
         }
         await storage.saveLiteraryStructure(userKey, text);
+        clearStructDraft(userKey);
         showAppStatus('Structure saved.', 'ok');
         closeOverlay(overlay);
       };
@@ -3372,13 +3423,16 @@ function openChapterStructureEditor(book, chapterNum, initialText) {
   );
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
   $('#struct-edit-cancel', overlay).onclick = () => closeOverlay(overlay);
+  const editInput = $('#struct-edit-input', overlay);
+  wireStructDraftAutosave(editInput, userKey, overlay);
   $('#struct-edit-save', overlay).onclick = async () => {
-    const text = ($('#struct-edit-input', overlay).value || '').trim();
+    const text = (editInput.value || '').trim();
     if (!text) {
       showAppStatus('Nothing to save.', 'fail');
       return;
     }
     await storage.saveLiteraryStructure(userKey, text);
+    clearStructDraft(userKey);
     showAppStatus('Structure saved.', 'ok');
     closeOverlay(overlay);
   };
@@ -7310,7 +7364,7 @@ function attachChapterStudyKeyboardFix(box) {
 }
 
 
-// ---------- Note dash guard (v6.99.35) ----------
+// ---------- Note dash guard (v6.99.36) ----------
 // Reverses unwanted device/keyboard rewrites of bare "v" + digits into dashed form
 // (e.g. v15 → v1-5) inside free-text note fields. Intentional dashes are left alone.
 function isNoteDashGuardField(el) {
@@ -7693,6 +7747,79 @@ async function openChapterSummary() {
   openSummaryNoteEditor(found || { kind: 'chapter', title, text: '' });
 }
 
+
+function gnDraftKey(id) {
+  return 'kjv-gn-draft:' + (id || 'new');
+}
+function loadGnDraft(id) {
+  try {
+    const raw = localStorage.getItem(gnDraftKey(id));
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+function saveGnDraft(id, data) {
+  try {
+    const key = gnDraftKey(id);
+    const title = String((data && data.title) || '').trim();
+    const text = String((data && data.text) || '');
+    if (title || text.trim()) localStorage.setItem(key, JSON.stringify({ title, text, ts: Date.now() }));
+    else localStorage.removeItem(key);
+  } catch (_) {}
+}
+function clearGnDraft(id) {
+  try { localStorage.removeItem(gnDraftKey(id)); } catch (_) {}
+}
+function snDraftKey(id) {
+  return 'kjv-sn-draft:' + (id || 'new');
+}
+function loadSnDraft(id) {
+  try {
+    const raw = localStorage.getItem(snDraftKey(id));
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+function saveSnDraft(id, data) {
+  try {
+    const key = snDraftKey(id);
+    const title = String((data && data.title) || '').trim();
+    const answers = Array.isArray(data && data.answers) ? data.answers : [];
+    const legacy = String((data && data.legacyText) || '');
+    const has = title || legacy.trim() || answers.some(a => String(a || '').trim());
+    if (has) localStorage.setItem(key, JSON.stringify({ title, answers, legacyText: legacy, ts: Date.now() }));
+    else localStorage.removeItem(key);
+  } catch (_) {}
+}
+function clearSnDraft(id) {
+  try { localStorage.removeItem(snDraftKey(id)); } catch (_) {}
+}
+function wireDraftListeners(els, persist, overlay) {
+  const list = (els || []).filter(Boolean);
+  if (!list.length) return;
+  let timer = null;
+  const debounced = () => {
+    clearTimeout(timer);
+    timer = setTimeout(persist, 350);
+  };
+  list.forEach(el => {
+    el.addEventListener('input', debounced);
+    el.addEventListener('blur', persist);
+  });
+  const onVis = () => { if (document.visibilityState === 'hidden') persist(); };
+  const onUnload = () => persist();
+  document.addEventListener('visibilitychange', onVis);
+  window.addEventListener('beforeunload', onUnload);
+  const closeBtn = overlay && overlay.querySelector('.close');
+  if (closeBtn) {
+    const prev = closeBtn.onclick;
+    closeBtn.onclick = (e) => {
+      persist();
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('beforeunload', onUnload);
+      if (typeof prev === 'function') prev(e);
+    };
+  }
+}
+
 function openSummaryNoteEditor(existing) {
   if (existing && existing.kind === 'book') {
     openBookSummary(existing);
@@ -7700,17 +7827,25 @@ function openSummaryNoteEditor(existing) {
   }
   const isNew = !existing || !existing.id;
   const kind = 'chapter';
-  const titleValue = existing && existing.title ? existing.title : (chapterSummaryTitle() || '');
-  const legacyText = (!isNew && !Array.isArray(existing.answers))
+  const snId = existing && existing.id ? existing.id : null;
+  const snDraft = loadSnDraft(snId);
+  let titleValue = existing && existing.title ? existing.title : (chapterSummaryTitle() || '');
+  if (snDraft && snDraft.title) titleValue = snDraft.title;
+  let legacyText = (!isNew && !Array.isArray(existing.answers))
     ? String(existing.text || '')
     : String((existing && existing.legacyText) || '');
+  if (snDraft && typeof snDraft.legacyText === 'string') legacyText = snDraft.legacyText;
   const showLegacy = !!String(legacyText).trim();
+  const snDraftNote = (snDraft && (snDraft.title || (Array.isArray(snDraft.answers) && snDraft.answers.some(a => String(a || '').trim())) || String(snDraft.legacyText || '').trim()))
+    ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved chapter summary draft.</p>'
+    : '';
   const overlay = showOverlay(`
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
         <h2 style="margin:0;border:none;padding:0">${isNew ? 'New summary note' : 'Edit summary note'}</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
+      ${snDraftNote}
       <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
       <input type="text" id="sn-title" class="search-box" placeholder="1 Samuel 12" value="${escapeHtml(titleValue)}" autocomplete="off" style="margin-bottom:0.35rem">
       <p style="margin:0 0 0.4rem;color:var(--text-dim);font-size:0.88em">Question lines are locked. Type only in the box under the question you are on. No length limit.</p>
@@ -7743,7 +7878,7 @@ function openSummaryNoteEditor(existing) {
   $('.close', overlay).onclick = () => leaveSummaryEditor(false);
   $('#sn-cancel', overlay).onclick = () => leaveSummaryEditor(false);
   const answerCache = {
-    chapter: summaryAnswersFromNote(existing, 'chapter'),
+    chapter: (snDraft && Array.isArray(snDraft.answers)) ? snDraft.answers.slice() : summaryAnswersFromNote(existing, 'chapter'),
     book: summaryAnswersFromNote(existing, 'book')
   };
   let paintedKind = kind;
@@ -7832,6 +7967,17 @@ function openSummaryNoteEditor(existing) {
   }
   $('#sn-title', overlay).oninput = () => refreshSummaryLabels(overlay);
   paintAnswers();
+  function persistSnDraft() {
+    const title = ($('#sn-title', overlay).value || '').trim();
+    const answers = Array.from(overlay.querySelectorAll('textarea.sn-answer')).map(el => el.value || '');
+    const legacyEl = $('#sn-legacy', overlay);
+    saveSnDraft(snId, { title, answers, legacyText: legacyEl ? (legacyEl.value || '') : legacyText });
+  }
+  wireDraftListeners(
+    [$('#sn-title', overlay), $('#sn-legacy', overlay)].concat(Array.from(overlay.querySelectorAll('textarea.sn-answer'))),
+    persistSnDraft,
+    overlay
+  );
   function rememberSummaryCursor(el) {
     if (!el || !el.classList || !el.classList.contains('sn-answer')) return;
     const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
@@ -7970,6 +8116,7 @@ function openSummaryNoteEditor(existing) {
   $('#sn-save', overlay).onclick = async () => {
     try {
       await readSummaryFields();
+      clearSnDraft(snId);
       if (minimizedSummary && existing && minimizedSummary.id === existing.id) {
         minimizedSummary = null;
         updateSummaryChip();
@@ -7984,6 +8131,7 @@ function openSummaryNoteEditor(existing) {
     del.onclick = async () => {
       if (!confirm('Delete this summary note?')) return;
       try { await storage.deleteSummaryNote(existing.id); } catch (_) {}
+      clearSnDraft(snId);
       leaveSummaryEditor(true);
     };
   }
@@ -8516,6 +8664,13 @@ async function loadCurrentChapterSummary() {
 
 function openGeneralNoteEditor(existing) {
   const isNew = !existing || !existing.id;
+  const gnId = existing && existing.id ? existing.id : null;
+  const gnDraft = loadGnDraft(gnId);
+  const gnTitle = (gnDraft && gnDraft.title) ? gnDraft.title : (existing && existing.title ? existing.title : '');
+  const gnText = (gnDraft && typeof gnDraft.text === 'string') ? gnDraft.text : (existing && existing.text ? existing.text : '');
+  const gnDraftNote = (gnDraft && (String(gnDraft.title || '').trim() || String(gnDraft.text || '').trim()))
+    ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved general note draft.</p>'
+    : '';
   const overlay = showOverlay(`
     <div class="panel gn-split-panel">
       <div class="gn-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
@@ -8541,10 +8696,11 @@ function openGeneralNoteEditor(existing) {
           </div>
         </div>
         <div class="gn-editor">
+          ${gnDraftNote}
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
-          <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(existing && existing.title ? existing.title : '')}" autocomplete="off" style="margin-bottom:0.7rem">
+          <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(gnTitle)}" autocomplete="off" style="margin-bottom:0.7rem">
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
-          <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(existing && existing.text ? existing.text : '')}</textarea>
+          <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(gnText)}</textarea>
           ${noteImagesMarkup()}
           <button type="button" id="gn-save" style="width:100%;margin-top:1rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">Save</button>
           <button type="button" id="gn-print" style="width:100%;margin-top:0.45rem;min-height:52px">Print</button>
@@ -8932,6 +9088,13 @@ function openGeneralNoteEditor(existing) {
   $('#gn-copy', overlay).onclick = async () => copyStudyPage(await liveGeneralPage());
   $('.close', overlay).onclick = close;
   $('#gn-cancel', overlay).onclick = close;
+  function persistGnDraft() {
+    saveGnDraft(gnId, {
+      title: ($('#gn-title', overlay).value || ''),
+      text: ($('#gn-text', overlay).value || '')
+    });
+  }
+  wireDraftListeners([$('#gn-title', overlay), $('#gn-text', overlay)], persistGnDraft, overlay);
   $('#gn-save', overlay).onclick = async () => {
     const title = ($('#gn-title', overlay).value || '').trim() || 'Untitled note';
     const text = $('#gn-text', overlay).value || '';
@@ -8943,6 +9106,7 @@ function openGeneralNoteEditor(existing) {
         imageIds: gnImgs.getIds(),
         createdAt: existing && existing.createdAt
       });
+      clearGnDraft(gnId);
       close();
       openGeneralNotesList();
     } catch (_) {
@@ -8956,6 +9120,7 @@ function openGeneralNoteEditor(existing) {
       try {
         try { await storage.deleteNoteImages(existing.imageIds || []); } catch (_) {}
         await storage.deleteGeneralNote(existing.id);
+        clearGnDraft(gnId);
       } catch (_) {}
       close();
       openGeneralNotesList();
