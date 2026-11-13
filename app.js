@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.37
+/* app.js – Main application controller. KJV Study PWA v6.99.38
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.37';
+const APP_VERSION = '6.99.38';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7794,30 +7794,44 @@ function clearSnDraft(id) {
 }
 function wireDraftListeners(els, persist, overlay) {
   const list = (els || []).filter(Boolean);
-  if (!list.length) return;
+  let disposed = false;
   let timer = null;
+  const safePersist = () => { if (!disposed) persist(); };
   const debounced = () => {
+    if (disposed) return;
     clearTimeout(timer);
-    timer = setTimeout(persist, 350);
+    timer = setTimeout(safePersist, 350);
   };
   list.forEach(el => {
     el.addEventListener('input', debounced);
-    el.addEventListener('blur', persist);
+    el.addEventListener('blur', safePersist);
   });
-  const onVis = () => { if (document.visibilityState === 'hidden') persist(); };
-  const onUnload = () => persist();
+  const onVis = () => { if (document.visibilityState === 'hidden') safePersist(); };
+  const onUnload = () => safePersist();
   document.addEventListener('visibilitychange', onVis);
   window.addEventListener('beforeunload', onUnload);
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    clearTimeout(timer);
+    timer = null;
+    list.forEach(el => {
+      el.removeEventListener('input', debounced);
+      el.removeEventListener('blur', safePersist);
+    });
+    document.removeEventListener('visibilitychange', onVis);
+    window.removeEventListener('beforeunload', onUnload);
+  }
   const closeBtn = overlay && overlay.querySelector('.close');
   if (closeBtn) {
     const prev = closeBtn.onclick;
     closeBtn.onclick = (e) => {
-      persist();
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('beforeunload', onUnload);
+      safePersist();
+      dispose();
       if (typeof prev === 'function') prev(e);
     };
   }
+  return dispose;
 }
 
 function openSummaryNoteEditor(existing) {
@@ -7973,11 +7987,20 @@ function openSummaryNoteEditor(existing) {
     const legacyEl = $('#sn-legacy', overlay);
     saveSnDraft(snId, { title, answers, legacyText: legacyEl ? (legacyEl.value || '') : legacyText });
   }
-  wireDraftListeners(
+  const disposeSnDraft = wireDraftListeners(
     [$('#sn-title', overlay), $('#sn-legacy', overlay)].concat(Array.from(overlay.querySelectorAll('textarea.sn-answer'))),
     persistSnDraft,
     overlay
-  );
+  ) || (() => {});
+  function sealSnDraft(clearDraft) {
+    if (!clearDraft) persistSnDraft();
+    disposeSnDraft();
+    if (clearDraft) clearSnDraft(snId);
+  }
+  $('#sn-cancel', overlay).onclick = () => {
+    sealSnDraft(false);
+    leaveSummaryEditor(false);
+  };
   function rememberSummaryCursor(el) {
     if (!el || !el.classList || !el.classList.contains('sn-answer')) return;
     const boxes = Array.from(overlay.querySelectorAll('textarea.sn-answer'));
@@ -8116,7 +8139,7 @@ function openSummaryNoteEditor(existing) {
   $('#sn-save', overlay).onclick = async () => {
     try {
       await readSummaryFields();
-      clearSnDraft(snId);
+      sealSnDraft(true);
       if (minimizedSummary && existing && minimizedSummary.id === existing.id) {
         minimizedSummary = null;
         updateSummaryChip();
@@ -8131,7 +8154,7 @@ function openSummaryNoteEditor(existing) {
     del.onclick = async () => {
       if (!confirm('Delete this summary note?')) return;
       try { await storage.deleteSummaryNote(existing.id); } catch (_) {}
-      clearSnDraft(snId);
+      sealSnDraft(true);
       leaveSummaryEditor(true);
     };
   }
@@ -8713,6 +8736,7 @@ function openGeneralNoteEditor(existing) {
   `);
   const gnImgs = mountNoteImages(overlay, existing && existing.imageIds);
   const close = () => closeOverlay(overlay);
+  let sealGeneralNoteDraft = () => {};
 
   // Chapter study / Research buttons next to Add image
   (function addChapterTools() {
@@ -8744,6 +8768,7 @@ function openGeneralNoteEditor(existing) {
         return;
       }
       resumeGeneralNote = captureDraft();
+      sealGeneralNoteDraft(false);
       close();
       openChapterStudy();
     }
@@ -8754,6 +8779,7 @@ function openGeneralNoteEditor(existing) {
         return;
       }
       resumeGeneralNote = captureDraft();
+      sealGeneralNoteDraft(false);
       close();
       openResearch();
     }
@@ -9087,14 +9113,24 @@ function openGeneralNoteEditor(existing) {
   $('#gn-print', overlay).onclick = async () => printStudyPage(await liveGeneralPage());
   $('#gn-copy', overlay).onclick = async () => copyStudyPage(await liveGeneralPage());
   $('.close', overlay).onclick = close;
-  $('#gn-cancel', overlay).onclick = close;
+  $('#gn-cancel', overlay).onclick = () => {
+    sealGeneralNoteDraft(false);
+    close();
+  };
   function persistGnDraft() {
     saveGnDraft(gnId, {
       title: ($('#gn-title', overlay).value || ''),
       text: ($('#gn-text', overlay).value || '')
     });
   }
-  wireDraftListeners([$('#gn-title', overlay), $('#gn-text', overlay)], persistGnDraft, overlay);
+  const disposeGnDraft = wireDraftListeners([$('#gn-title', overlay), $('#gn-text', overlay)], persistGnDraft, overlay) || (() => {});
+  // clearDraft true = Save/Delete: last write is the clear, nothing may rewrite it.
+  // clearDraft false = Cancel / leave for Chapter study: keep the draft, but stop further writes.
+  sealGeneralNoteDraft = (clearDraft) => {
+    if (!clearDraft) persistGnDraft();
+    disposeGnDraft();
+    if (clearDraft) clearGnDraft(gnId);
+  };
   $('#gn-save', overlay).onclick = async () => {
     const title = ($('#gn-title', overlay).value || '').trim() || 'Untitled note';
     const text = $('#gn-text', overlay).value || '';
@@ -9106,7 +9142,7 @@ function openGeneralNoteEditor(existing) {
         imageIds: gnImgs.getIds(),
         createdAt: existing && existing.createdAt
       });
-      clearGnDraft(gnId);
+      sealGeneralNoteDraft(true);
       close();
       openGeneralNotesList();
     } catch (_) {
@@ -9120,8 +9156,10 @@ function openGeneralNoteEditor(existing) {
       try {
         try { await storage.deleteNoteImages(existing.imageIds || []); } catch (_) {}
         await storage.deleteGeneralNote(existing.id);
-        clearGnDraft(gnId);
-      } catch (_) {}
+        sealGeneralNoteDraft(true);
+      } catch (_) {
+        sealGeneralNoteDraft(true);
+      }
       close();
       openGeneralNotesList();
     };
