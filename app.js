@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.38
+/* app.js – Main application controller. KJV Study PWA v6.99.39
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.38';
+const APP_VERSION = '6.99.39';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -8687,12 +8687,19 @@ async function loadCurrentChapterSummary() {
 
 function openGeneralNoteEditor(existing) {
   const isNew = !existing || !existing.id;
+  const isResume = !!(existing && !existing.id);
   const gnId = existing && existing.id ? existing.id : null;
-  const gnDraft = loadGnDraft(gnId);
+  const storedDraft = loadGnDraft(gnId);
+  const storedHasText = !!(storedDraft && (String(storedDraft.title || '').trim() || String(storedDraft.text || '').trim()));
+  // A fresh New note must start empty. The shared "new" draft is leftover from an
+  // earlier note and must not be loaded into this one. Resume from Chapter study
+  // still carries the note the user was writing.
+  if (isNew && !isResume && storedHasText) clearGnDraft(null);
+  const gnDraft = (isNew && !isResume) ? null : storedDraft;
   const gnTitle = (gnDraft && gnDraft.title) ? gnDraft.title : (existing && existing.title ? existing.title : '');
   const gnText = (gnDraft && typeof gnDraft.text === 'string') ? gnDraft.text : (existing && existing.text ? existing.text : '');
-  const gnDraftNote = (gnDraft && (String(gnDraft.title || '').trim() || String(gnDraft.text || '').trim()))
-    ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved general note draft.</p>'
+  const gnDraftNote = (!isNew && gnDraft && (String(gnDraft.title || '').trim() || String(gnDraft.text || '').trim()))
+    ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved edits for this note.</p>'
     : '';
   const overlay = showOverlay(`
     <div class="panel gn-split-panel">
