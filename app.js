@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.42
+/* app.js – Main application controller. KJV Study PWA v6.99.43
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.42';
+const APP_VERSION = '6.99.43';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -9279,6 +9279,97 @@ function openGeneralNoteEditor(existing) {
   }, 80);
 }
 
+
+async function openManageCategories(currentList, onChanged) {
+  const defs = getAllCategoryDefs();
+  const used = {};
+  (currentList || []).forEach(n => {
+    if (n.category) used[n.category] = (used[n.category] || 0) + 1;
+  });
+  const names = Object.keys(defs).sort();
+
+  const rows = names.map(name => {
+    const count = used[name] || 0;
+    const isBuiltin = !!GN_CATEGORIES[name];
+    return `
+      <div class="xref-item" style="margin-bottom:0.5rem;padding:0.6rem;display:flex;flex-direction:column;gap:0.4rem">
+        <div><strong>${escapeHtml(name)}</strong> <span style="color:var(--text-dim);font-size:0.85em">(${count} note${count===1?'':'s'})</span></div>
+        <div style="color:var(--text-dim);font-size:0.9em">${escapeHtml(defs[name] || '')}</div>
+        <div style="display:flex;gap:0.4rem">
+          <button type="button" class="gn-rename" data-name="${escapeHtml(name)}" style="flex:1;min-height:40px">Rename</button>
+          <button type="button" class="gn-delete" data-name="${escapeHtml(name)}" style="flex:1;min-height:40px"${isBuiltin ? ' disabled title="Built-in categories can be cleared from notes but not removed"' : ''}>Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  const overlay = showOverlay(`
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Manage categories</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <p style="color:var(--text-dim);font-size:0.9em;margin-bottom:0.7rem">Rename updates every note that uses the old name. Delete clears the category from notes (built-in definitions stay available).</p>
+      <div style="max-height:65vh;overflow:auto">${rows || '<p>No categories yet.</p>'}</div>
+    </div>
+  `);
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+
+  $$('.gn-rename', overlay).forEach(btn => {
+    btn.onclick = async () => {
+      const oldName = btn.dataset.name;
+      const newName = (prompt('New name for "' + oldName + '"', oldName) || '').trim();
+      if (!newName || newName === oldName) return;
+      if (defs[newName]) {
+        alert('A category with that name already exists.');
+        return;
+      }
+      // Update notes
+      let notes = [];
+      try { notes = await storage.getAllGeneralNotes(); } catch (_) {}
+      for (const n of notes) {
+        if (n.category === oldName) {
+          n.category = newName;
+          await storage.saveGeneralNote(n);
+        }
+      }
+      // Update custom defs if present
+      const custom = loadCustomCategories();
+      if (custom[oldName]) {
+        custom[newName] = custom[oldName];
+        delete custom[oldName];
+        saveCustomCategories(custom);
+      }
+      // If it was builtin, the definition stays under old name; user may want to re-add, but for simplicity we leave it
+      closeOverlay(overlay);
+      if (onChanged) onChanged();
+    };
+  });
+
+  $$('.gn-delete', overlay).forEach(btn => {
+    btn.onclick = async () => {
+      const name = btn.dataset.name;
+      const count = used[name] || 0;
+      if (!confirm('Remove “‘ + name + ’” from ' + count + ' note' + (count===1?'':'s') + '?\n\nThe notes will become Uncategorized.')) return;
+      let notes = [];
+      try { notes = await storage.getAllGeneralNotes(); } catch (_) {}
+      for (const n of notes) {
+        if (n.category === name) {
+          delete n.category;
+          await storage.saveGeneralNote(n);
+        }
+      }
+      // Remove from custom if present
+      const custom = loadCustomCategories();
+      if (custom[name]) {
+        delete custom[name];
+        saveCustomCategories(custom);
+      }
+      closeOverlay(overlay);
+      if (onChanged) onChanged();
+    };
+  });
+}
+
 async function openGeneralNotesList() {
   let list = [];
   try { list = await storage.getAllGeneralNotes(); } catch (_) { list = []; }
@@ -9302,6 +9393,7 @@ async function openGeneralNotesList() {
       <div style="display:flex;gap:0.5rem;margin-bottom:0.7rem">
         <button type="button" id="gn-new" style="flex:1;min-height:52px;background:var(--accent);color:#111;font-weight:600">New note</button>
         <button type="button" id="gn-defs" style="flex:1;min-height:52px">What do these mean?</button>
+        <button type="button" id="gn-manage" style="flex:1;min-height:52px">Manage categories</button>
       </div>
       <div id="gn-list"></div>
     </div>
@@ -9327,6 +9419,12 @@ async function openGeneralNotesList() {
     `);
     $('.close', dOverlay).onclick = () => closeOverlay(dOverlay);
   };
+
+  $('#gn-manage', overlay).onclick = () => openManageCategories(list, () => {
+    // refresh the list after changes
+    openGeneralNotesList();
+  });
+
   const el = $('#gn-list', overlay);
   const filterBox = $('#gn-filter', overlay);
   const catFilter = $('#gn-cat-filter', overlay);
