@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.40
+/* app.js – Main application controller. KJV Study PWA v6.99.41
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.40';
+const APP_VERSION = '6.99.41';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3589,15 +3589,9 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       <div class="verse-actions${toolsOpen ? '' : ' is-collapsed'}">
         <div class="verse-nav-row">
           <input type="text" class="chapter-search" placeholder="Search in this chapter" aria-label="Search in this chapter">
-          <button type="button" class="search-prev" title="Previous match">◀ match</button>
-          <button type="button" class="search-next" title="Next match">match ▶</button>
-          <button type="button" class="nav-prev-verse" title="Previous verse">Prev verse</button>
-          <button type="button" class="nav-first" title="Jump to first verse">First</button>
+          <button type="button" class="search-clear" title="Clear search">Clear</button>
+          <button type="button" class="search-go" title="Search">Search</button>
           <select class="nav-verse-select" aria-label="Select verse">${verseOptionsHtml}</select>
-          <button type="button" class="nav-last" title="Jump to last verse">Last</button>
-          <button type="button" class="nav-prev-note" title="Previous verse with a note">▲</button>
-          <button type="button" class="nav-next-verse" title="Next verse">Next verse</button>
-          <button type="button" class="nav-next-note" title="Next verse with a note">▼</button>
         </div>
         <button type="button" data-act="analyze" data-key="${key}">Analyze</button>
         <button type="button" data-act="anchor" data-key="${key}">Set Anchor</button>
@@ -13024,39 +13018,31 @@ function openAbout() {
 document.addEventListener('DOMContentLoaded', init);
 
 // ---------- Chapter search + verse nav (inside verse Tools) ----------
-let chapterSearchState = { term: '', matches: [], index: -1 };
+let chapterSearchState = { term: '', matches: [] };
 
 function setupVerseNavDelegation() {
-  document.addEventListener('input', (e) => {
-    if (e.target.classList && e.target.classList.contains('chapter-search')) {
-      const term = e.target.value.trim();
-      // Sync all search inputs
-      document.querySelectorAll('.chapter-search').forEach((inp) => {
-        if (inp !== e.target) inp.value = e.target.value;
-      });
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.classList.contains('search-go')) {
+      const row = btn.closest('.verse-nav-row');
+      const input = row ? row.querySelector('.chapter-search') : null;
+      const term = input ? input.value.trim() : '';
+      // Sync all inputs
+      document.querySelectorAll('.chapter-search').forEach((inp) => { inp.value = term; });
       applyChapterSearch(term);
+    } else if (btn.classList.contains('search-clear')) {
+      document.querySelectorAll('.chapter-search').forEach((inp) => { inp.value = ''; });
+      applyChapterSearch('');
     }
   });
   document.addEventListener('keydown', (e) => {
     if (e.target.classList && e.target.classList.contains('chapter-search') && e.key === 'Enter') {
       e.preventDefault();
-      stepSearchMatch(e.shiftKey ? -1 : 1);
+      const term = e.target.value.trim();
+      document.querySelectorAll('.chapter-search').forEach((inp) => { inp.value = term; });
+      applyChapterSearch(term);
     }
-  });
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
-    if (btn.classList.contains('nav-prev-verse')) stepVerse(-1);
-    else if (btn.classList.contains('nav-next-verse')) stepVerse(1);
-    else if (btn.classList.contains('nav-first')) jumpToVerseNum(1);
-    else if (btn.classList.contains('nav-last')) {
-      const verses = getChapterVerses();
-      if (verses.length) jumpToVerseNum(verses[verses.length - 1].number);
-    }
-    else if (btn.classList.contains('nav-prev-note')) stepNote(-1);
-    else if (btn.classList.contains('nav-next-note')) stepNote(1);
-    else if (btn.classList.contains('search-prev')) stepSearchMatch(-1);
-    else if (btn.classList.contains('search-next')) stepSearchMatch(1);
   });
   document.addEventListener('change', (e) => {
     if (e.target.classList && e.target.classList.contains('nav-verse-select')) {
@@ -13082,79 +13068,65 @@ function jumpToVerseNum(num) {
   const el = verseElByNum(num);
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // Update any open selects
-    document.querySelectorAll('.nav-verse-select').forEach((sel) => { sel.value = String(num); });
   }
 }
 
-function stepVerse(dir) {
-  const verses = getChapterVerses();
-  if (!verses.length) return;
-  const onKey = verseOnScreenKey();
-  const parsed = onKey ? bible.parseKey(onKey) : null;
-  let idx = parsed ? verses.findIndex(v => Number(v.number) === Number(parsed.verse)) : 0;
-  if (idx < 0) idx = 0;
-  idx = Math.max(0, Math.min(verses.length - 1, idx + dir));
-  jumpToVerseNum(verses[idx].number);
-}
-
-function stepNote(dir) {
-  const noteEls = Array.from(document.querySelectorAll('.verse')).filter(el => 
-    el.querySelector('.verse-dot.note') || el.querySelector('button[data-act="note"].has-content')
-  );
-  if (!noteEls.length) {
-    showAppStatus(dir < 0 ? 'No earlier note in this chapter.' : 'No later note in this chapter.', 'ok');
-    return;
-  }
-  const onKey = verseOnScreenKey();
-  let idx = noteEls.findIndex(el => el.dataset.key === onKey);
-  if (idx < 0) idx = dir > 0 ? -1 : noteEls.length;
-  idx += dir;
-  if (idx < 0 || idx >= noteEls.length) {
-    showAppStatus(dir < 0 ? 'No earlier note in this chapter.' : 'No later note in this chapter.', 'ok');
-    return;
-  }
-  const num = Number((noteEls[idx].dataset.key || '').split('.').pop());
-  if (num) jumpToVerseNum(num);
+function updateVerseSelect(optionsNums) {
+  const html = optionsNums.map(n => '<option value="' + n + '">' + n + '</option>').join('');
+  document.querySelectorAll('.nav-verse-select').forEach((sel) => {
+    const current = sel.value;
+    sel.innerHTML = html;
+    if (optionsNums.includes(Number(current))) sel.value = current;
+    else if (optionsNums.length) sel.value = String(optionsNums[0]);
+  });
 }
 
 function applyChapterSearch(term) {
-  // Clear previous
+  // Clear previous highlights and marks
   document.querySelectorAll('.verse.search-hit').forEach(el => el.classList.remove('search-hit'));
   document.querySelectorAll('.search-mark').forEach(m => {
     const parent = m.parentNode;
-    if (parent) parent.replaceChild(document.createTextNode(m.textContent), m);
-    parent && parent.normalize && parent.normalize();
+    if (parent) {
+      parent.replaceChild(document.createTextNode(m.textContent), m);
+      if (parent.normalize) parent.normalize();
+    }
   });
-  chapterSearchState = { term: term || '', matches: [], index: -1 };
-  if (!term || term.length < 2) return;
+
+  chapterSearchState = { term: term || '', matches: [] };
+
+  const allVerses = getChapterVerses().map(v => Number(v.number));
+
+  if (!term || term.length < 2) {
+    updateVerseSelect(allVerses);
+    return;
+  }
+
   const lower = term.toLowerCase();
-  const verses = document.querySelectorAll('.verse');
   const matches = [];
-  verses.forEach((verse) => {
+  document.querySelectorAll('.verse').forEach((verse) => {
     const textEl = verse.querySelector('.verse-text');
     if (!textEl) return;
     const plain = textEl.textContent || '';
     if (plain.toLowerCase().includes(lower)) {
       verse.classList.add('search-hit');
-      // Simple mark: wrap first occurrence in text nodes if possible
       markInElement(textEl, term);
       const num = Number((verse.dataset.key || '').split('.').pop());
       if (num) matches.push(num);
     }
   });
+
   chapterSearchState.matches = matches;
-  chapterSearchState.index = matches.length ? 0 : -1;
   if (matches.length) {
+    updateVerseSelect(matches);
     jumpToVerseNum(matches[0]);
-    showAppStatus(matches.length + ' match' + (matches.length === 1 ? '' : 'es') + ' in this chapter', 'ok');
+    showAppStatus(matches.length + ' match' + (matches.length === 1 ? '' : 'es') + ' — select lists only matches', 'ok');
   } else {
+    updateVerseSelect(allVerses);
     showAppStatus('No matches in this chapter', 'ok');
   }
 }
 
 function markInElement(el, term) {
-  // Basic text node walk for first match only to avoid complexity with existing spans
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
   const lower = term.toLowerCase();
   let node;
@@ -13166,23 +13138,9 @@ function markInElement(el, term) {
       range.setEnd(node, idx + term.length);
       const mark = document.createElement('span');
       mark.className = 'search-mark';
-      try {
-        range.surroundContents(mark);
-      } catch (_) {
-        // If surround fails (partial node), skip
-      }
-      break; // only first per verse
+      try { range.surroundContents(mark); } catch (_) {}
+      break;
     }
   }
-}
-
-function stepSearchMatch(dir) {
-  const { matches, index } = chapterSearchState;
-  if (!matches.length) return;
-  let next = index + dir;
-  if (next < 0) next = matches.length - 1;
-  if (next >= matches.length) next = 0;
-  chapterSearchState.index = next;
-  jumpToVerseNum(matches[next]);
 }
 

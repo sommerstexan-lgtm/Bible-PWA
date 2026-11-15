@@ -3233,3 +3233,13 @@ textarea.cs-answer {
   padding: 0 2px;
   border-radius: 2px;
 }
+
+.verse-nav-row .search-clear,
+.verse-nav-row .search-go {
+  flex: 0 0 auto;
+  min-width: 64px;
+}
+.verse-nav-row .nav-verse-select {
+  flex: 0 1 120px;
+  min-width: 70px;
+}
