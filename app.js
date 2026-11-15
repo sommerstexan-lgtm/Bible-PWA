@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.41
+/* app.js – Main application controller. KJV Study PWA v6.99.42
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.41';
+const APP_VERSION = '6.99.42';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -8634,6 +8634,42 @@ const GN_REF_TITLES = [
   'What is still unresolved?'
 ];
 
+const GN_CATEGORIES = {
+  "Chapter overviews": "A note that summarizes the main events, people, or flow of a specific chapter (or a short stretch of chapters). It is about what happened in that chapter, not a single verse or a broad theme.",
+  "Verse notes": "A note focused on one verse or a tight verse range. The content is mainly about the wording, meaning, or detail of those verses rather than the whole chapter.",
+  "Number studies": "A note about the meaning, use, or scholarly understanding of specific numbers in Scripture (3, 7, 40, etc.). It discusses the number itself and how it is used.",
+  "Word & name studies": "A note on the meaning of a Hebrew or Greek word or a name. It explains the word or name and how it is used.",
+  "Places & geography": "A note on a location, region, city, or modern equivalent. It supplies geographic or place-related context.",
+  "Topics & applications": "A broader subject, modern question, or personal-application note that is not tied to one chapter’s events or one number.",
+  "Background & history": "Authorship, timeline, historical figures, or factual context needed to understand a passage or book.",
+  "Connections & prophecy": "A note that links people, events, or passages from different places in Scripture, or that discusses prophecy."
+};
+
+function loadCustomCategories() {
+  try {
+    const raw = localStorage.getItem("kjv-custom-categories");
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) { return {}; }
+}
+
+function saveCustomCategories(map) {
+  try { localStorage.setItem("kjv-custom-categories", JSON.stringify(map || {})); } catch (_) {}
+}
+
+function getAllCategoryDefs() {
+  return Object.assign({}, GN_CATEGORIES, loadCustomCategories());
+}
+
+function simpleSimilarity(a, b) {
+  const wa = new Set(String(a || "").toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  const wb = new Set(String(b || "").toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  if (!wa.size || !wb.size) return 0;
+  let inter = 0;
+  for (const w of wa) if (wb.has(w)) inter++;
+  return inter / Math.min(wa.size, wb.size);
+}
+
+
 function cleanNoteSpacing(text) {
   return String(text || '')
     .replace(/\r\n/g, '\n')
@@ -8731,6 +8767,13 @@ function openGeneralNoteEditor(existing) {
           ${gnDraftNote}
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
           <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(gnTitle)}" autocomplete="off" style="margin-bottom:0.7rem">
+          <div style="margin-bottom:0.7rem">
+            <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Category</label>
+            <select id="gn-category" style="width:100%;min-height:44px;padding:0.4rem;border-radius:8px">
+              <option value="">Uncategorized</option>
+            </select>
+            <button type="button" id="gn-new-cat" style="margin-top:0.4rem;min-height:40px">New category…</button>
+          </div>
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Note</label>
           <textarea class="note-input" id="gn-text" placeholder="Your notes stay on this device only…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${escapeHtml(gnText)}</textarea>
           ${noteImagesMarkup()}
@@ -8746,6 +8789,57 @@ function openGeneralNoteEditor(existing) {
   const gnImgs = mountNoteImages(overlay, existing && existing.imageIds);
   const close = () => closeOverlay(overlay);
   let sealGeneralNoteDraft = () => {};
+
+  // Category select + new-category flow (definition first, similarity check)
+  const catSelect = $('#gn-category', overlay);
+  const newCatBtn = $('#gn-new-cat', overlay);
+  function fillCategorySelect(selected) {
+    const defs = getAllCategoryDefs();
+    const names = Object.keys(defs).sort();
+    catSelect.innerHTML = '<option value="">Uncategorized</option>' +
+      names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    if (selected && defs[selected]) catSelect.value = selected;
+    else if (existing && existing.category && defs[existing.category]) catSelect.value = existing.category;
+  }
+  fillCategorySelect();
+
+  if (newCatBtn) {
+    newCatBtn.onclick = () => {
+      const name = (prompt('New category name') || '').trim();
+      if (!name) return;
+      const defs = getAllCategoryDefs();
+      if (defs[name]) {
+        alert('That category already exists. Choose it from the list.');
+        catSelect.value = name;
+        return;
+      }
+      const def = (prompt('Write the definition for this category.\n\nBe precise. If this is close to an existing definition, the app will flag it so you can decide whether to reuse or combine.') || '').trim();
+      if (!def) {
+        alert('A definition is required before a new category can be created.');
+        return;
+      }
+      // Check similarity against existing definitions
+      let closest = null;
+      let best = 0;
+      for (const [existingName, existingDef] of Object.entries(defs)) {
+        const sim = simpleSimilarity(def, existingDef);
+        if (sim > best) { best = sim; closest = existingName; }
+      }
+      if (closest && best >= 0.35) {
+        const reuse = confirm(`This definition looks close to “${closest}”.\n\nSimilarity score: ${Math.round(best*100)}%\n\nUse the existing category “${closest}” instead of creating a new one?\n\nOK = use existing\nCancel = keep the new category`);
+        if (reuse) {
+          catSelect.value = closest;
+          return;
+        }
+      }
+      // Save the new category definition
+      const custom = loadCustomCategories();
+      custom[name] = def;
+      saveCustomCategories(custom);
+      fillCategorySelect(name);
+      alert(`Category “${name}” created.`);
+    };
+  }
 
   // Chapter study / Research buttons next to Add image
   (function addChapterTools() {
@@ -9144,10 +9238,12 @@ function openGeneralNoteEditor(existing) {
     const title = ($('#gn-title', overlay).value || '').trim() || 'Untitled note';
     const text = $('#gn-text', overlay).value || '';
     try {
+      const category = ($('#gn-category', overlay).value || '').trim();
       await storage.saveGeneralNote({
         id: existing && existing.id,
         title,
         text,
+        category: category || undefined,
         imageIds: gnImgs.getIds(),
         createdAt: existing && existing.createdAt
       });
@@ -9194,11 +9290,19 @@ async function openGeneralNotesList() {
         <h2 class="search-title" style="margin:0">General notes</h2>
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
-      <input id="gn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="margin:0.5rem 0 0.4rem">
-      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.7rem">
+      <div style="display:flex;gap:0.4rem;align-items:center;margin:0.5rem 0 0.4rem;flex-wrap:wrap">
+        <select id="gn-cat-filter" style="min-height:40px;padding:0.3rem 0.5rem;border-radius:8px">
+          <option value="">All categories</option>
+        </select>
+        <input id="gn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="flex:1;min-width:140px">
+      </div>
+      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.5rem">
         Title plus body are searched. These notes are not tied to a verse.
       </p>
-      <button type="button" id="gn-new" style="width:100%;margin-bottom:0.7rem;min-height:52px;background:var(--accent);color:#111;font-weight:600">New note</button>
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.7rem">
+        <button type="button" id="gn-new" style="flex:1;min-height:52px;background:var(--accent);color:#111;font-weight:600">New note</button>
+        <button type="button" id="gn-defs" style="flex:1;min-height:52px">What do these mean?</button>
+      </div>
       <div id="gn-list"></div>
     </div>
   `);
@@ -9207,8 +9311,25 @@ async function openGeneralNotesList() {
     closeOverlay(overlay);
     openGeneralNoteEditor(null);
   };
+  $('#gn-defs', overlay).onclick = () => {
+    const defs = getAllCategoryDefs();
+    const html = Object.keys(defs).sort().map(name => 
+      `<p style="margin:0.6rem 0"><strong>${escapeHtml(name)}</strong><br><span style="color:var(--text-dim)">${escapeHtml(defs[name])}</span></p>`
+    ).join('');
+    const dOverlay = showOverlay(`
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+          <h2 style="margin:0;border:none;padding:0">What do these mean?</h2>
+          <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+        </div>
+        <div style="max-height:70vh;overflow:auto;padding-right:0.4rem">${html || '<p>No categories defined yet.</p>'}</div>
+      </div>
+    `);
+    $('.close', dOverlay).onclick = () => closeOverlay(dOverlay);
+  };
   const el = $('#gn-list', overlay);
   const filterBox = $('#gn-filter', overlay);
+  const catFilter = $('#gn-cat-filter', overlay);
 
   function snippet(text) {
     const one = String(text || '').replace(/\s+/g, ' ').trim();
@@ -9223,9 +9344,19 @@ async function openGeneralNotesList() {
     return hay.includes(q);
   }
 
+  function populateCatFilter() {
+    const cats = new Set();
+    list.forEach(n => { if (n.category) cats.add(n.category); });
+    const current = catFilter.value;
+    catFilter.innerHTML = '<option value="">All categories</option>' +
+      Array.from(cats).sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    if (current && cats.has(current)) catFilter.value = current;
+  }
+
   function renderList() {
     const q = ((filterBox && filterBox.value || '')).trim().toLowerCase();
-    const shown = list.filter(n => matches(n, q));
+    const cat = catFilter.value;
+    const shown = list.filter(n => matches(n, q) && (!cat || n.category === cat));
     if (!list.length) {
       el.innerHTML = '<p style="color:var(--text-dim)">None yet. Tap New note and give it a title.</p>';
       return;
@@ -9233,12 +9364,13 @@ async function openGeneralNotesList() {
     if (!shown.length) {
       el.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="gn-filter-clear">Clear</button>';
       const clr = $('#gn-filter-clear', overlay);
-      if (clr) clr.onclick = () => { filterBox.value = ''; renderList(); };
+      if (clr) clr.onclick = () => { filterBox.value = ''; catFilter.value = ''; renderList(); };
       return;
     }
     el.innerHTML = shown.map(n => `
       <button type="button" class="xref-item gn-row" data-id="${escapeHtml(n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
         <strong>${escapeHtml(n.title || 'Untitled note')}</strong>
+        ${n.category ? `<div style="font-size:0.85em;color:var(--text-dim);margin-top:0.15rem">${escapeHtml(n.category)}</div>` : ''}
         ${snippet(n.text) ? `<div class="trail-src">${escapeHtml(snippet(n.text))}</div>` : ''}
       </button>
     `).join('');
@@ -9252,6 +9384,8 @@ async function openGeneralNotesList() {
   }
 
   if (filterBox) filterBox.oninput = renderList;
+  if (catFilter) catFilter.onchange = renderList;
+  populateCatFilter();
   renderList();
   setTimeout(() => filterBox && filterBox.focus(), 80);
 }
