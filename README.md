@@ -1,4 +1,12 @@
-# KJV Study PWA – v6.99.8
+## New in 6.99.44
+
+- Chapter study now uses the chapter’s literary structure (when defined) to drive analysis fields.
+- Individual sections receive five starter prompts; matching pairs or clusters receive three combined prompts.
+- Older four-question summaries remain available as reference.
+- Structure outlines are parsed on save into elements and auto-detected pairs.
+- User can edit answers; existing verse notes are untouched.
+
+
 
 ## New in 6.99.8
 

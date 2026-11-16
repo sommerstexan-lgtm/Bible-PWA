@@ -1040,11 +1040,12 @@ async function importNoteImage(row) {
 }
 
 // ---------- Literary structures (user-saved chapter outlines) ----------
-export async function saveLiteraryStructure(key, outlineText) {
+export async function saveLiteraryStructure(key, outlineText, structure) {
   await openDB();
   const rec = {
     key,
     outlineText: String(outlineText || '').trim(),
+    structure: structure || null,
     savedAt: new Date().toISOString()
   };
   return new Promise((res, rej) => {
