@@ -2701,7 +2701,7 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
   }
   .cs-float { padding: 0.55rem 1rem 0.4rem; }
   .cs-scroll { padding: 0.5rem 1rem 2rem; }
-  textarea.cs-note, textarea.cs-answer {
+  textarea.cs-note, textarea.cs-answer, textarea.cs-struct-answer {
     min-height: 240px;
     max-height: 55vh;
     font-size: 1.15rem;
@@ -2719,6 +2719,20 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
   overflow-y: auto;
   padding: 0.6rem 1.1rem 3rem;
   -webkit-overflow-scrolling: touch;
+}
+textarea.cs-note,
+textarea.cs-answer,
+textarea.cs-struct-answer {
+  width: 100%;
+  min-height: 140px;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  padding: 0.8rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
 }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }
 .cs-tab { flex: 1; min-height: 48px; }

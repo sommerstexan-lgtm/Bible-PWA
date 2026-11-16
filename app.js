@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.45
+/* app.js – Main application controller. KJV Study PWA v6.99.46
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.45';
+const APP_VERSION = '6.99.46';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -10251,7 +10251,7 @@ async function paintChapterStudyBody(overlay) {
         INDIVIDUAL_PROMPTS.forEach((p, pi) => {
           const val = (el.answers && el.answers[pi]) || '';
           html += '<p class="sn-q-label">' + escapeHtml(p) + '</p>' +
-            '<textarea class="cs-struct-answer" data-kind="el" data-ei="' + ei + '" data-pi="' + pi + '" rows="3">' + escapeHtml(val) + '</textarea>';
+            '<textarea class="cs-answer sn-answer cs-struct-answer" data-kind="el" data-ei="' + ei + '" data-pi="' + pi + '" rows="4">' + escapeHtml(val) + '</textarea>';
         });
         html += '</div>';
       });
@@ -10261,7 +10261,7 @@ async function paintChapterStudyBody(overlay) {
         COMBINED_PROMPTS.forEach((p, pi) => {
           const val = (g.answers && g.answers[pi]) || '';
           html += '<p class="sn-q-label">' + escapeHtml(p) + '</p>' +
-            '<textarea class="cs-struct-answer" data-kind="group" data-gi="' + gi + '" data-pi="' + pi + '" rows="3">' + escapeHtml(val) + '</textarea>';
+            '<textarea class="cs-answer sn-answer cs-struct-answer" data-kind="group" data-gi="' + gi + '" data-pi="' + pi + '" rows="4">' + escapeHtml(val) + '</textarea>';
         });
         html += '</div>';
       });
