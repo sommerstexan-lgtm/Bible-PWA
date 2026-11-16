@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.46
+/* app.js – Main application controller. KJV Study PWA v6.99.49
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.46';
+const APP_VERSION = '6.99.49';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1338,6 +1338,7 @@ function renderShell() {
       <button type="button" id="last-trail-chip" class="pill-btn" hidden title="Open study trail">Trail</button>
     </div>
     <button type="button" id="summary-chip" class="summary-chip" hidden title="Open minimized summary">Summary</button>
+    <button type="button" id="cs-chip" class="summary-chip" hidden title="Open minimized chapter study">Chapter study</button>
     <div id="chain-read-bar" class="chain-read-bar" hidden>
       <button type="button" id="chain-bar-list">List</button>
       <span id="chain-bar-label">Chain</span>
@@ -1392,6 +1393,8 @@ function renderShell() {
   if (trailChip) trailChip.onclick = () => { if (studyTrail.nodes.length) openStudyTrail(); };
   const sumChip = document.getElementById('summary-chip');
   if (sumChip) sumChip.onclick = () => reopenMinimizedSummary();
+  const csChip = document.getElementById('cs-chip');
+  if (csChip) csChip.onclick = () => restoreChapterStudy();
   const notesBack = document.getElementById('notes-return-btn');
   const notesBackX = document.getElementById('notes-return-x');
   if (notesBack) notesBack.onclick = () => returnToVerseNotes();
@@ -10265,10 +10268,19 @@ async function paintChapterStudyBody(overlay) {
         });
         html += '</div>';
       });
-      html += '<button type="button" id="cs-save-struct" style="width:100%;margin-top:0.7rem;min-height:52px">Save structure analysis</button>';
+      html += '<button type="button" id="cs-save-struct" style="width:100%;margin-top:0.7rem;min-height:52px">Save structure analysis (also saves when you leave a field)</button>';
       html += '<p class="cs-meta" style="margin-top:1rem"><button type="button" id="cs-show-old-summary" class="quiet">Show earlier four-question summary</button></p>';
       body.innerHTML = html;
       body.querySelectorAll('textarea.cs-struct-answer').forEach((box) => {
+        const saveStructNow = async () => {
+          try {
+            await storage.saveLiteraryStructure(userKey, userRec.outlineText || '', s);
+            chapterStudy.structDirty = false;
+            showAppStatus('Structure analysis saved.', 'ok');
+          } catch (_) {
+            showAppStatus('Could not save structure analysis.', 'fail');
+          }
+        };
         box.addEventListener('input', () => {
           const kind = box.dataset.kind;
           const pi = Number(box.dataset.pi);
@@ -10283,26 +10295,31 @@ async function paintChapterStudyBody(overlay) {
           }
           chapterStudy.structDirty = true;
         });
+        box.addEventListener('blur', () => {
+          if (chapterStudy.structDirty) saveStructNow();
+        });
         attachChapterStudyKeyboardFix(box);
       });
       const saveStruct = body.querySelector('#cs-save-struct');
       if (saveStruct) {
         saveStruct.onclick = async () => {
-          await storage.saveLiteraryStructure(userKey, userRec.outlineText || '', s);
-          showAppStatus('Structure analysis saved.', 'ok');
-          chapterStudy.structDirty = false;
+          try {
+            await storage.saveLiteraryStructure(userKey, userRec.outlineText || '', s);
+            chapterStudy.structDirty = false;
+            showAppStatus('Structure analysis saved.', 'ok');
+          } catch (_) {
+            showAppStatus('Could not save structure analysis.', 'fail');
+          }
         };
       }
       const showOld = body.querySelector('#cs-show-old-summary');
       if (showOld) {
         showOld.onclick = () => {
-          // Fall back to old view temporarily
           chapterStudy.forceOldSummary = true;
-          renderChapterStudy(overlay);
+          paintChapterStudyBody(overlay);
         };
       }
     } else if (chapterStudy.forceOldSummary) {
-      // Old four-question view
       if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
       if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = chapterStudy.summaryLoaded.answers.slice();
       const title = chapterStudyTitle().trim();
@@ -10318,16 +10335,70 @@ async function paintChapterStudyBody(overlay) {
         '<button type="button" id="cs-copy-summary" style="width:100%;margin-top:0.7rem;min-height:48px">Copy this summary</button>' +
         '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.45rem;min-height:52px">Save chapter summary</button>' +
         '<p class="cs-meta"><button type="button" id="cs-back-to-struct" class="quiet">Back to structure analysis</button></p>';
-      // ... existing event handlers would need to be duplicated or the old code kept, but for brevity we attach basic ones
       body.querySelectorAll('textarea.cs-answer').forEach((box) => {
-        box.addEventListener('input', (e) => {
-          const i = Number(box.dataset.i);
-          if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = [];
-          chapterStudy.summaryDraft[i] = box.value || '';
-          chapterStudy.summaryDirty = true;
+        box.addEventListener('focus', () => {
+          rememberChapterStudySummaryCursor(box);
         });
+        box.addEventListener('keydown', (e) => e.stopPropagation());
+        box.addEventListener('keyup', (e) => {
+          e.stopPropagation();
+          rememberChapterStudySummaryCursor(box);
+        });
+        box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
+        box.addEventListener('input', (e) => {
+          e.stopPropagation();
+          if (chapterStudy) {
+            const i = Number(box.dataset.i);
+            if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = [];
+            chapterStudy.summaryDraft[i] = box.value || '';
+            chapterStudy.summaryDirty = true;
+          }
+          rememberChapterStudySummaryCursor(box);
+        });
+        growSummaryBox(box);
         attachChapterStudyKeyboardFix(box);
       });
+      body.querySelectorAll('button.cs-copy-answer').forEach((btn) => {
+        btn.onclick = async () => {
+          const i = Number(btn.dataset.i);
+          const box = body.querySelector('textarea.cs-answer[data-i="' + i + '"]');
+          const text = box ? String(box.value || '') : '';
+          if (!text.trim()) {
+            showAppStatus('Nothing to copy.', 'fail');
+            return;
+          }
+          try {
+            const ok = await copyText(text);
+            showAppStatus(ok ? 'Copied this answer.' : 'Could not copy.', ok ? 'ok' : 'fail');
+          } catch (_) {
+            showAppStatus('Could not copy this answer.', 'fail');
+          }
+        };
+      });
+      if (chapterStudy.summaryFocus) {
+        setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
+        setTimeout(() => restoreChapterStudySummaryFocus(overlay), 60);
+      }
+      const copyBtn = body.querySelector('#cs-copy-summary');
+      if (copyBtn) {
+        copyBtn.onclick = async () => {
+          try {
+            captureChapterStudySummary(overlay);
+            const title = chapterStudyTitle().trim();
+            const answers = (chapterStudy.summaryDraft || []).slice();
+            const loaded = chapterStudy.summaryLoaded || {};
+            const page = {
+              title,
+              kind: 'Chapter summary',
+              blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, loaded.legacyText || '')
+            };
+            const ok = await copyText(studyPagePlain(page));
+            showAppStatus(ok ? 'Copied this summary.' : 'Could not copy.', ok ? 'ok' : 'fail');
+          } catch (_) {
+            showAppStatus('Could not copy this summary.', 'fail');
+          }
+        };
+      }
       const saveBtn = body.querySelector('#cs-save-summary');
       if (saveBtn) saveBtn.onclick = async () => {
         await saveChapterStudySummary(overlay);
@@ -10336,7 +10407,7 @@ async function paintChapterStudyBody(overlay) {
       const backBtn = body.querySelector('#cs-back-to-struct');
       if (backBtn) backBtn.onclick = () => {
         chapterStudy.forceOldSummary = false;
-        renderChapterStudy(overlay);
+        paintChapterStudyBody(overlay);
       };
     } else {
       // Default old view if no structure
@@ -10573,11 +10644,26 @@ function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
   }
 }
 
+async function flushStructureAnalysis(overlay) {
+  if (!chapterStudy || !chapterStudy.structDirty || !chapterStudy.structDraft) return;
+  const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
+  const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  try {
+    await storage.saveLiteraryStructure(userKey, (userRec && userRec.outlineText) || '', chapterStudy.structDraft);
+    chapterStudy.structDirty = false;
+  } catch (_) {
+    showAppStatus('Could not save structure analysis.', 'fail');
+  }
+}
+
 async function switchChapterStudyView(overlay, view) {
   if (!chapterStudy || chapterStudy.view === view) return;
   try {
     if (chapterStudy.view === 'notes') await flushChapterStudyNotes(overlay);
-    if (chapterStudy.view === 'summary') captureChapterStudySummary(overlay);
+    if (chapterStudy.view === 'summary') {
+      captureChapterStudySummary(overlay);
+      await flushStructureAnalysis(overlay);
+    }
     if (chapterStudy.view === 'images') {
       try { await saveChapterStudyImages(); } catch (_) {}
     }
@@ -10624,11 +10710,14 @@ async function leaveChapterStudy(overlay) {
       if (chapterStudy.summaryDirty) {
         await saveChapterStudySummary(overlay);
       }
+      await flushStructureAnalysis(overlay);
     }
   } catch (_) {
     showAppStatus('Could not save the chapter study edits.', 'fail');
   }
   chapterStudy = null;
+  if (minimizedChapterStudyOverlay === overlay) minimizedChapterStudyOverlay = null;
+  updateChapterStudyChip();
   closeOverlay(overlay);
   if (resumeGeneralNote) {
     const draft = resumeGeneralNote;
@@ -10822,6 +10911,36 @@ async function openChapterStudyFromVerse(key) {
   await openChapterStudy(key);
 }
 
+let minimizedChapterStudyOverlay = null;
+
+function updateChapterStudyChip() {
+  const chip = document.getElementById('cs-chip');
+  if (!chip) return;
+  if (!minimizedChapterStudyOverlay) {
+    chip.hidden = true;
+    return;
+  }
+  chip.hidden = false;
+  const title = chapterStudy ? (chapterStudyTitle() || 'Chapter study') : 'Chapter study';
+  chip.textContent = title;
+}
+
+function minimizeChapterStudy(overlay) {
+  if (!overlay) return;
+  flushStructureAnalysis(overlay);
+  minimizedChapterStudyOverlay = overlay;
+  overlay.style.display = 'none';
+  updateChapterStudyChip();
+  showAppStatus('Chapter study minimized.', 'ok');
+}
+
+function restoreChapterStudy() {
+  if (!minimizedChapterStudyOverlay) return;
+  minimizedChapterStudyOverlay.style.display = '';
+  minimizedChapterStudyOverlay = null;
+  updateChapterStudyChip();
+}
+
 async function openChapterStudy(startKey) {
   const book = books.find((b) => b.id === currentBookId);
   if (!book) {
@@ -10862,6 +10981,7 @@ async function openChapterStudy(startKey) {
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
           '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+          '<button type="button" class="close search-close" id="cs-min" aria-label="Minimize" title="Minimize">–</button>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
         '<div class="cs-map-row">' +
@@ -10899,6 +11019,7 @@ async function openChapterStudy(startKey) {
     }
   }, true);
   $('#cs-close', overlay).onclick = () => leaveChapterStudy(overlay);
+  $('#cs-min', overlay).onclick = () => minimizeChapterStudy(overlay);
   const csMapBtn = $('#cs-show-map', overlay);
   if (csMapBtn) csMapBtn.onclick = () => restoreActiveMap();
   const csSwitchBtn = $('#cs-switch-chapter', overlay);
