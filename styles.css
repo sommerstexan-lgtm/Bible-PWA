@@ -2736,6 +2736,36 @@ textarea.cs-struct-answer {
 }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }
 .cs-tab { flex: 1; min-height: 48px; }
+.cs-section-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0.2rem;
+  padding: 0.2rem 0;
+}
+.cs-sect {
+  min-height: 36px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.cs-sect-on { background: #f4c430; color: #111; }
+.sect-jump, .cs-sect-note, .note-sect-jump {
+  display: inline-block;
+  margin: 0.15rem 0.3rem 0.15rem 0;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: #f4c430;
+  color: #111;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
 .cs-tab-on { background: #f4c430; color: #111; font-weight: 800; }
 .cs-view-label {
   margin: 0 0 0.4rem;

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.50
+/* app.js – Main application controller. KJV Study PWA v6.99.52
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.50';
+const APP_VERSION = '6.99.52';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3435,6 +3435,46 @@ function parseStructureFromOutline(text) {
   return elements.length ? { type: groups.length ? 'concentric' : 'sequential', center: labels.find(l => l === 'X' || l === 'H') || '', elements, groups } : null;
 }
 
+function parseRangeStart(range) {
+  const m = String(range || '').match(/(\d+)/);
+  return m ? Number(m[1]) : 0;
+}
+function parseRangeEnd(range) {
+  const parts = String(range || '').split(/[-–]/);
+  const last = parts[parts.length - 1];
+  const m = last.match(/(\d+)/);
+  return m ? Number(m[1]) : parseRangeStart(range);
+}
+function sectionForVerse(structure, verseNum) {
+  if (!structure || !Array.isArray(structure.elements)) return null;
+  const n = Number(verseNum);
+  for (const el of structure.elements) {
+    const start = parseRangeStart(el.range);
+    const end = parseRangeEnd(el.range);
+    if (n >= start && n <= end) return el;
+  }
+  return null;
+}
+function lastSectionKey(bookId, chapter) {
+  return 'kjv-last-section-' + bookId + '.' + chapter;
+}
+function rememberLastSection(bookId, chapter, id) {
+  try { localStorage.setItem(lastSectionKey(bookId, chapter), id); } catch (_) {}
+}
+function clearLastSection(bookId, chapter) {
+  try { localStorage.removeItem(lastSectionKey(bookId, chapter)); } catch (_) {}
+}
+function recallLastSection(bookId, chapter) {
+  try { return localStorage.getItem(lastSectionKey(bookId, chapter)) || ''; } catch (_) { return ''; }
+}
+function scrollToStructSection(overlay, id) {
+  if (!overlay || !id) return;
+  const el = overlay.querySelector('[data-sect="' + id + '"]');
+  if (!el) return;
+  el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  el.style.outline = '2px solid #f4c430';
+  setTimeout(() => { el.style.outline = ''; }, 1200);
+}
 const INDIVIDUAL_PROMPTS = [
   'Main point or event in this section',
   'What stands out or is repeated',
@@ -3564,6 +3604,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     }
   }
   const enableTap = true;
+  const structRec = await storage.getLiteraryStructureUser(bookId + '.' + chapterNum).catch(() => null);
+  const chapterStructure = structRec && structRec.structure;
 
   const bracketByVerse = new Map();
   const addBracket = (rangeStr) => {
@@ -3624,9 +3666,12 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       chainCountMap[key] ? `<button type="button" class="verse-dot chain" data-act="chains" data-key="${key}" title="Chains">Chain</button>` : ''
     ].join('');
 
+    const sect = sectionForVerse(chapterStructure, v.number);
+    const sectLabel = sect ? `<button type="button" class="sect-jump" data-act="sect-jump" data-key="${key}" data-sect-label="${escapeHtml(sect.label)}" title="Open Chapter study at this section">${escapeHtml(sect.label)} ${escapeHtml(sect.range)}</button>` : '';
     verseEl.innerHTML = `
       <span class="verse-num" data-act-verse="${key}" title="Word-level color suggestions">${v.number}</span>
       <span class="verse-text">${coloredText}</span>
+      ${sectLabel}
       <div class="color-chips">${chips}</div>
       <div class="verse-status-row">
         <span class="verse-dots">${dots}</span>
@@ -3849,6 +3894,26 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'places') { reopenResearchPlaces = true; openResearch(); }
     else if (act === 'show-map') restoreActiveMap();
     else if (act === 'chapter-notes') openChapterNotesFromVerse(key);
+    else if (act === 'sect-jump') {
+      const lab = btn.dataset.sectLabel;
+      openChapterStudyFromVerse(key).then(() => {
+        // After open, find and scroll to matching section
+        setTimeout(() => {
+          const overlay = document.querySelector('.overlay .cs-panel') ? document.querySelector('.overlay .cs-panel').closest('.overlay') : null;
+          if (!overlay || !lab) return;
+          const target = Array.from(overlay.querySelectorAll('[data-sect]')).find(el => {
+            const h = el.querySelector('h3');
+            return h && h.textContent.indexOf(lab) === 0;
+          });
+          if (target) {
+            const id = target.dataset.sect;
+            rememberLastSection(currentBookId, currentChapter, id);
+            if (chapterStudy) switchChapterStudyView(overlay, 'summary');
+            setTimeout(() => scrollToStructSection(overlay, id), 150);
+          }
+        }, 200);
+      });
+    }
     else if (act === 'chapter-summary') openChapterStudyFromVerse(key);
   };
 
@@ -6956,12 +7021,35 @@ async function openNotesList(resume) {
     el.innerHTML = shown.map((it, i) => `
       <button type="button" class="xref-item note-list-row" data-idx="${i}" data-focus="${attrEsc(it.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
         <strong>${escapeHtml(it.labels.join(', ') || 'Note')}</strong>
+        <span class="note-sect" data-key="${attrEsc(it.openKey || '')}"></span>
         ${it.kind === 'shared' ? '<div class="trail-src">Shared note</div>' : ''}
         <div class="trail-src">${escapeHtml(snippet(it.text) || '(empty)')}</div>
       </button>
     `).join('');
     $$('.note-list-row', overlay).forEach(btn => {
       btn.onclick = () => openHit(shown[Number(btn.dataset.idx)]);
+    });
+    // Fill section labels on notes list
+    overlay.querySelectorAll('.note-sect').forEach(async (span) => {
+      const key = span.dataset.key;
+      if (!key) return;
+      const p = bible.parseKey(key);
+      if (!p) return;
+      const rec = await storage.getLiteraryStructureUser(p.bookId + '.' + p.chapter).catch(() => null);
+      const s = rec && rec.structure;
+      const el = sectionForVerse(s, p.verse);
+      if (el) {
+        span.innerHTML = ' <button type="button" class="note-sect-jump" data-key="' + attrEsc(key) + '" style="margin-left:0.4rem;font-size:0.85rem;padding:0.15rem 0.4rem">' + escapeHtml(el.label) + '</button>';
+        const jb = span.querySelector('.note-sect-jump');
+        if (jb) jb.onclick = async (e) => {
+          e.stopPropagation();
+          closeOverlay(overlay);
+          await jumpToRef(key);
+          setTimeout(() => {
+            openChapterStudyFromVerse(key);
+          }, 200);
+        };
+      }
     });
     paintSummaryButton();
   }
@@ -10188,6 +10276,7 @@ async function paintChapterStudyBody(overlay) {
       return '<article class="cs-row" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">' +
         '<div class="cs-row-head">' +
           '<button type="button" class="cs-pick" data-verse="' + v.number + '">' + escapeHtml(chapterStudyLabel(v.number)) + '</button>' +
+          '<button type="button" class="cs-sect-note" data-verse="' + v.number + '">Section</button>' +
           '<button type="button" class="cs-color" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">Color</button>' +
           '<button type="button" class="cs-copy-note" data-verse="' + v.number + '" data-key="' + escapeHtml(key) + '">Copy</button>' +
         '</div>' +
@@ -10199,6 +10288,26 @@ async function paintChapterStudyBody(overlay) {
     body.querySelectorAll('.cs-pick').forEach((btn) => {
       btn.onclick = () => setChapterStudyVerse(overlay, Number(btn.dataset.verse));
     });
+    storage.getLiteraryStructureUser(chapterStudy.bookId + '.' + chapterStudy.chapter).then((rec) => {
+      const s = rec && rec.structure;
+      if (!s) return;
+      body.querySelectorAll('.cs-sect-note').forEach((btn) => {
+        const vnum = Number(btn.dataset.verse);
+        const el = sectionForVerse(s, vnum);
+        if (el) {
+          btn.textContent = el.label + ' ' + el.range;
+          btn.onclick = () => {
+            const idx = s.elements.indexOf(el);
+            const id = 'el-' + idx;
+            rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
+            switchChapterStudyView(overlay, 'summary');
+            setTimeout(() => scrollToStructSection(overlay, id), 150);
+          };
+        } else {
+          btn.hidden = true;
+        }
+      });
+    }).catch(() => {});
     body.querySelectorAll('.cs-copy-note').forEach((btn) => {
       btn.onclick = async () => {
         const key = btn.dataset.key;
@@ -10255,7 +10364,8 @@ async function paintChapterStudyBody(overlay) {
       const s = chapterStudy.structDraft;
       let html = '<p class="cs-meta">Analysis follows the structure you defined. Individual sections and combined pairs/clusters have their own fields. Older four-question summary remains available as reference.</p>';
       s.elements.forEach((el, ei) => {
-        html += '<div class="struct-el" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px">';
+        const sid = 'el-' + ei;
+        html += '<div class="struct-el" data-sect="' + sid + '" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px">';
         html += '<h3 style="margin:0 0 0.4rem;font-size:1.05rem">' + escapeHtml(el.label) + ' (' + escapeHtml(el.range) + ') — ' + escapeHtml(el.note || '') + '</h3>';
         INDIVIDUAL_PROMPTS.forEach((p, pi) => {
           const val = (el.answers && el.answers[pi]) || '';
@@ -10265,7 +10375,8 @@ async function paintChapterStudyBody(overlay) {
         html += '</div>';
       });
       (s.groups || []).forEach((g, gi) => {
-        html += '<div class="struct-group" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--accent);border-radius:8px">';
+        const sid = 'grp-' + gi;
+        html += '<div class="struct-group" data-sect="' + sid + '" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--accent);border-radius:8px">';
         html += '<h3 style="margin:0 0 0.4rem;font-size:1.05rem">' + escapeHtml(g.labels.join(' / ')) + ' together</h3>';
         COMBINED_PROMPTS.forEach((p, pi) => {
           const val = (g.answers && g.answers[pi]) || '';
@@ -10278,6 +10389,12 @@ async function paintChapterStudyBody(overlay) {
       html += '<p class="cs-meta" style="margin-top:1rem"><button type="button" id="cs-show-old-summary" class="quiet">Show earlier four-question summary</button></p>';
       body.innerHTML = html;
       body.querySelectorAll('textarea.cs-struct-answer').forEach((box) => {
+        box.addEventListener('focus', () => {
+          const kind = box.dataset.kind;
+          const id = kind === 'el' ? ('el-' + box.dataset.ei) : ('grp-' + box.dataset.gi);
+          rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
+          updateSectionBar(overlay);
+        });
         const saveStructNow = async () => {
           try {
             await storage.saveLiteraryStructure(userKey, userRec.outlineText || '', s);
@@ -10325,6 +10442,9 @@ async function paintChapterStudyBody(overlay) {
           paintChapterStudyBody(overlay);
         };
       }
+      updateSectionBar(overlay);
+      const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
+      if (last) setTimeout(() => scrollToStructSection(overlay, last), 80);
     } else if (chapterStudy.forceOldSummary) {
       if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
       if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = chapterStudy.summaryLoaded.answers.slice();
@@ -10931,6 +11051,52 @@ function updateChapterStudyChip() {
   chip.textContent = title;
 }
 
+function updateSectionBar(overlay) {
+  const bar = overlay.querySelector('#cs-section-bar');
+  if (!bar || !chapterStudy) return;
+  const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
+  storage.getLiteraryStructureUser(userKey).then((rec) => {
+    const s = rec && rec.structure;
+    if (!s || !Array.isArray(s.elements) || !s.elements.length) {
+      bar.hidden = true;
+      return;
+    }
+    const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
+    let html = '';
+    s.elements.forEach((el, ei) => {
+      const id = 'el-' + ei;
+      const on = id === last ? ' cs-sect-on' : '';
+      html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(el.label) + '</button>';
+    });
+    (s.groups || []).forEach((g, gi) => {
+      const id = 'grp-' + gi;
+      const on = id === last ? ' cs-sect-on' : '';
+      html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(g.labels.join('/')) + '</button>';
+    });
+    html += '<button type="button" class="cs-sect cs-sect-clear" data-sect="clear">Clear place</button>';
+    bar.innerHTML = html;
+    bar.hidden = false;
+    bar.querySelectorAll('.cs-sect').forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.sect;
+        if (id === 'clear') {
+          clearLastSection(chapterStudy.bookId, chapterStudy.chapter);
+          updateSectionBar(overlay);
+          showAppStatus('Place cleared. Summary opens at the top until you select a section.', 'ok');
+          return;
+        }
+        rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
+        if (chapterStudy.view !== 'summary') {
+          switchChapterStudyView(overlay, 'summary');
+          setTimeout(() => scrollToStructSection(overlay, id), 120);
+        } else {
+          scrollToStructSection(overlay, id);
+        }
+        updateSectionBar(overlay);
+      };
+    });
+  }).catch(() => { bar.hidden = true; });
+}
 function minimizeChapterStudy(overlay) {
   if (!overlay) return;
   flushStructureAnalysis(overlay);
@@ -11000,6 +11166,7 @@ async function openChapterStudy(startKey) {
           '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
           '<button type="button" class="cs-tab" data-view="images">Images</button>' +
         '</div>' +
+        '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
         '<div id="cs-view-label" class="cs-view-label">Verses</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
@@ -11065,6 +11232,7 @@ async function openChapterStudy(startKey) {
   await ensureChapterStudyHighlights(true);
   paintChapterStudyStrip(overlay);
   await paintChapterStudyBody(overlay);
+  updateSectionBar(overlay);
 }
 
 function stepChapterStudyVerse(overlay, dir) {
