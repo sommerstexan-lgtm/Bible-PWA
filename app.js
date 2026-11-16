@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.49
+/* app.js – Main application controller. KJV Study PWA v6.99.50
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.49';
+const APP_VERSION = '6.99.50';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3869,6 +3869,12 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     main.scrollTop = opts.preserveScroll;
   } else {
     main.scrollTop = 0;
+  }
+  // Restore chapter search after re-render so highlighting a match does not clear the box or jump to the top
+  if (chapterSearchState && chapterSearchState.term) {
+    const term = chapterSearchState.term;
+    document.querySelectorAll('.chapter-search').forEach((inp) => { inp.value = term; });
+    applyChapterSearch(term, { skipJump: true });
   }
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
   updateChapterButtons();
@@ -13580,7 +13586,8 @@ function updateVerseSelect(optionsNums) {
   });
 }
 
-function applyChapterSearch(term) {
+function applyChapterSearch(term, opts) {
+  opts = opts || {};
   // Clear previous highlights and marks
   document.querySelectorAll('.verse.search-hit').forEach(el => el.classList.remove('search-hit'));
   document.querySelectorAll('.search-mark').forEach(m => {
@@ -13591,7 +13598,9 @@ function applyChapterSearch(term) {
     }
   });
 
-  chapterSearchState = { term: term || '', matches: [] };
+  const prevTerm = chapterSearchState.term || '';
+  const prevMatch = chapterSearchState.lastMatch || 0;
+  chapterSearchState = { term: term || '', matches: [], lastMatch: prevTerm === term ? prevMatch : 0 };
 
   const allVerses = getChapterVerses().map(v => Number(v.number));
 
@@ -13617,7 +13626,26 @@ function applyChapterSearch(term) {
   chapterSearchState.matches = matches;
   if (matches.length) {
     updateVerseSelect(matches);
-    jumpToVerseNum(matches[0]);
+    if (!opts.skipJump) {
+      // Jump to the next match at or after the current view, not always the first
+      const main = document.getElementById('main');
+      const viewTop = main ? main.scrollTop : 0;
+      let target = matches[0];
+      for (const n of matches) {
+        const el = verseElByNum(n);
+        if (el && el.offsetTop >= viewTop - 40) {
+          target = n;
+          break;
+        }
+      }
+      // If we already landed on this match before, advance to the following one
+      if (prevTerm === term && prevMatch && matches.includes(prevMatch)) {
+        const idx = matches.indexOf(prevMatch);
+        if (idx >= 0 && idx + 1 < matches.length) target = matches[idx + 1];
+      }
+      chapterSearchState.lastMatch = target;
+      jumpToVerseNum(target);
+    }
     showAppStatus(matches.length + ' match' + (matches.length === 1 ? '' : 'es') + ' — select lists only matches', 'ok');
   } else {
     updateVerseSelect(allVerses);
