@@ -1,4 +1,4 @@
-## New in 6.99.44
+## New in 6.99.45
 
 - Chapter study now uses the chapter’s literary structure (when defined) to drive analysis fields.
 - Individual sections receive five starter prompts; matching pairs or clusters receive three combined prompts.
