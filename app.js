@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.61
+/* app.js – Main application controller. KJV Study PWA v6.99.62
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.61';
+const APP_VERSION = '6.99.62';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -10462,7 +10462,7 @@ async function paintChapterStudyBody(overlay) {
     if (structure && Array.isArray(structure.elements) && structure.elements.length) {
       if (!chapterStudy.structDraft) chapterStudy.structDraft = JSON.parse(JSON.stringify(structure));
       const s = chapterStudy.structDraft;
-      let html = '<p class="cs-meta">Literary structure analysis. Each section and pair has its own fields. Use the Chapter summary tab for the four-question overview.</p>';
+      let html = '<p class="cs-meta">Literary structure analysis. Each section and pair has its own fields. Use the Key verse tab for the four-question overview.</p>';
       s.elements.forEach((el, ei) => {
         const sid = 'el-' + ei;
         html += '<div class="struct-el" data-sect="' + sid + '" style="margin:0.45rem 0;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:8px">';
@@ -10754,7 +10754,7 @@ async function paintChapterStudyBody(overlay) {
   });
   const viewLabel = overlay.querySelector('#cs-view-label');
   if (viewLabel) {
-    const labels = { verses: 'Verses', notes: 'Verse notes', structure: 'Structure analysis', summary: 'Chapter summary', images: 'Images' };
+    const labels = { verses: 'Verses', notes: 'Verse notes', structure: 'Literary structure', summary: 'Key verse', images: 'Images' };
     viewLabel.textContent = labels[view] || view;
     viewLabel.hidden = (view === 'summary' || view === 'structure');
   }
@@ -11174,8 +11174,8 @@ async function openChapterStudy(startKey) {
         '<div class="cs-tabs">' +
           '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
           '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
-          '<button type="button" class="cs-tab" data-view="structure">Structure</button>' +
-          '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
+          '<button type="button" class="cs-tab" data-view="structure">Literary structure</button>' +
+          '<button type="button" class="cs-tab" data-view="summary">Key verse</button>' +
           '<button type="button" class="cs-tab" data-view="images">Images</button>' +
         '</div>' +
         '<div id="cs-view-label" class="cs-view-label">Verses</div>' +
