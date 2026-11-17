@@ -3933,8 +3933,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
               scrollToStructSection(overlay, id);
             }
           };
-          if (chapterStudy.view !== 'summary') {
-            switchChapterStudyView(overlay, 'summary').then(go);
+          if (chapterStudy.view !== 'structure') {
+            switchChapterStudyView(overlay, 'structure').then(go);
           } else {
             go();
           }
@@ -10387,7 +10387,7 @@ async function paintChapterStudyBody(overlay) {
             const idx = s.elements.indexOf(el);
             const id = 'el-' + idx;
             rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
-            switchChapterStudyView(overlay, 'summary');
+            switchChapterStudyView(overlay, 'structure');
             setTimeout(() => scrollToStructSection(overlay, id), 150);
           };
         } else {
@@ -10441,19 +10441,18 @@ async function paintChapterStudyBody(overlay) {
     });
     const copyBtn = body.querySelector('#cs-copy-notes');
     if (copyBtn) copyBtn.onclick = () => copyChapterStudyNotes(overlay);
-  } else if (view === 'summary') {
+  } else if (view === 'structure') {
     const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
     const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
     const structure = userRec && userRec.structure;
     if (structure && Array.isArray(structure.elements) && structure.elements.length) {
-      // Structure-driven analysis
       if (!chapterStudy.structDraft) chapterStudy.structDraft = JSON.parse(JSON.stringify(structure));
       const s = chapterStudy.structDraft;
-      let html = '<p class="cs-meta">Analysis follows the structure you defined. Individual sections and combined pairs/clusters have their own fields. Older four-question summary remains available as reference.</p>';
+      let html = '<p class="cs-meta">Literary structure analysis. Each section and pair has its own fields. Use the Chapter summary tab for the four-question overview.</p>';
       s.elements.forEach((el, ei) => {
         const sid = 'el-' + ei;
-        html += '<div class="struct-el" data-sect="' + sid + '" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px">';
-        html += '<h3 style="margin:0 0 0.4rem;font-size:1.05rem">' + escapeHtml(el.label) + ' (' + escapeHtml(el.range) + ') — ' + escapeHtml(el.note || '') + '</h3>';
+        html += '<div class="struct-el" data-sect="' + sid + '" style="margin:0.45rem 0;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:8px">';
+        html += '<h3 style="margin:0 0 0.25rem;font-size:1rem">' + escapeHtml(el.label) + ' (' + escapeHtml(el.range) + ') — ' + escapeHtml(el.note || '') + '</h3>';
         INDIVIDUAL_PROMPTS.forEach((p, pi) => {
           const val = (el.answers && el.answers[pi]) || '';
           html += '<p class="sn-q-label">' + escapeHtml(p) + '</p>' +
@@ -10463,8 +10462,8 @@ async function paintChapterStudyBody(overlay) {
       });
       (s.groups || []).forEach((g, gi) => {
         const sid = 'grp-' + gi;
-        html += '<div class="struct-group" data-sect="' + sid + '" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--accent);border-radius:8px">';
-        html += '<h3 style="margin:0 0 0.4rem;font-size:1.05rem">' + escapeHtml(g.labels.join(' / ')) + ' together</h3>';
+        html += '<div class="struct-group" data-sect="' + sid + '" style="margin:0.45rem 0;padding:0.4rem 0.5rem;border:1px solid var(--accent);border-radius:8px">';
+        html += '<h3 style="margin:0 0 0.25rem;font-size:1rem">' + escapeHtml(g.labels.join(' / ')) + ' together</h3>';
         COMBINED_PROMPTS.forEach((p, pi) => {
           const val = (g.answers && g.answers[pi]) || '';
           html += '<p class="sn-q-label">' + escapeHtml(p) + '</p>' +
@@ -10472,8 +10471,7 @@ async function paintChapterStudyBody(overlay) {
         });
         html += '</div>';
       });
-      html += '<button type="button" id="cs-save-struct" style="width:100%;margin-top:0.7rem;min-height:52px">Save structure analysis (also saves when you leave a field)</button>';
-      html += '<p class="cs-meta" style="margin-top:1rem"><button type="button" id="cs-show-old-summary" class="quiet">Show earlier four-question summary</button></p>';
+      html += '<button type="button" id="cs-save-struct" style="width:100%;margin-top:0.7rem;min-height:52px">Save structure analysis</button>';
       body.innerHTML = html;
       body.querySelectorAll('textarea.cs-struct-answer').forEach((box) => {
         box.addEventListener('focus', () => {
@@ -10522,197 +10520,101 @@ async function paintChapterStudyBody(overlay) {
           }
         };
       }
-      const showOld = body.querySelector('#cs-show-old-summary');
-      if (showOld) {
-        showOld.onclick = () => {
-          chapterStudy.forceOldSummary = true;
-          paintChapterStudyBody(overlay);
-        };
-      }
       updateSectionBar(overlay);
       const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
       if (last) setTimeout(() => scrollToStructSection(overlay, last), 80);
-    } else if (chapterStudy.forceOldSummary) {
-      if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
-      if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = chapterStudy.summaryLoaded.answers.slice();
-      const title = chapterStudyTitle().trim();
-      const ref = summaryRefFromTitle(title, 'chapter');
-      const lines = summaryQuestionLines('chapter', ref);
-      body.innerHTML = '<p class="cs-meta">Earlier four-question summary (reference). Structure analysis is preferred when a structure is defined.</p>' +
-        lines.map((line, i) => {
-          const val = chapterStudy.summaryDraft[i] == null ? '' : chapterStudy.summaryDraft[i];
-          return '<p class="sn-q-label">' + escapeHtml(line) + '</p>' +
-            '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>' +
-            '<button type="button" class="cs-copy-answer" data-i="' + i + '" style="width:100%;margin:0.1rem 0 0.55rem;min-height:40px;font-size:0.95rem">Copy this answer</button>';
-        }).join('') +
-        '<button type="button" id="cs-copy-summary" style="width:100%;margin-top:0.7rem;min-height:48px">Copy this summary</button>' +
-        '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.45rem;min-height:52px">Save chapter summary</button>' +
-        '<p class="cs-meta"><button type="button" id="cs-back-to-struct" class="quiet">Back to structure analysis</button></p>';
-      body.querySelectorAll('textarea.cs-answer').forEach((box) => {
-        box.addEventListener('focus', () => {
-          rememberChapterStudySummaryCursor(box);
-        });
-        box.addEventListener('keydown', (e) => e.stopPropagation());
-        box.addEventListener('keyup', (e) => {
-          e.stopPropagation();
-          rememberChapterStudySummaryCursor(box);
-        });
-        box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
-        box.addEventListener('input', (e) => {
-          e.stopPropagation();
-          if (chapterStudy) {
-            const i = Number(box.dataset.i);
-            if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = [];
-            chapterStudy.summaryDraft[i] = box.value || '';
-            chapterStudy.summaryDirty = true;
-          }
-          rememberChapterStudySummaryCursor(box);
-        });
-        growSummaryBox(box);
-        attachChapterStudyKeyboardFix(box);
-      });
-      body.querySelectorAll('button.cs-copy-answer').forEach((btn) => {
-        btn.onclick = async () => {
-          const i = Number(btn.dataset.i);
-          const box = body.querySelector('textarea.cs-answer[data-i="' + i + '"]');
-          const text = box ? String(box.value || '') : '';
-          if (!text.trim()) {
-            showAppStatus('Nothing to copy.', 'fail');
-            return;
-          }
-          try {
-            const ok = await copyText(text);
-            showAppStatus(ok ? 'Copied this answer.' : 'Could not copy.', ok ? 'ok' : 'fail');
-          } catch (_) {
-            showAppStatus('Could not copy this answer.', 'fail');
-          }
-        };
-      });
-      if (chapterStudy.summaryFocus) {
-        setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
-        setTimeout(() => restoreChapterStudySummaryFocus(overlay), 60);
-      }
-      const copyBtn = body.querySelector('#cs-copy-summary');
-      if (copyBtn) {
-        copyBtn.onclick = async () => {
-          try {
-            captureChapterStudySummary(overlay);
-            const title = chapterStudyTitle().trim();
-            const answers = (chapterStudy.summaryDraft || []).slice();
-            const loaded = chapterStudy.summaryLoaded || {};
-            const page = {
-              title,
-              kind: 'Chapter summary',
-              blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, loaded.legacyText || '')
-            };
-            const ok = await copyText(studyPagePlain(page));
-            showAppStatus(ok ? 'Copied this summary.' : 'Could not copy.', ok ? 'ok' : 'fail');
-          } catch (_) {
-            showAppStatus('Could not copy this summary.', 'fail');
-          }
-        };
-      }
-      const saveBtn = body.querySelector('#cs-save-summary');
-      if (saveBtn) saveBtn.onclick = async () => {
-        await saveChapterStudySummary(overlay);
-        showAppStatus('Chapter summary saved.', 'ok');
-      };
-      const backBtn = body.querySelector('#cs-back-to-struct');
-      if (backBtn) backBtn.onclick = () => {
-        chapterStudy.forceOldSummary = false;
-        paintChapterStudyBody(overlay);
-      };
     } else {
-      // Default old view if no structure
-      if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
-      if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = chapterStudy.summaryLoaded.answers.slice();
-      const title = chapterStudyTitle().trim();
-      const ref = summaryRefFromTitle(title, 'chapter');
-      const lines = summaryQuestionLines('chapter', ref);
-      body.innerHTML = '<p class="cs-meta">Same four questions as this chapter’s summary. Saving here writes that summary, not a second note. Tap “Copy this answer” under any box to copy only that answer.</p>' +
-        lines.map((line, i) => {
-          const val = chapterStudy.summaryDraft[i] == null ? '' : chapterStudy.summaryDraft[i];
-          return '<p class="sn-q-label">' + escapeHtml(line) + '</p>' +
-            '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>' +
-            '<button type="button" class="cs-copy-answer" data-i="' + i + '" style="width:100%;margin:0.1rem 0 0.55rem;min-height:40px;font-size:0.95rem">Copy this answer</button>';
-        }).join('') +
-        '<button type="button" id="cs-copy-summary" style="width:100%;margin-top:0.7rem;min-height:48px">Copy this summary</button>' +
-        '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.45rem;min-height:52px">Save chapter summary</button>';
-      body.querySelectorAll('textarea.cs-answer').forEach((box) => {
-        box.addEventListener('focus', () => {
-          rememberChapterStudySummaryCursor(box);
-        });
-        box.addEventListener('keydown', (e) => e.stopPropagation());
-        box.addEventListener('keyup', (e) => {
-          e.stopPropagation();
-          rememberChapterStudySummaryCursor(box);
-        });
-        box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
-        box.addEventListener('input', (e) => {
-          e.stopPropagation();
-          if (chapterStudy) {
-            const i = Number(box.dataset.i);
-            if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = [];
-            chapterStudy.summaryDraft[i] = box.value || '';
-            chapterStudy.summaryDirty = true;
-          }
-          rememberChapterStudySummaryCursor(box);
-        });
-        growSummaryBox(box);
-        attachChapterStudyKeyboardFix(box);
+      body.innerHTML = '<p class="cs-meta">No literary structure is defined for this chapter yet. Define one from the chapter tools, then return here to fill the analysis fields.</p>';
+    }
+  } else if (view === 'summary') {
+    if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
+    if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = chapterStudy.summaryLoaded.answers.slice();
+    const title = chapterStudyTitle().trim();
+    const ref = summaryRefFromTitle(title, 'chapter');
+    const lines = summaryQuestionLines('chapter', ref);
+    body.innerHTML = '<p class="cs-meta">Four-question chapter summary. Saving here writes that summary. Use the Structure tab for the literary analysis.</p>' +
+      lines.map((line, i) => {
+        const val = chapterStudy.summaryDraft[i] == null ? '' : chapterStudy.summaryDraft[i];
+        return '<p class="sn-q-label">' + escapeHtml(line) + '</p>' +
+          '<textarea class="cs-answer sn-answer" data-i="' + i + '" rows="4">' + escapeHtml(val) + '</textarea>' +
+          '<button type="button" class="cs-copy-answer" data-i="' + i + '" style="width:100%;margin:0.1rem 0 0.55rem;min-height:40px;font-size:0.95rem">Copy this answer</button>';
+      }).join('') +
+      '<button type="button" id="cs-copy-summary" style="width:100%;margin-top:0.7rem;min-height:48px">Copy this summary</button>' +
+      '<button type="button" id="cs-save-summary" style="width:100%;margin-top:0.45rem;min-height:52px">Save chapter summary</button>';
+    body.querySelectorAll('textarea.cs-answer').forEach((box) => {
+      box.addEventListener('focus', () => {
+        rememberChapterStudySummaryCursor(box);
       });
-      body.querySelectorAll('button.cs-copy-answer').forEach((btn) => {
-        btn.onclick = async () => {
-          const i = Number(btn.dataset.i);
-          const box = body.querySelector('textarea.cs-answer[data-i="' + i + '"]');
-          const text = box ? String(box.value || '') : '';
-          if (!text.trim()) {
-            showAppStatus('Nothing to copy.', 'fail');
-            return;
-          }
-          try {
-            const ok = await copyText(text);
-            showAppStatus(ok ? 'Copied this answer.' : 'Could not copy.', ok ? 'ok' : 'fail');
-          } catch (_) {
-            showAppStatus('Could not copy this answer.', 'fail');
-          }
-        };
+      box.addEventListener('keydown', (e) => e.stopPropagation());
+      box.addEventListener('keyup', (e) => {
+        e.stopPropagation();
+        rememberChapterStudySummaryCursor(box);
       });
-      if (chapterStudy.summaryFocus) {
-        setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
-        setTimeout(() => restoreChapterStudySummaryFocus(overlay), 60);
-      }
-      const copyBtn = body.querySelector('#cs-copy-summary');
-      if (copyBtn) {
-        copyBtn.onclick = async () => {
-          try {
-            captureChapterStudySummary(overlay);
-            const title = chapterStudyTitle().trim();
-            const answers = (chapterStudy.summaryDraft || []).slice();
-            const loaded = chapterStudy.summaryLoaded || {};
-            const page = {
-              title,
-              kind: 'Chapter summary',
-              blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, loaded.legacyText || '')
-            };
-            const ok = await copyText(studyPagePlain(page));
-            showAppStatus(ok ? 'Copied this summary.' : 'Could not copy.', ok ? 'ok' : 'fail');
-          } catch (_) {
-            showAppStatus('Could not copy this summary.', 'fail');
-          }
-        };
-      }
-      const saveBtn = body.querySelector('#cs-save-summary');
-      if (saveBtn) {
-        saveBtn.onclick = async () => {
-          try {
-            await saveChapterStudySummary(overlay);
-            showAppStatus('Chapter summary saved.', 'ok');
-          } catch (_) {
-            showAppStatus('Could not save the chapter summary.', 'fail');
-          }
-        };
-      }
+      box.addEventListener('pointerup', () => rememberChapterStudySummaryCursor(box));
+      box.addEventListener('input', (e) => {
+        e.stopPropagation();
+        if (chapterStudy) {
+          const i = Number(box.dataset.i);
+          if (!chapterStudy.summaryDraft) chapterStudy.summaryDraft = [];
+          chapterStudy.summaryDraft[i] = box.value || '';
+          chapterStudy.summaryDirty = true;
+        }
+        rememberChapterStudySummaryCursor(box);
+      });
+      growSummaryBox(box);
+      attachChapterStudyKeyboardFix(box);
+    });
+    body.querySelectorAll('button.cs-copy-answer').forEach((btn) => {
+      btn.onclick = async () => {
+        const i = Number(btn.dataset.i);
+        const box = body.querySelector('textarea.cs-answer[data-i="' + i + '"]');
+        const text = box ? String(box.value || '') : '';
+        if (!text.trim()) {
+          showAppStatus('Nothing to copy.', 'fail');
+          return;
+        }
+        try {
+          const ok = await copyText(text);
+          showAppStatus(ok ? 'Copied this answer.' : 'Could not copy.', ok ? 'ok' : 'fail');
+        } catch (_) {
+          showAppStatus('Could not copy this answer.', 'fail');
+        }
+      };
+    });
+    if (chapterStudy.summaryFocus) {
+      setTimeout(() => restoreChapterStudySummaryFocus(overlay), 0);
+      setTimeout(() => restoreChapterStudySummaryFocus(overlay), 60);
+    }
+    const copyBtn = body.querySelector('#cs-copy-summary');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          captureChapterStudySummary(overlay);
+          const title = chapterStudyTitle().trim();
+          const answers = (chapterStudy.summaryDraft || []).slice();
+          const loaded = chapterStudy.summaryLoaded || {};
+          const page = {
+            title,
+            kind: 'Chapter summary',
+            blocks: summaryBlocksFromAnswers(title, SUMMARY_CHAPTER_QS, answers, loaded.legacyText || '')
+          };
+          const ok = await copyText(studyPagePlain(page));
+          showAppStatus(ok ? 'Copied this summary.' : 'Could not copy.', ok ? 'ok' : 'fail');
+        } catch (_) {
+          showAppStatus('Could not copy this summary.', 'fail');
+        }
+      };
+    }
+    const saveBtn = body.querySelector('#cs-save-summary');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        try {
+          await saveChapterStudySummary(overlay);
+          showAppStatus('Chapter summary saved.', 'ok');
+        } catch (_) {
+          showAppStatus('Could not save the chapter summary.', 'fail');
+        }
+      };
     }
   } else if (view === 'images') {
     if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
@@ -10838,16 +10740,16 @@ async function paintChapterStudyBody(overlay) {
   });
   const viewLabel = overlay.querySelector('#cs-view-label');
   if (viewLabel) {
-    const labels = { verses: 'Verses', notes: 'Verse notes', summary: 'Chapter summary', images: 'Images' };
+    const labels = { verses: 'Verses', notes: 'Verse notes', structure: 'Structure analysis', summary: 'Chapter summary', images: 'Images' };
     viewLabel.textContent = labels[view] || view;
-    viewLabel.hidden = (view === 'summary');
+    viewLabel.hidden = (view === 'summary' || view === 'structure');
   }
   const panel = overlay.querySelector('.cs-panel');
-  if (panel) panel.classList.toggle('cs-summary-mode', view === 'summary');
+  if (panel) panel.classList.toggle('cs-summary-mode', view === 'summary' || view === 'structure');
   const step = overlay.querySelector('.cs-step');
-  if (step) step.hidden = (view === 'summary');
+  if (step) step.hidden = (view === 'summary' || view === 'structure');
   const mapRow = overlay.querySelector('.cs-map-row');
-  if (mapRow) mapRow.hidden = (view === 'summary');
+  if (mapRow) mapRow.hidden = (view === 'summary' || view === 'structure');
 }
 
 function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
@@ -11180,8 +11082,8 @@ function updateSectionBar(overlay) {
           return;
         }
         rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
-        if (chapterStudy.view !== 'summary') {
-          switchChapterStudyView(overlay, 'summary').then(() => {
+        if (chapterStudy.view !== 'structure') {
+          switchChapterStudyView(overlay, 'structure').then(() => {
             setTimeout(() => scrollToStructSection(overlay, id), 80);
           });
         } else {
@@ -11258,6 +11160,7 @@ async function openChapterStudy(startKey) {
         '<div class="cs-tabs">' +
           '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
           '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
+          '<button type="button" class="cs-tab" data-view="structure">Structure</button>' +
           '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
           '<button type="button" class="cs-tab" data-view="images">Images</button>' +
         '</div>' +
