@@ -2694,8 +2694,16 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
   width: min(920px, 96vw);
   max-width: 96vw;
 }
-.cs-panel.cs-summary-mode .cs-float {
-  padding: 0.35rem 0.7rem 0.25rem;
+.cs-view-label[hidden],
+.cs-step[hidden],
+.cs-map-row[hidden],
+.cs-section-bar[hidden] {
+  display: none !important;
+}
+.cs-panel.cs-summary-mode .cs-view-label,
+.cs-panel.cs-summary-mode .cs-step,
+.cs-panel.cs-summary-mode .cs-map-row {
+  display: none !important;
 }
 .cs-panel.cs-summary-mode .search-title {
   font-size: 1rem;

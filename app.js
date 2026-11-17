@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.53
+/* app.js – Main application controller. KJV Study PWA v6.99.54
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.53';
+const APP_VERSION = '6.99.54';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3469,17 +3469,29 @@ function recallLastSection(bookId, chapter) {
 }
 function scrollToStructSection(overlay, id) {
   if (!overlay || !id) return;
-  const el = overlay.querySelector('[data-sect="' + id + '"]');
+  const body = overlay.querySelector('#cs-body');
+  const el = body ? body.querySelector('[data-sect="' + id + '"]') : null;
   if (!el) return;
-  el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const scroller = overlay.querySelector('.cs-scroll');
+  if (scroller) {
+    const top = el.offsetTop - 8;
+    scroller.scrollTop = Math.max(0, top);
+  } else {
+    el.scrollIntoView({ block: 'start', behavior: 'auto' });
+  }
   el.style.outline = '2px solid #f4c430';
-  setTimeout(() => { el.style.outline = ''; }, 1400);
+  setTimeout(() => { el.style.outline = ''; }, 1600);
   const first = el.querySelector('textarea');
   if (first) {
     setTimeout(() => {
-      first.focus();
-      first.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }, 180);
+      first.focus({ preventScroll: true });
+      if (scroller) {
+        const q = el.querySelector('.sn-q-label') || el.querySelector('h3');
+        const target = q || first;
+        const tTop = target.offsetTop - scroller.offsetTop;
+        scroller.scrollTop = Math.max(0, tTop - 12);
+      }
+    }, 60);
   }
 }
 const INDIVIDUAL_PROMPTS = [
@@ -11101,8 +11113,9 @@ function updateSectionBar(overlay) {
         }
         rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
         if (chapterStudy.view !== 'summary') {
-          switchChapterStudyView(overlay, 'summary');
-          setTimeout(() => scrollToStructSection(overlay, id), 120);
+          switchChapterStudyView(overlay, 'summary').then(() => {
+            setTimeout(() => scrollToStructSection(overlay, id), 80);
+          });
         } else {
           scrollToStructSection(overlay, id);
         }
