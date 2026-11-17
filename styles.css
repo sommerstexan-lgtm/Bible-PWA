@@ -2691,6 +2691,24 @@ body.notes-return-open main#main { padding-bottom: 7.5rem; }
   max-height: 96dvh;
   overflow: hidden;
   padding: 0;
+  width: min(920px, 96vw);
+  max-width: 96vw;
+}
+.cs-panel.cs-summary-mode .cs-float {
+  padding: 0.35rem 0.7rem 0.25rem;
+}
+.cs-panel.cs-summary-mode .search-title {
+  font-size: 1rem;
+}
+.cs-section-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 @media (min-width: 900px) {
   .cs-panel {

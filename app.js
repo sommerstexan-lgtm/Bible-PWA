@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.52
+/* app.js – Main application controller. KJV Study PWA v6.99.53
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.52';
+const APP_VERSION = '6.99.53';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3473,7 +3473,14 @@ function scrollToStructSection(overlay, id) {
   if (!el) return;
   el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   el.style.outline = '2px solid #f4c430';
-  setTimeout(() => { el.style.outline = ''; }, 1200);
+  setTimeout(() => { el.style.outline = ''; }, 1400);
+  const first = el.querySelector('textarea');
+  if (first) {
+    setTimeout(() => {
+      first.focus();
+      first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 180);
+  }
 }
 const INDIVIDUAL_PROMPTS = [
   'Main point or event in this section',
@@ -10753,7 +10760,14 @@ async function paintChapterStudyBody(overlay) {
   if (viewLabel) {
     const labels = { verses: 'Verses', notes: 'Verse notes', summary: 'Chapter summary', images: 'Images' };
     viewLabel.textContent = labels[view] || view;
+    viewLabel.hidden = (view === 'summary');
   }
+  const panel = overlay.querySelector('.cs-panel');
+  if (panel) panel.classList.toggle('cs-summary-mode', view === 'summary');
+  const step = overlay.querySelector('.cs-step');
+  if (step) step.hidden = (view === 'summary');
+  const mapRow = overlay.querySelector('.cs-map-row');
+  if (mapRow) mapRow.hidden = (view === 'summary');
 }
 
 function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
@@ -11166,7 +11180,6 @@ async function openChapterStudy(startKey) {
           '<button type="button" class="cs-tab" data-view="summary">Chapter summary</button>' +
           '<button type="button" class="cs-tab" data-view="images">Images</button>' +
         '</div>' +
-        '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
         '<div id="cs-view-label" class="cs-view-label">Verses</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
@@ -11178,6 +11191,7 @@ async function openChapterStudy(startKey) {
           '<button type="button" id="cs-next-note" title="Next verse with a note">▼</button>' +
         '</div>' +
       '</div>' +
+      '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
       '<div class="cs-scroll">' +
         '<p id="cs-strip" class="cs-strip"></p>' +
         '<div id="cs-body"></div>' +
