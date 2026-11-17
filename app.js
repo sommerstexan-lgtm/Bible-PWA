@@ -3470,8 +3470,11 @@ function recallLastSection(bookId, chapter) {
 function scrollToStructSection(overlay, id) {
   if (!overlay || !id) return;
   const body = overlay.querySelector('#cs-body');
+  // Clear previous active highlight
+  if (body) body.querySelectorAll('.struct-el.cs-sect-active').forEach(n => n.classList.remove('cs-sect-active'));
   const el = body ? body.querySelector('[data-sect="' + id + '"]') : null;
   if (!el) return;
+  el.classList.add('cs-sect-active');
   const scroller = overlay.querySelector('.cs-scroll');
   if (scroller) {
     const top = el.offsetTop - 8;
@@ -3479,8 +3482,6 @@ function scrollToStructSection(overlay, id) {
   } else {
     el.scrollIntoView({ block: 'start', behavior: 'auto' });
   }
-  el.style.outline = '2px solid #f4c430';
-  setTimeout(() => { el.style.outline = ''; }, 1600);
   const first = el.querySelector('textarea');
   if (first) {
     setTimeout(() => {
@@ -3916,21 +3917,28 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'sect-jump') {
       const lab = btn.dataset.sectLabel;
       openChapterStudyFromVerse(key).then(() => {
-        // After open, find and scroll to matching section
         setTimeout(() => {
           const overlay = document.querySelector('.overlay .cs-panel') ? document.querySelector('.overlay .cs-panel').closest('.overlay') : null;
-          if (!overlay || !lab) return;
-          const target = Array.from(overlay.querySelectorAll('[data-sect]')).find(el => {
-            const h = el.querySelector('h3');
-            return h && h.textContent.indexOf(lab) === 0;
-          });
-          if (target) {
-            const id = target.dataset.sect;
-            rememberLastSection(currentBookId, currentChapter, id);
-            if (chapterStudy) switchChapterStudyView(overlay, 'summary');
-            setTimeout(() => scrollToStructSection(overlay, id), 150);
+          if (!overlay || !lab || !chapterStudy) return;
+          // Ensure we are on summary view so section elements exist
+          const go = () => {
+            const target = Array.from(overlay.querySelectorAll('[data-sect]')).find(el => {
+              const h = el.querySelector('h3');
+              return h && h.textContent.indexOf(lab) === 0;
+            });
+            if (target) {
+              const id = target.dataset.sect;
+              rememberLastSection(currentBookId, currentChapter, id);
+              updateSectionBar(overlay);
+              scrollToStructSection(overlay, id);
+            }
+          };
+          if (chapterStudy.view !== 'summary') {
+            switchChapterStudyView(overlay, 'summary').then(go);
+          } else {
+            go();
           }
-        }, 200);
+        }, 180);
       });
     }
     else if (act === 'chapter-summary') openChapterStudyFromVerse(key);
@@ -9069,6 +9077,7 @@ function openGeneralNoteEditor(existing) {
   })();
 
   let refData = null;
+  let refStructure = null;
   let leftView = 'summary';
   let refBookId = null;
   let refChapter = null;
@@ -9105,6 +9114,11 @@ function openGeneralNoteEditor(existing) {
       refData = await loadChapterSummaryFor(refBookId, refChapter);
     } catch (_) {
       refData = null;
+    }
+    try {
+      refStructure = await storage.getLiteraryStructureUser(refBookId + '.' + refChapter).catch(() => null);
+    } catch (_) {
+      refStructure = null;
     }
     setLeftView(leftView);
   }
@@ -9196,14 +9210,61 @@ function openGeneralNoteEditor(existing) {
     refContent.innerHTML = html;
   }
 
+  function hasStructureAnalysis(s) {
+    if (!s || !Array.isArray(s.elements) || !s.elements.length) return false;
+    const hasEl = s.elements.some(el => el.answers && el.answers.some(a => String(a || '').trim()));
+    const hasGrp = Array.isArray(s.groups) && s.groups.some(g => g.answers && g.answers.some(a => String(a || '').trim()));
+    return hasEl || hasGrp;
+  }
+
   function paintRef() {
     if (!refContent) return;
+    const structure = refStructure && refStructure.structure;
+    if (structure && hasStructureAnalysis(structure)) {
+      let html = '<p class="gn-ref-meta" style="margin:0 0 0.6rem;font-size:0.9rem;color:var(--text-dim)">Literary structure analysis for this chapter. Copy sections into your note in the order you want.</p>';
+      structure.elements.forEach((el, ei) => {
+        const answers = el.answers || [];
+        const hasAny = answers.some(a => String(a || '').trim());
+        if (!hasAny) return;
+        html += '<section class="gn-ref-section struct-ref">';
+        html += '<div class="gn-ref-head"><h3>' + escapeHtml(el.label || '') + ' (' + escapeHtml(el.range || '') + ')</h3></div>';
+        if (el.note) html += '<p style="margin:0.2rem 0 0.4rem;font-size:0.9rem;color:var(--text-dim)">' + escapeHtml(el.note) + '</p>';
+        INDIVIDUAL_PROMPTS.forEach((p, pi) => {
+          const val = String(answers[pi] || '').trim();
+          if (!val) return;
+          html += '<div class="gn-ref-body" style="margin-bottom:0.5rem"><strong>' + escapeHtml(p) + '</strong><div style="white-space:pre-wrap;margin-top:0.15rem">' + escapeHtml(val).replace(/\n/g, '<br>') + '</div></div>';
+        });
+        html += '</section>';
+      });
+      (structure.groups || []).forEach((g, gi) => {
+        const answers = g.answers || [];
+        const hasAny = answers.some(a => String(a || '').trim());
+        if (!hasAny) return;
+        html += '<section class="gn-ref-section struct-ref" style="border-color:var(--accent)">';
+        html += '<div class="gn-ref-head"><h3>' + escapeHtml((g.labels || []).join(' / ')) + ' together</h3></div>';
+        COMBINED_PROMPTS.forEach((p, pi) => {
+          const val = String(answers[pi] || '').trim();
+          if (!val) return;
+          html += '<div class="gn-ref-body" style="margin-bottom:0.5rem"><strong>' + escapeHtml(p) + '</strong><div style="white-space:pre-wrap;margin-top:0.15rem">' + escapeHtml(val).replace(/\n/g, '<br>') + '</div></div>';
+        });
+        html += '</section>';
+      });
+      html += '<p style="margin-top:0.8rem"><button type="button" id="gn-open-cs" style="min-height:40px;padding:0.3rem 0.8rem">Open in Chapter study to edit</button></p>';
+      refContent.innerHTML = html;
+      const openBtn = refContent.querySelector('#gn-open-cs');
+      if (openBtn) openBtn.onclick = () => {
+        const csBtn = overlay.querySelector('button[title="Chapter study for the open chapter"]');
+        if (csBtn) csBtn.click();
+      };
+      return;
+    }
+    // Fallback: old four-question summary
     if (!refData) {
       refContent.innerHTML = '<p class="gn-ref-empty">No chapter selected.</p>';
       return;
     }
     if (!refData.id && refData.answers.every(a => !String(a || '').trim())) {
-      refContent.innerHTML = '<p class="gn-ref-empty">No chapter summary yet for this chapter.</p>';
+      refContent.innerHTML = '<p class="gn-ref-empty">No chapter summary or structure analysis yet for this chapter.</p>';
       return;
     }
     const parts = GN_REF_ORDER.map((srcIdx, displayIdx) => {
@@ -9362,6 +9423,13 @@ function openGeneralNoteEditor(existing) {
       refData = refBookId ? await loadChapterSummaryFor(refBookId, refChapter) : null;
     } catch (_) {
       refData = null;
+    }
+    try {
+      refStructure = (refBookId && refChapter != null)
+        ? await storage.getLiteraryStructureUser(refBookId + '.' + refChapter).catch(() => null)
+        : null;
+    } catch (_) {
+      refStructure = null;
     }
     setLeftView('summary');
   })();

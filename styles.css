@@ -3313,3 +3313,36 @@ textarea.cs-answer {
   flex: 0 1 120px;
   min-width: 70px;
 }
+
+/* Active section highlight (replaces temporary yellow outline) */
+.struct-el.cs-sect-active {
+  border-color: #f4c430;
+  border-width: 2px;
+  box-shadow: 0 0 0 1px #f4c430;
+}
+.struct-el {
+  margin: 0.45rem 0 !important;
+  padding: 0.4rem 0.5rem !important;
+}
+.struct-el h3 {
+  margin: 0 0 0.25rem !important;
+  font-size: 1rem !important;
+}
+.struct-el .sn-q-label {
+  margin: 0.45rem 0 0.15rem !important;
+}
+textarea.cs-struct-answer,
+textarea.cs-answer {
+  min-height: 100px;
+  padding: 0.55rem 0.7rem;
+  line-height: 1.45;
+}
+@media (max-width: 600px) {
+  textarea.cs-struct-answer,
+  textarea.cs-answer {
+    min-height: 80px;
+    font-size: 1rem;
+  }
+  .struct-el { margin: 0.35rem 0 !important; padding: 0.35rem !important; }
+}
+
