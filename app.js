@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.62
+/* app.js – Main application controller. KJV Study PWA v6.99.64
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.62';
+const APP_VERSION = '6.99.64';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -10458,7 +10458,24 @@ async function paintChapterStudyBody(overlay) {
   } else if (view === 'structure') {
     const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
     const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
-    const structure = userRec && userRec.structure;
+    let structure = userRec && userRec.structure;
+    // Prefer a saved parsed structure. Fall back to parsing the outline text the user loaded/saved,
+    // then to the built-in literaryStructures map.
+    if (!structure || !Array.isArray(structure.elements) || !structure.elements.length) {
+      if (userRec && userRec.outlineText && String(userRec.outlineText).trim()) {
+        structure = parseStructureFromOutline(userRec.outlineText);
+      }
+    }
+    if (!structure || !Array.isArray(structure.elements) || !structure.elements.length) {
+      const book = chapterStudyBook();
+      const staticData = book ? getLiteraryStructure(book.name, chapterStudy.chapter) : null;
+      if (staticData && Array.isArray(staticData.outline) && staticData.outline.length) {
+        const outlineText = staticData.outline.map(item =>
+          (item.label || '') + '  ' + (item.range || '') + (item.note ? '  —  ' + item.note : '')
+        ).join('\n');
+        structure = parseStructureFromOutline(outlineText);
+      }
+    }
     if (structure && Array.isArray(structure.elements) && structure.elements.length) {
       if (!chapterStudy.structDraft) chapterStudy.structDraft = JSON.parse(JSON.stringify(structure));
       const s = chapterStudy.structDraft;
@@ -10538,7 +10555,15 @@ async function paintChapterStudyBody(overlay) {
       const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
       if (last) setTimeout(() => scrollToStructSection(overlay, last), 80);
     } else {
-      body.innerHTML = '<p class="cs-meta">No literary structure is defined for this chapter yet. Define one from the chapter tools, then return here to fill the analysis fields.</p>';
+      body.innerHTML = '<p class="cs-meta">No literary structure is defined for this chapter yet.</p>' +
+        '<button type="button" id="cs-define-struct" style="width:100%;margin-top:0.6rem;min-height:52px">Define literary structure</button>';
+      const defineBtn = body.querySelector('#cs-define-struct');
+      if (defineBtn) {
+        defineBtn.onclick = () => {
+          const book = chapterStudyBook();
+          if (book) openChapterStructure(book, chapterStudy.chapter);
+        };
+      }
     }
   } else if (view === 'summary') {
     if (!chapterStudy.summaryLoaded) chapterStudy.summaryLoaded = await loadChapterStudySummary();
