@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.58
+/* app.js – Main application controller. KJV Study PWA v6.99.60
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.58';
+const APP_VERSION = '6.99.60';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3470,11 +3470,12 @@ function recallLastSection(bookId, chapter) {
 function scrollToStructSection(overlay, id) {
   if (!overlay || !id) return;
   const body = overlay.querySelector('#cs-body');
-  // Clear previous active highlight
   if (body) body.querySelectorAll('.struct-el.cs-sect-active').forEach(n => n.classList.remove('cs-sect-active'));
   const el = body ? body.querySelector('[data-sect="' + id + '"]') : null;
   if (!el) return;
   el.classList.add('cs-sect-active');
+  el.style.outline = '2px solid #f4c430';
+  setTimeout(() => { el.style.outline = ''; }, 1600);
   const scroller = overlay.querySelector('.cs-scroll');
   if (scroller) {
     const top = el.offsetTop - 8;
@@ -8923,7 +8924,7 @@ function openGeneralNoteEditor(existing) {
             <button type="button" id="gn-ref-back" hidden style="min-height:40px;padding:0.3rem 0.7rem;border-radius:8px">Back</button>
           </div>
           <div class="gn-ref-tabs" id="gn-ref-tabs">
-            <button type="button" class="gn-ref-tab gn-tab-on" data-view="summary">Chapter summary</button>
+            <button type="button" class="gn-ref-tab gn-tab-on" data-view="summary" id="gn-summary-tab">Chapter summary</button>
             <button type="button" class="gn-ref-tab" data-view="verses">Verses</button>
             <button type="button" class="gn-ref-tab" data-view="notes">Verse notes</button>
           </div>
@@ -9125,6 +9126,7 @@ function openGeneralNoteEditor(existing) {
 
   function setLeftView(view) {
     leftView = view || 'summary';
+    updateSummaryTabLabel();
     tabBtns.forEach(btn => {
       btn.classList.toggle('gn-tab-on', btn.dataset.view === leftView);
     });
@@ -9210,42 +9212,41 @@ function openGeneralNoteEditor(existing) {
     refContent.innerHTML = html;
   }
 
-  function hasStructureAnalysis(s) {
-    if (!s || !Array.isArray(s.elements) || !s.elements.length) return false;
-    const hasEl = s.elements.some(el => el.answers && el.answers.some(a => String(a || '').trim()));
-    const hasGrp = Array.isArray(s.groups) && s.groups.some(g => g.answers && g.answers.some(a => String(a || '').trim()));
-    return hasEl || hasGrp;
+  function hasStructure(s) {
+    return !!(s && Array.isArray(s.elements) && s.elements.length);
+  }
+
+  function updateSummaryTabLabel() {
+    const tab = overlay.querySelector('#gn-summary-tab');
+    if (!tab) return;
+    const structure = refStructure && refStructure.structure;
+    tab.textContent = hasStructure(structure) ? 'Literary structure' : 'Key verse';
   }
 
   function paintRef() {
     if (!refContent) return;
+    updateSummaryTabLabel();
     const structure = refStructure && refStructure.structure;
-    if (structure && hasStructureAnalysis(structure)) {
-      let html = '<p class="gn-ref-meta" style="margin:0 0 0.6rem;font-size:0.9rem;color:var(--text-dim)">Literary structure analysis for this chapter. Copy sections into your note in the order you want.</p>';
+    if (structure && hasStructure(structure)) {
+      let html = '<p class="gn-ref-meta" style="margin:0 0 0.6rem;font-size:0.9rem;color:var(--text-dim)">Literary structure for this chapter. Copy sections into your note in the order you want.</p>';
       structure.elements.forEach((el, ei) => {
         const answers = el.answers || [];
-        const hasAny = answers.some(a => String(a || '').trim());
-        if (!hasAny) return;
         html += '<section class="gn-ref-section struct-ref">';
         html += '<div class="gn-ref-head"><h3>' + escapeHtml(el.label || '') + ' (' + escapeHtml(el.range || '') + ')</h3></div>';
         if (el.note) html += '<p style="margin:0.2rem 0 0.4rem;font-size:0.9rem;color:var(--text-dim)">' + escapeHtml(el.note) + '</p>';
         INDIVIDUAL_PROMPTS.forEach((p, pi) => {
           const val = String(answers[pi] || '').trim();
-          if (!val) return;
-          html += '<div class="gn-ref-body" style="margin-bottom:0.5rem"><strong>' + escapeHtml(p) + '</strong><div style="white-space:pre-wrap;margin-top:0.15rem">' + escapeHtml(val).replace(/\n/g, '<br>') + '</div></div>';
+          html += '<div class="gn-ref-body" style="margin-bottom:0.5rem"><strong>' + escapeHtml(p) + '</strong><div style="white-space:pre-wrap;margin-top:0.15rem">' + (val ? escapeHtml(val).replace(/\n/g, '<br>') : '<em style="color:var(--text-dim)">—</em>') + '</div></div>';
         });
         html += '</section>';
       });
       (structure.groups || []).forEach((g, gi) => {
         const answers = g.answers || [];
-        const hasAny = answers.some(a => String(a || '').trim());
-        if (!hasAny) return;
         html += '<section class="gn-ref-section struct-ref" style="border-color:var(--accent)">';
         html += '<div class="gn-ref-head"><h3>' + escapeHtml((g.labels || []).join(' / ')) + ' together</h3></div>';
         COMBINED_PROMPTS.forEach((p, pi) => {
           const val = String(answers[pi] || '').trim();
-          if (!val) return;
-          html += '<div class="gn-ref-body" style="margin-bottom:0.5rem"><strong>' + escapeHtml(p) + '</strong><div style="white-space:pre-wrap;margin-top:0.15rem">' + escapeHtml(val).replace(/\n/g, '<br>') + '</div></div>';
+          html += '<div class="gn-ref-body" style="margin-bottom:0.5rem"><strong>' + escapeHtml(p) + '</strong><div style="white-space:pre-wrap;margin-top:0.15rem">' + (val ? escapeHtml(val).replace(/\n/g, '<br>') : '<em style="color:var(--text-dim)">—</em>') + '</div></div>';
         });
         html += '</section>';
       });
