@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.60
+/* app.js – Main application controller. KJV Study PWA v6.99.61
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.60';
+const APP_VERSION = '6.99.61';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -9080,6 +9080,7 @@ function openGeneralNoteEditor(existing) {
   let refData = null;
   let refStructure = null;
   let leftView = 'summary';
+  let summaryMode = 'structure'; // 'structure' or 'keyverse' — toggled by tapping the summary tab
   let refBookId = null;
   let refChapter = null;
   const refStack = []; // previous {bookId, chapter} for in-pane Back
@@ -9121,10 +9122,17 @@ function openGeneralNoteEditor(existing) {
     } catch (_) {
       refStructure = null;
     }
-    setLeftView(leftView);
+    const s = refStructure && refStructure.structure;
+    summaryMode = hasStructure(s) ? 'structure' : 'keyverse';
+    updateSummaryTabLabel();
+    if (leftView === 'summary') paintRef();
+    else setLeftView(leftView);
   }
 
   function setLeftView(view) {
+    if (view === 'summary' && leftView === 'summary') {
+      summaryMode = summaryMode === 'structure' ? 'keyverse' : 'structure';
+    }
     leftView = view || 'summary';
     updateSummaryTabLabel();
     tabBtns.forEach(btn => {
@@ -9219,15 +9227,14 @@ function openGeneralNoteEditor(existing) {
   function updateSummaryTabLabel() {
     const tab = overlay.querySelector('#gn-summary-tab');
     if (!tab) return;
-    const structure = refStructure && refStructure.structure;
-    tab.textContent = hasStructure(structure) ? 'Literary structure' : 'Key verse';
+    tab.textContent = summaryMode === 'structure' ? 'Literary structure' : 'Key verse';
   }
 
   function paintRef() {
     if (!refContent) return;
     updateSummaryTabLabel();
     const structure = refStructure && refStructure.structure;
-    if (structure && hasStructure(structure)) {
+    if (summaryMode === 'structure' && hasStructure(structure)) {
       let html = '<p class="gn-ref-meta" style="margin:0 0 0.6rem;font-size:0.9rem;color:var(--text-dim)">Literary structure for this chapter. Copy sections into your note in the order you want.</p>';
       structure.elements.forEach((el, ei) => {
         const answers = el.answers || [];
@@ -9259,7 +9266,11 @@ function openGeneralNoteEditor(existing) {
       };
       return;
     }
-    // Fallback: old four-question summary
+    if (summaryMode === 'structure') {
+      refContent.innerHTML = '<p class="gn-ref-empty">No literary structure is defined for this chapter. Tap the tab again for Key verse, or define a structure first.</p>';
+      return;
+    }
+    // Key verse (four-question summary)
     if (!refData) {
       refContent.innerHTML = '<p class="gn-ref-empty">No chapter selected.</p>';
       return;
@@ -9432,6 +9443,8 @@ function openGeneralNoteEditor(existing) {
     } catch (_) {
       refStructure = null;
     }
+    const s = refStructure && refStructure.structure;
+    summaryMode = hasStructure(s) ? 'structure' : 'keyverse';
     setLeftView('summary');
   })();
 
