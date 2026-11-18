@@ -2769,6 +2769,16 @@ textarea.cs-struct-answer {
 }
 .cs-tabs { display: flex; gap: 0.4rem; margin: 0.55rem 0 0.45rem; }
 .cs-tab { flex: 1; min-height: 48px; }
+.cs-save-tab {
+  flex: 0 0 auto;
+  min-width: 72px;
+  min-height: 48px;
+  background: var(--accent);
+  color: #111;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+}
 .cs-section-bar {
   display: flex;
   flex-wrap: wrap;

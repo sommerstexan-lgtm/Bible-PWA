@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.68
+/* app.js – Main application controller. KJV Study PWA v6.99.70
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.68';
+const APP_VERSION = '6.99.70';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4027,30 +4027,25 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     else if (act === 'show-map') restoreActiveMap();
     else if (act === 'chapter-notes') openChapterNotesFromVerse(key);
     else if (act === 'sect-jump') {
+      // HARD GUARD: yellow section/range box must open Chapter study on Literary structure.
+      // Do not remove the 'structure' argument or the force below. This has broken repeatedly.
       const lab = btn.dataset.sectLabel;
-      openChapterStudyFromVerse(key).then(() => {
+      openChapterStudyFromVerse(key, 'structure').then(() => {
         setTimeout(() => {
-          const overlay = document.querySelector('.overlay .cs-panel') ? document.querySelector('.overlay .cs-panel').closest('.overlay') : null;
+          const panel = document.querySelector('.overlay .cs-panel');
+          const overlay = panel ? panel.closest('.overlay') : null;
           if (!overlay || !lab || !chapterStudy) return;
-          // Ensure we are on summary view so section elements exist
-          const go = () => {
-            const target = Array.from(overlay.querySelectorAll('[data-sect]')).find(el => {
-              const h = el.querySelector('h3');
-              return h && h.textContent.indexOf(lab) === 0;
-            });
-            if (target) {
-              const id = target.dataset.sect;
-              rememberLastSection(currentBookId, currentChapter, id);
-              updateSectionBar(overlay);
-              scrollToStructSection(overlay, id);
-            }
-          };
-          if (chapterStudy.view !== 'structure') {
-            switchChapterStudyView(overlay, 'structure').then(go);
-          } else {
-            go();
+          const target = Array.from(overlay.querySelectorAll('[data-sect]')).find(el => {
+            const h = el.querySelector('h3');
+            return h && h.textContent.indexOf(lab) === 0;
+          });
+          if (target) {
+            const id = target.dataset.sect;
+            rememberLastSection(currentBookId, currentChapter, id);
+            updateSectionBar(overlay);
+            scrollToStructSection(overlay, id);
           }
-        }, 180);
+        }, 120);
       });
     }
     else if (act === 'chapter-summary') openChapterStudyFromVerse(key);
@@ -11173,14 +11168,39 @@ function openSwitchChapter(studyOverlay) {
   };
 }
 
+async function saveChapterStudyCurrent(overlay) {
+  if (!chapterStudy || !overlay) return;
+  const view = chapterStudy.view || 'verses';
+  try {
+    if (view === 'notes') {
+      await flushChapterStudyNotes(overlay);
+      showAppStatus('Verse notes saved.', 'ok');
+    } else if (view === 'summary') {
+      captureChapterStudySummary(overlay);
+      await saveChapterStudySummary(overlay);
+      showAppStatus('Chapter summary saved.', 'ok');
+    } else if (view === 'structure') {
+      await flushStructureAnalysis(overlay);
+      showAppStatus('Literary structure saved.', 'ok');
+    } else if (view === 'images') {
+      await saveChapterStudyImages();
+      showAppStatus('Images saved.', 'ok');
+    } else {
+      showAppStatus('Nothing to save on the Verses tab.', 'ok');
+    }
+  } catch (_) {
+    showAppStatus('Could not save.', 'fail');
+  }
+}
+
 /** From a verse Tools button: open Chapter study for this chapter, starting at this verse. */
-async function openChapterStudyFromVerse(key) {
+async function openChapterStudyFromVerse(key, initialView) {
   const parsed = key ? bible.parseKey(key) : null;
   if (parsed && parsed.bookId && parsed.chapter &&
       (parsed.bookId !== currentBookId || Number(parsed.chapter) !== Number(currentChapter))) {
     try { await renderChapter(parsed.bookId, parsed.chapter, { scrollToKey: key }); } catch (_) {}
   }
-  await openChapterStudy(key);
+  await openChapterStudy(key, initialView);
 }
 
 let minimizedChapterStudyOverlay = null;
@@ -11260,7 +11280,7 @@ function restoreChapterStudy() {
   updateChapterStudyChip();
 }
 
-async function openChapterStudy(startKey) {
+async function openChapterStudy(startKey, initialView) {
   const book = books.find((b) => b.id === currentBookId);
   if (!book) {
     showAppStatus('Open a chapter first.', 'fail');
@@ -11282,11 +11302,14 @@ async function openChapterStudy(startKey) {
       verse = Number(parsed.verse);
     }
   }
+  // HARD GUARD: if the yellow section/range box requested structure, force it.
+  // Later edits must not drop this. See sect-jump handler.
+  const forceStructure = initialView === 'structure';
   chapterStudy = {
     bookId: book.id,
     chapter: Number(currentChapter),
     verse,
-    view: 'verses',
+    view: forceStructure ? 'structure' : (initialView || 'verses'),
     noteMap: null,
     summaryLoaded: null,
     summaryDraft: null,
@@ -11313,6 +11336,7 @@ async function openChapterStudy(startKey) {
           '<button type="button" class="cs-tab" data-view="structure">Literary structure</button>' +
           '<button type="button" class="cs-tab" data-view="summary">Key verse</button>' +
           '<button type="button" class="cs-tab" data-view="images">Images</button>' +
+          '<button type="button" id="cs-save-btn" class="cs-save-tab">Save</button>' +
         '</div>' +
         '<div id="cs-view-label" class="cs-view-label">Verses</div>' +
         '<div class="cs-step">' +
@@ -11348,6 +11372,8 @@ async function openChapterStudy(startKey) {
   overlay.querySelectorAll('.cs-tab').forEach((tab) => {
     tab.onclick = () => switchChapterStudyView(overlay, tab.dataset.view);
   });
+  const saveBtn = $('#cs-save-btn', overlay);
+  if (saveBtn) saveBtn.onclick = () => saveChapterStudyCurrent(overlay);
   $('#cs-prev', overlay).onclick = () => stepChapterStudyVerse(overlay, -1);
   $('#cs-next', overlay).onclick = () => stepChapterStudyVerse(overlay, 1);
   const prevNoteBtn = $('#cs-prev-note', overlay);
@@ -11381,6 +11407,11 @@ async function openChapterStudy(startKey) {
   paintChapterStudyStrip(overlay);
   await paintChapterStudyBody(overlay);
   updateSectionBar(overlay);
+  // HARD GUARD re-assert: yellow section box must stay on Literary structure.
+  if (forceStructure && chapterStudy && chapterStudy.view !== 'structure') {
+    chapterStudy.view = 'structure';
+    await paintChapterStudyBody(overlay);
+  }
 }
 
 function stepChapterStudyVerse(overlay, dir) {
