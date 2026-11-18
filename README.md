@@ -1,3 +1,10 @@
+## New in 6.99.65
+
+- Restored the main-screen Study sidebar (left column).
+- Grouped tools under clear descriptors so the list stays compact: Chapter Tools, Word Study, Marks, Path, Navigation, Display.
+- All previously approved items are included (Chapter study, Context, Research, Places/Map, Cross-references, Notes, Dictionary, Colors, Review, Trail, Anchor, Search, Books, Prev/Next, Font, Help, Menu).
+- On narrow screens the sidebar slides in via the ☰ button in the header.
+
 ## New in 6.99.54
 
 - Chapter study now uses the chapter’s literary structure (when defined) to drive analysis fields.

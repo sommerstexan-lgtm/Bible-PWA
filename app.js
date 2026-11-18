@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.64
+/* app.js – Main application controller. KJV Study PWA v6.99.65
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.64';
+const APP_VERSION = '6.99.65';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1308,7 +1308,8 @@ function renderShell() {
   app.innerHTML = `
     <div id="chrome" class="chrome">
       <header class="chrome-header">
-        <button type="button" id="btn-nav" title="Books" aria-label="Books">☰</button>
+        <button type="button" id="btn-sidebar-toggle" title="Study sidebar" aria-label="Study sidebar">☰</button>
+        <button type="button" id="btn-nav" title="Books" aria-label="Books">Books</button>
         <div class="title" id="header-title">KJV Study</div>
         <button type="button" id="btn-search" title="Search" aria-label="Search">Search</button>
         <button type="button" id="btn-menu" title="Menu" aria-label="Menu">Menu</button>
@@ -1329,6 +1330,46 @@ function renderShell() {
       </div>
       <div class="version-bar">v${APP_VERSION}</div>
     </div>
+    <aside id="study-sidebar" class="study-sidebar">
+      <div class="sb-title">Study</div>
+      <details open>
+        <summary>Chapter Tools</summary>
+        <button type="button" data-sb="chapter-study">Chapter study</button>
+        <button type="button" data-sb="context">Context</button>
+        <button type="button" data-sb="research">Research</button>
+        <button type="button" data-sb="places">Places / Map</button>
+        <button type="button" data-sb="crossrefs">Cross-references</button>
+        <button type="button" data-sb="notes">Chapter notes</button>
+      </details>
+      <details>
+        <summary>Word Study</summary>
+        <button type="button" data-sb="dict">Dictionary</button>
+      </details>
+      <details>
+        <summary>Marks</summary>
+        <button type="button" data-sb="colors">Colors</button>
+        <button type="button" data-sb="review">Review by color</button>
+      </details>
+      <details>
+        <summary>Path</summary>
+        <button type="button" data-sb="trail">Study trail</button>
+        <button type="button" data-sb="anchor">Anchor</button>
+        <button type="button" data-sb="search">Search</button>
+      </details>
+      <details>
+        <summary>Navigation</summary>
+        <button type="button" data-sb="books">Books</button>
+        <button type="button" data-sb="prev">◀ Previous</button>
+        <button type="button" data-sb="next">▶ Next</button>
+      </details>
+      <details>
+        <summary>Display</summary>
+        <button type="button" data-sb="font-down">A− Smaller</button>
+        <button type="button" data-sb="font-up">A+ Larger</button>
+      </details>
+      <button type="button" data-sb="help" class="sb-standalone">Help</button>
+      <button type="button" data-sb="menu" class="sb-standalone">Menu</button>
+    </aside>
     <div id="left-pills" class="left-pills" hidden>
       <button type="button" id="chrome-reveal" class="pill-btn chrome-reveal" aria-label="Show controls">☰ Controls</button>
       <button type="button" id="nav-back" class="pill-btn nav-back" aria-label="Back to previous verse" hidden>← Back</button>
@@ -1353,6 +1394,14 @@ function renderShell() {
   `;
 
   $('#btn-nav').onclick = openBookNav;
+  const sbToggle = $('#btn-sidebar-toggle');
+  if (sbToggle) {
+    sbToggle.onclick = () => {
+      const sb = document.getElementById('study-sidebar');
+      if (sb) sb.classList.toggle('open');
+    };
+  }
+
   $('#btn-search').onclick = openSearch;
   $('#btn-menu').onclick = openMenu;
   $('#btn-font-down').onclick = () => changeFont(-0.1);
@@ -1375,6 +1424,47 @@ function renderShell() {
   $('#btn-context').onclick = () => openContext();
   $('#btn-prev-ch').onclick = () => changeChapter(-1);
   $('#btn-next-ch').onclick = () => changeChapter(1);
+
+  // Study sidebar actions
+  const sb = document.getElementById('study-sidebar');
+  if (sb) {
+    sb.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-sb]');
+      if (!btn) return;
+      const act = btn.getAttribute('data-sb');
+      switch (act) {
+        case 'chapter-study': openChapterStudy(); break;
+        case 'context': openContext(); break;
+        case 'research': openResearch(); break;
+        case 'places': openChapterPicture(); break;
+        case 'crossrefs': {
+          // Open cross-refs for the first verse of the current chapter if possible
+          const firstKey = currentBookId && currentChapter ? `${currentBookId}.${currentChapter}.1` : null;
+          if (firstKey) openCrossRefs(firstKey);
+          else openSearch();
+          break;
+        }
+        case 'notes': openChapterStudy(); break;
+        case 'dict': openDictionary(); break;
+        case 'colors': openColorIndex(); break;
+        case 'review': openReviewByColor(); break;
+        case 'trail': if (studyTrail.nodes.length) openStudyTrail(); else alert('No study trail yet.'); break;
+        case 'anchor': {
+          const chip = document.getElementById('anchor-chip');
+          if (chip) chip.click();
+          break;
+        }
+        case 'search': openSearch(); break;
+        case 'books': openBookNav(); break;
+        case 'prev': changeChapter(-1); break;
+        case 'next': changeChapter(1); break;
+        case 'font-down': changeFont(-0.1); break;
+        case 'font-up': changeFont(0.1); break;
+        case 'help': openHelp(); break;
+        case 'menu': openMenu(); break;
+      }
+    });
+  }
   bindChromeReveal();
   $('#nav-back').onclick = () => goNavBack();
   const goA = document.getElementById('btn-go-anchor');

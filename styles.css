@@ -3346,3 +3346,96 @@ textarea.cs-answer {
   .struct-el { margin: 0.35rem 0 !important; padding: 0.35rem !important; }
 }
 
+
+
+/* ===== Study sidebar (restored main-screen left column) ===== */
+.study-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 200px;
+  background: var(--bg-alt, #1a1a2e);
+  border-right: 1px solid var(--border, #333);
+  z-index: 40;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.6rem 0.4rem 1rem;
+  box-sizing: border-box;
+  font-size: 0.85rem;
+  transition: transform 0.2s ease;
+}
+.study-sidebar .sb-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.4rem 0.5rem 0.6rem;
+  color: var(--text, #eee);
+  border-bottom: 1px solid var(--border, #333);
+  margin-bottom: 0.4rem;
+}
+.study-sidebar details {
+  margin: 0.25rem 0;
+  border-radius: 6px;
+}
+.study-sidebar summary {
+  cursor: pointer;
+  padding: 0.45rem 0.5rem;
+  font-weight: 600;
+  background: rgba(255,255,255,0.04);
+  border-radius: 6px;
+  list-style: none;
+  user-select: none;
+}
+.study-sidebar summary::-webkit-details-marker { display: none; }
+.study-sidebar summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.study-sidebar details[open] summary::before { content: "▾ "; }
+.study-sidebar details button,
+.study-sidebar .sb-standalone {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.7rem;
+  margin: 0.1rem 0;
+  border: none;
+  background: transparent;
+  color: var(--text, #ddd);
+  font-size: 0.82rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.study-sidebar details button:hover,
+.study-sidebar .sb-standalone:hover {
+  background: rgba(255,255,255,0.08);
+}
+.study-sidebar .sb-standalone {
+  margin-top: 0.3rem;
+  font-weight: 600;
+  background: rgba(255,255,255,0.03);
+}
+/* Shift main content when sidebar is present */
+#app {
+  padding-left: 200px !important;
+}
+@media (max-width: 700px) {
+  .study-sidebar {
+    width: 180px;
+  }
+  #app {
+    padding-left: 180px !important;
+  }
+}
+@media (max-width: 520px) {
+  .study-sidebar {
+    transform: translateX(-100%);
+  }
+  .study-sidebar.open {
+    transform: translateX(0);
+  }
+  #app {
+    padding-left: 0 !important;
+  }
+}
