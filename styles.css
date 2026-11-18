@@ -2365,7 +2365,7 @@ body.chrome-is-hidden main#main {
 /* Color session tray — stays open across groups */
 .color-tray {
   position: fixed;
-  left: 0;
+  left: 200px;
   right: 0;
   bottom: 0;
   z-index: 40;
@@ -2459,6 +2459,13 @@ body.chrome-is-hidden main#main {
   border-radius: 8px;
   padding: 0.4rem 0.7rem;
 }
+@media (max-width: 700px) {
+  .color-tray { left: 180px; }
+}
+@media (max-width: 520px) {
+  .color-tray { left: 0; }
+}
+
 body.color-tray-open #main {
   padding-bottom: 12.5rem;
 }
