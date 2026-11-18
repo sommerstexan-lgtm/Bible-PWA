@@ -3066,8 +3066,8 @@ textarea.cs-answer {
 .left-pills {
   position: fixed;
   top: max(4px, env(safe-area-inset-top, 0px));
-  left: 0.5rem;
-  z-index: 50;
+  left: 210px; /* clear the study sidebar */
+  z-index: 55;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -3357,7 +3357,7 @@ textarea.cs-answer {
   width: 200px;
   background: var(--bg-alt, #1a1a2e);
   border-right: 1px solid var(--border, #333);
-  z-index: 40;
+  z-index: 60;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0.6rem 0.4rem 1rem;
@@ -3439,3 +3439,27 @@ textarea.cs-answer {
     padding-left: 0 !important;
   }
 }
+
+/* Keep floating pills clear of the study sidebar */
+@media (max-width: 700px) {
+  .left-pills { left: 190px; }
+}
+@media (max-width: 520px) {
+  .left-pills { left: 0.5rem; } /* sidebar is off-canvas */
+}
+
+/* Active / live context buttons in the study sidebar */
+.study-sidebar button.sb-active,
+.study-sidebar .sb-standalone.sb-active {
+  background: var(--accent, #4fc3f7) !important;
+  color: #111 !important;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+}
+.study-sidebar button.sb-active:hover,
+.study-sidebar .sb-standalone.sb-active:hover {
+  filter: brightness(1.08);
+}
+
+/* Pills retired — sidebar is the single study surface */
+.left-pills { display: none !important; }

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.65
+/* app.js – Main application controller. KJV Study PWA v6.99.67
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.65';
+const APP_VERSION = '6.99.67';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1367,6 +1367,7 @@ function renderShell() {
         <button type="button" data-sb="font-down">A− Smaller</button>
         <button type="button" data-sb="font-up">A+ Larger</button>
       </details>
+      <button type="button" data-sb="show-controls" class="sb-standalone">Show controls</button>
       <button type="button" data-sb="help" class="sb-standalone">Help</button>
       <button type="button" data-sb="menu" class="sb-standalone">Menu</button>
     </aside>
@@ -1460,6 +1461,7 @@ function renderShell() {
         case 'next': changeChapter(1); break;
         case 'font-down': changeFont(-0.1); break;
         case 'font-up': changeFont(0.1); break;
+        case 'show-controls': showChrome(); break;
         case 'help': openHelp(); break;
         case 'menu': openMenu(); break;
       }
@@ -1504,6 +1506,7 @@ function renderShell() {
   updateNavBackButton();
   updateTrailChip();
   updateChainReadBar();
+  updateSidebarActive();
   migrateExistingNoteRanges().catch(() => {});
 }
 
@@ -1529,6 +1532,7 @@ function showChrome() {
   document.body.classList.remove('chrome-is-hidden');
   if (left) left.hidden = true;
   chromeHidden = false;
+  updateSidebarActive();
   updateAnchorUI();
 }
 
@@ -1554,9 +1558,9 @@ function hideChrome() {
   if (!chrome) return;
   chrome.classList.add('chrome-hidden');
   document.body.classList.add('chrome-is-hidden');
-  if (left) left.hidden = false;
+  if (left) left.hidden = true; // pills retired — sidebar is the surface
   chromeHidden = true;
-  updateLeftPills();
+  updateSidebarActive();
   updateAnchorUI();
 }
 
@@ -1656,6 +1660,23 @@ function updateAnchorUI() {
   }
   if (undoBtn) undoBtn.hidden = !previousAnchor;
   updateLeftPills();
+}
+
+function updateSidebarActive() {
+  const sb = document.getElementById('study-sidebar');
+  if (!sb) return;
+  const setActive = (action, on) => {
+    const btn = sb.querySelector('[data-sb="' + action + '"]');
+    if (btn) btn.classList.toggle('sb-active', !!on);
+  };
+  setActive('trail', studyTrail && studyTrail.nodes && studyTrail.nodes.length > 0);
+  setActive('anchor', !!readingAnchor);
+  setActive('search', !!(searchSession && (searchSession.query || '').trim()));
+  setActive('dict', !!lastDictTerm);
+  setActive('books', true); // always available
+  // Show controls is always useful when chrome is hidden
+  const showBtn = sb.querySelector('[data-sb="show-controls"]');
+  if (showBtn) showBtn.classList.toggle('sb-active', chromeHidden);
 }
 
 function updateLeftPills() {
