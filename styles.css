@@ -3310,15 +3310,20 @@ textarea.cs-answer {
   min-width: 42px;
 }
 .verse.search-hit {
-  background: rgba(244, 196, 48, 0.18);
+  background: rgba(79, 195, 247, 0.22);
   border-radius: 4px;
 }
 .verse.search-hit .verse-text mark,
 .verse-text .search-mark {
-  background: #f4c430;
+  background: #4fc3f7;
   color: #111;
   padding: 0 2px;
   border-radius: 2px;
+}
+.verse.struct-jump-hit {
+  background: rgba(79, 195, 247, 0.28);
+  border-left: 3px solid #4fc3f7;
+  border-radius: 4px;
 }
 
 .verse-nav-row .search-clear,
@@ -3480,3 +3485,64 @@ textarea.cs-answer {
 
 /* Pills retired — sidebar is the single study surface */
 .left-pills { display: none !important; }
+
+/* Sidebar structure section buttons */
+.sb-struct-label {
+  font-size: 0.78rem;
+  color: var(--text-dim, #aaa);
+  padding: 0.35rem 0.6rem 0.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sb-struct-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem 0.5rem;
+}
+.sb-struct-btns button {
+  min-width: 2.2rem;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border, #333);
+  color: inherit;
+}
+.sb-struct-btns button.sb-struct-on {
+  background: var(--accent, #4fc3f7);
+  color: #111;
+  font-weight: 700;
+  border-color: var(--accent, #4fc3f7);
+}
+
+/* Section scope buttons inside verse Tools search row */
+.struct-scope-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  margin: 0.25rem 0 0.4rem;
+  font-size: 0.85rem;
+}
+.struct-scope-row .scope-label {
+  color: var(--text-dim, #aaa);
+  margin-right: 0.2rem;
+}
+.struct-scope-row button {
+  min-width: 2rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border, #444);
+  color: inherit;
+  font-size: 0.85rem;
+}
+.struct-scope-row button.scope-on {
+  background: var(--accent, #4fc3f7);
+  color: #111;
+  font-weight: 700;
+}
+.struct-scope-row button.scope-all {
+  margin-left: 0.3rem;
+}

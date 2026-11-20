@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.70
+/* app.js – Main application controller. KJV Study PWA v6.99.71
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.70';
+const APP_VERSION = '6.99.71';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1125,6 +1125,8 @@ function checkPassword() {
 let books = [];
 let currentBookId = null;
 let currentChapter = 1;
+let currentChapterStructure = null; // resolved structure {elements: [...]} or null
+let selectedStructureLabels = new Set(); // labels selected for search scope
 let settings = { fontSize: 1.35, lineHeight: 1.75, highContrast: false };
 let navStack = []; // origin stack for Search + Cross-ref back navigation
 let reopenResearchTheme = false; // after a Theme verse hop, Back reopens Theme
@@ -1337,9 +1339,17 @@ function renderShell() {
         <button type="button" data-sb="chapter-study">Chapter study</button>
         <button type="button" data-sb="context">Context</button>
         <button type="button" data-sb="research">Research</button>
-        <button type="button" data-sb="places">Places / Map</button>
         <button type="button" data-sb="crossrefs">Cross-references</button>
         <button type="button" data-sb="notes">Chapter notes</button>
+        <button type="button" data-sb="anchor">Anchor</button>
+        <div id="sb-structure-wrap" hidden>
+          <div class="sb-struct-label">Structure</div>
+          <div id="sb-structure-btns" class="sb-struct-btns"></div>
+        </div>
+      </details>
+      <details>
+        <summary>Geography</summary>
+        <button type="button" data-sb="places">Places / Map</button>
       </details>
       <details>
         <summary>Word Study</summary>
@@ -1353,7 +1363,6 @@ function renderShell() {
       <details>
         <summary>Path</summary>
         <button type="button" data-sb="trail">Study trail</button>
-        <button type="button" data-sb="anchor">Anchor</button>
         <button type="button" data-sb="search">Search</button>
       </details>
       <details>
@@ -1465,6 +1474,23 @@ function renderShell() {
         case 'help': openHelp(); break;
         case 'menu': openMenu(); break;
       }
+    });
+    // Structure section buttons (jump + highlight first verse; also toggle search scope)
+    sb.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-struct-label]');
+      if (!btn) return;
+      const label = btn.getAttribute('data-struct-label');
+      if (!label) return;
+      if (selectedStructureLabels.has(label)) {
+        selectedStructureLabels.delete(label);
+      } else {
+        selectedStructureLabels.add(label);
+      }
+      updateStructureSidebar();
+      highlightFirstVerseOfSection(label);
+      // Re-apply current chapter search if a term is active so scope takes effect
+      const term = (chapterSearchState && chapterSearchState.term) || '';
+      if (term && term.length >= 2) applyChapterSearch(term, { skipJump: true });
     });
   }
   bindChromeReveal();
@@ -3566,6 +3592,99 @@ function sectionForVerse(structure, verseNum) {
   }
   return null;
 }
+
+async function resolveChapterStructure(bookId, chapterNum) {
+  const book = books.find(b => b.id === bookId);
+  if (!book) return null;
+  const userKey = bookId + '.' + chapterNum;
+  const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  let structure = userRec && userRec.structure;
+  if (!structure || !Array.isArray(structure.elements) || !structure.elements.length) {
+    if (userRec && userRec.outlineText && String(userRec.outlineText).trim()) {
+      structure = parseStructureFromOutline(userRec.outlineText);
+    }
+  }
+  if (!structure || !Array.isArray(structure.elements) || !structure.elements.length) {
+    const staticData = getLiteraryStructure(book.name, chapterNum);
+    if (staticData && Array.isArray(staticData.outline) && staticData.outline.length) {
+      const outlineText = staticData.outline.map(item =>
+        (item.label || '') + '  ' + (item.range || '') + (item.note ? '  —  ' + item.note : '')
+      ).join('\n');
+      structure = parseStructureFromOutline(outlineText);
+    }
+  }
+  return (structure && Array.isArray(structure.elements) && structure.elements.length) ? structure : null;
+}
+
+function firstVerseOfSection(el) {
+  if (!el || !el.range) return 0;
+  return parseRangeStart(el.range);
+}
+
+function verseInSelectedSections(verseNum) {
+  if (!currentChapterStructure || !selectedStructureLabels.size) return true; // All
+  const n = Number(verseNum);
+  for (const el of currentChapterStructure.elements) {
+    if (!selectedStructureLabels.has(el.label)) continue;
+    const start = parseRangeStart(el.range);
+    const end = parseRangeEnd(el.range);
+    if (n >= start && n <= end) return true;
+  }
+  return false;
+}
+
+function clearStructJumpHits() {
+  document.querySelectorAll('.verse.struct-jump-hit').forEach(el => el.classList.remove('struct-jump-hit'));
+}
+
+function highlightFirstVerseOfSection(label) {
+  if (!currentChapterStructure) return;
+  const el = currentChapterStructure.elements.find(e => e.label === label);
+  if (!el) return;
+  const num = firstVerseOfSection(el);
+  if (!num) return;
+  clearStructJumpHits();
+  const verseEl = verseElByNum(num);
+  if (verseEl) {
+    verseEl.classList.add('struct-jump-hit');
+    verseEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function updateStructureSidebar() {
+  const wrap = document.getElementById('sb-structure-wrap');
+  const box = document.getElementById('sb-structure-btns');
+  if (!wrap || !box) return;
+  if (!currentChapterStructure || !currentChapterStructure.elements.length) {
+    wrap.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  wrap.hidden = false;
+  box.innerHTML = currentChapterStructure.elements.map(el => {
+    const on = selectedStructureLabels.has(el.label) ? ' sb-struct-on' : '';
+    return '<button type="button" class="sb-struct-btn' + on + '" data-struct-label="' + escapeHtml(el.label) + '" title="' + escapeHtml(el.range || '') + '">' + escapeHtml(el.label) + '</button>';
+  }).join('');
+  // Also refresh any open verse-tools scope rows
+  refreshVerseStructureScopes();
+}
+
+function refreshVerseStructureScopes() {
+  document.querySelectorAll('.struct-scope-row').forEach(row => {
+    if (!currentChapterStructure) {
+      row.hidden = true;
+      return;
+    }
+    row.hidden = false;
+    const btns = row.querySelectorAll('[data-scope-label]');
+    btns.forEach(btn => {
+      const lab = btn.getAttribute('data-scope-label');
+      btn.classList.toggle('scope-on', selectedStructureLabels.has(lab));
+    });
+    const allBtn = row.querySelector('[data-scope-all]');
+    if (allBtn) allBtn.classList.toggle('scope-on', selectedStructureLabels.size === 0);
+  });
+}
 function lastSectionKey(bookId, chapter) {
   return 'kjv-last-section-' + bookId + '.' + chapter;
 }
@@ -3658,6 +3777,9 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const ch = book.chapters.find(c => c.number === chapterNum);
   if (!ch) return;
 
+  if (currentBookId !== bookId || Number(currentChapter) !== Number(chapterNum)) {
+    selectedStructureLabels.clear();
+  }
   currentBookId = bookId;
   currentChapter = chapterNum;
   const isSample = bible.isSampleBook(book);
@@ -3738,6 +3860,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const enableTap = true;
   const structRec = await storage.getLiteraryStructureUser(bookId + '.' + chapterNum).catch(() => null);
   const chapterStructure = structRec && structRec.structure;
+  currentChapterStructure = await resolveChapterStructure(bookId, chapterNum);
+  updateStructureSidebar();
 
   const bracketByVerse = new Map();
   const addBracket = (rangeStr) => {
@@ -3811,6 +3935,14 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       </div>
       ${(verseNotesReturn && verseNotesReturn.focusKey === key) ? `<button type="button" class="notes-back-verse" data-act="notes-back" data-key="${key}">Back to notes · ${escapeHtml(verseNotesReturn.label || 'verse notes')}</button>` : ''}
       <div class="verse-actions${toolsOpen ? '' : ' is-collapsed'}">
+        ${currentChapterStructure ? '<div class="struct-scope-row">' +
+          '<span class="scope-label">Section:</span>' +
+          currentChapterStructure.elements.map(el => {
+            const on = selectedStructureLabels.has(el.label) ? ' scope-on' : '';
+            return '<button type="button" data-scope-label="' + escapeHtml(el.label) + '" class="' + on.trim() + '" title="' + escapeHtml(el.range || '') + '">' + escapeHtml(el.label) + '</button>';
+          }).join('') +
+          '<button type="button" data-scope-all class="scope-all' + (selectedStructureLabels.size === 0 ? ' scope-on' : '') + '">All</button>' +
+          '</div>' : ''}
         <div class="verse-nav-row">
           <input type="text" class="chapter-search" placeholder="Search in this chapter" aria-label="Search in this chapter">
           <button type="button" class="search-clear" title="Clear search">Clear</button>
@@ -13876,6 +14008,25 @@ function setupVerseNavDelegation() {
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
+    // Structure scope buttons inside verse Tools
+    if (btn.hasAttribute('data-scope-label')) {
+      const label = btn.getAttribute('data-scope-label');
+      if (selectedStructureLabels.has(label)) selectedStructureLabels.delete(label);
+      else selectedStructureLabels.add(label);
+      updateStructureSidebar();
+      highlightFirstVerseOfSection(label);
+      const term = (chapterSearchState && chapterSearchState.term) || '';
+      if (term && term.length >= 2) applyChapterSearch(term, { skipJump: true });
+      return;
+    }
+    if (btn.hasAttribute('data-scope-all')) {
+      selectedStructureLabels.clear();
+      updateStructureSidebar();
+      clearStructJumpHits();
+      const term = (chapterSearchState && chapterSearchState.term) || '';
+      if (term && term.length >= 2) applyChapterSearch(term, { skipJump: true });
+      return;
+    }
     if (btn.classList.contains('search-go')) {
       const row = btn.closest('.verse-nav-row');
       const input = row ? row.querySelector('.chapter-search') : null;
@@ -13961,11 +14112,12 @@ function applyChapterSearch(term, opts) {
   document.querySelectorAll('.verse').forEach((verse) => {
     const textEl = verse.querySelector('.verse-text');
     if (!textEl) return;
+    const num = Number((verse.dataset.key || '').split('.').pop());
+    if (num && !verseInSelectedSections(num)) return;
     const plain = textEl.textContent || '';
     if (plain.toLowerCase().includes(lower)) {
       verse.classList.add('search-hit');
       markInElement(textEl, term);
-      const num = Number((verse.dataset.key || '').split('.').pop());
       if (num) matches.push(num);
     }
   });
