@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.74
+/* app.js – Main application controller. KJV Study PWA v6.99.75
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.74';
+const APP_VERSION = '6.99.75';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1475,22 +1475,14 @@ function renderShell() {
         case 'menu': openMenu(); break;
       }
     });
-    // Structure section buttons (jump + highlight first verse; also toggle search scope)
+    // Sidebar Structure buttons: jump to the first verse of that section only.
+    // Search scope is controlled separately by the Section row inside verse Tools.
     sb.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-struct-label]');
       if (!btn) return;
       const label = btn.getAttribute('data-struct-label');
       if (!label) return;
-      if (selectedStructureLabels.has(label)) {
-        selectedStructureLabels.delete(label);
-      } else {
-        selectedStructureLabels.add(label);
-      }
-      updateStructureSidebar();
-      clearStructJumpHits();
-      // Re-apply current chapter search if a term is active so scope takes effect
-      const term = (chapterSearchState && chapterSearchState.term) || '';
-      if (term && term.length >= 2) applyChapterSearch(term);
+      highlightFirstVerseOfSection(label);
     });
   }
   bindChromeReveal();
@@ -3669,8 +3661,7 @@ function updateStructureSidebar() {
   }
   wrap.hidden = false;
   box.innerHTML = currentChapterStructure.elements.map(el => {
-    const on = selectedStructureLabels.has(el.label) ? ' sb-struct-on' : '';
-    return '<button type="button" class="sb-struct-btn' + on + '" data-struct-label="' + escapeHtml(el.label) + '" title="' + escapeHtml(el.range || '') + '">' + escapeHtml(el.label) + '</button>';
+    return '<button type="button" class="sb-struct-btn" data-struct-label="' + escapeHtml(el.label) + '" title="Go to ' + escapeHtml(el.range || el.label) + '">' + escapeHtml(el.label) + '</button>';
   }).join('');
   // Also refresh any open verse-tools scope rows
   refreshVerseStructureScopes();
