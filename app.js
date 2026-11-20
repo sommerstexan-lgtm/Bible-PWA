@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.72
+/* app.js – Main application controller. KJV Study PWA v6.99.74
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.72';
+const APP_VERSION = '6.99.74';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1487,10 +1487,10 @@ function renderShell() {
         selectedStructureLabels.add(label);
       }
       updateStructureSidebar();
-      highlightFirstVerseOfSection(label);
+      clearStructJumpHits();
       // Re-apply current chapter search if a term is active so scope takes effect
       const term = (chapterSearchState && chapterSearchState.term) || '';
-      if (term && term.length >= 2) applyChapterSearch(term, { skipJump: true });
+      if (term && term.length >= 2) applyChapterSearch(term);
     });
   }
   bindChromeReveal();
@@ -3572,15 +3572,22 @@ function parseStructureFromOutline(text) {
   return elements.length ? { type: groups.length ? 'concentric' : 'sequential', center: labels.find(l => l === 'X' || l === 'H') || '', elements, groups } : null;
 }
 
-function parseRangeStart(range) {
-  const m = String(range || '').match(/(\d+)/);
+function verseNumFromRangePart(part) {
+  // "22:1" -> 1, "1" -> 1, "22:10" -> 10
+  const s = String(part || '').trim();
+  const afterColon = s.includes(':') ? s.split(':').pop() : s;
+  const m = afterColon.match(/(\d+)/);
   return m ? Number(m[1]) : 0;
+}
+function parseRangeStart(range) {
+  const parts = String(range || '').split(/[-–]/);
+  return verseNumFromRangePart(parts[0]);
 }
 function parseRangeEnd(range) {
   const parts = String(range || '').split(/[-–]/);
   const last = parts[parts.length - 1];
-  const m = last.match(/(\d+)/);
-  return m ? Number(m[1]) : parseRangeStart(range);
+  const n = verseNumFromRangePart(last);
+  return n || parseRangeStart(range);
 }
 function sectionForVerse(structure, verseNum) {
   if (!structure || !Array.isArray(structure.elements)) return null;
@@ -3779,6 +3786,8 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
 
   if (currentBookId !== bookId || Number(currentChapter) !== Number(chapterNum)) {
     selectedStructureLabels.clear();
+    chapterSearchState = { term: '', matches: [], lastMatch: 0 };
+    chapterSearchScrollTop = null;
   }
   currentBookId = bookId;
   currentChapter = chapterNum;
@@ -14003,6 +14012,7 @@ document.addEventListener('DOMContentLoaded', init);
 
 // ---------- Chapter search + verse nav (inside verse Tools) ----------
 let chapterSearchState = { term: '', matches: [] };
+let chapterSearchScrollTop = null; // scroll position before the current search
 
 function setupVerseNavDelegation() {
   document.addEventListener('click', (e) => {
@@ -14014,9 +14024,9 @@ function setupVerseNavDelegation() {
       if (selectedStructureLabels.has(label)) selectedStructureLabels.delete(label);
       else selectedStructureLabels.add(label);
       updateStructureSidebar();
-      highlightFirstVerseOfSection(label);
+      clearStructJumpHits();
       const term = (chapterSearchState && chapterSearchState.term) || '';
-      if (term && term.length >= 2) applyChapterSearch(term, { skipJump: true });
+      if (term && term.length >= 2) applyChapterSearch(term);
       return;
     }
     if (btn.hasAttribute('data-scope-all')) {
@@ -14089,6 +14099,11 @@ function updateVerseSelect(optionsNums) {
 
 function applyChapterSearch(term, opts) {
   opts = opts || {};
+  const main = document.getElementById('main');
+  // Remember where the user was before this search, so Clear can return them
+  if (term && term.length >= 2 && chapterSearchScrollTop == null && main) {
+    chapterSearchScrollTop = main.scrollTop;
+  }
   // Clear previous highlights and marks
   document.querySelectorAll('.verse.search-hit').forEach(el => el.classList.remove('search-hit'));
   document.querySelectorAll('.verse.struct-jump-hit').forEach(el => el.classList.remove('struct-jump-hit'));
@@ -14108,6 +14123,10 @@ function applyChapterSearch(term, opts) {
 
   if (!term || term.length < 2) {
     updateVerseSelect(allVerses);
+    if (chapterSearchScrollTop != null && main) {
+      main.scrollTop = chapterSearchScrollTop;
+      chapterSearchScrollTop = null;
+    }
     return;
   }
 
@@ -14149,28 +14168,48 @@ function applyChapterSearch(term, opts) {
       chapterSearchState.lastMatch = target;
       jumpToVerseNum(target);
     }
-    showAppStatus(matches.length + ' match' + (matches.length === 1 ? '' : 'es') + ' — select lists only matches', 'ok');
+    const scopeLabel = selectedStructureLabels.size
+      ? ' in ' + Array.from(selectedStructureLabels).join(', ')
+      : '';
+    showAppStatus(matches.length + ' match' + (matches.length === 1 ? '' : 'es') + scopeLabel + ' — select lists only matches', 'ok');
   } else {
-    updateVerseSelect(allVerses);
-    showAppStatus('No matches in this chapter', 'ok');
+    updateVerseSelect([]);
+    const scope = selectedStructureLabels.size
+      ? 'section ' + Array.from(selectedStructureLabels).join(', ')
+      : 'this chapter';
+    showAppStatus('No matches for “' + term + '” in ' + scope, 'ok');
   }
 }
 
 function markInElement(el, term) {
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
   const lower = term.toLowerCase();
+  const len = term.length;
+  // Collect matches first so DOM changes do not confuse the walker
+  const hits = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
   let node;
   while ((node = walker.nextNode())) {
-    const idx = node.textContent.toLowerCase().indexOf(lower);
-    if (idx >= 0) {
+    const text = node.textContent || '';
+    const low = text.toLowerCase();
+    let from = 0;
+    while (from <= low.length - len) {
+      const idx = low.indexOf(lower, from);
+      if (idx < 0) break;
+      hits.push({ node, idx });
+      from = idx + len;
+    }
+  }
+  // Apply from the end of each node so earlier offsets stay valid
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    try {
       const range = document.createRange();
-      range.setStart(node, idx);
-      range.setEnd(node, idx + term.length);
+      range.setStart(h.node, h.idx);
+      range.setEnd(h.node, h.idx + len);
       const mark = document.createElement('span');
       mark.className = 'search-mark';
-      try { range.surroundContents(mark); } catch (_) {}
-      break;
-    }
+      range.surroundContents(mark);
+    } catch (_) {}
   }
 }
 
