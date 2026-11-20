@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.71
+/* app.js – Main application controller. KJV Study PWA v6.99.72
    Client-side only. Personal data never leaves the device.
    Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.71';
+const APP_VERSION = '6.99.72';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -14036,6 +14036,9 @@ function setupVerseNavDelegation() {
       applyChapterSearch(term);
     } else if (btn.classList.contains('search-clear')) {
       document.querySelectorAll('.chapter-search').forEach((inp) => { inp.value = ''; });
+      selectedStructureLabels.clear();
+      updateStructureSidebar();
+      clearStructJumpHits();
       applyChapterSearch('');
     }
   });
@@ -14088,6 +14091,7 @@ function applyChapterSearch(term, opts) {
   opts = opts || {};
   // Clear previous highlights and marks
   document.querySelectorAll('.verse.search-hit').forEach(el => el.classList.remove('search-hit'));
+  document.querySelectorAll('.verse.struct-jump-hit').forEach(el => el.classList.remove('struct-jump-hit'));
   document.querySelectorAll('.search-mark').forEach(m => {
     const parent = m.parentNode;
     if (parent) {
