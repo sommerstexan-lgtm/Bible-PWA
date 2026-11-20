@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.75';
+const APP_VERSION = '6.99.76';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -231,6 +231,8 @@ function chapterPicture() {
 }
 
 function openChapterPicture() {
+  const cur = getNearestVerseKey();
+  if (cur) trailPush(cur, 'map');
   const pic = chapterPicture();
   if (!pic) return;
   const stops = pic.marks.filter((m) => m.order).sort((a, b) => a.order - b.order);
@@ -1169,6 +1171,8 @@ try {
 } catch (_) {}
 /** Ordered study trail workbench. Session only. Named saves go to IndexedDB. */
 let studyTrail = { nodes: [], undo: [] };
+/** Short history for the Back button under Anchor (last 2 places). */
+let backHistory = [];
 try {
   const rawS = sessionStorage.getItem('kjv-search-session');
   if (rawS) Object.assign(searchSession, JSON.parse(rawS));
@@ -1342,6 +1346,7 @@ function renderShell() {
         <button type="button" data-sb="crossrefs">Cross-references</button>
         <button type="button" data-sb="notes">Chapter notes</button>
         <button type="button" data-sb="anchor">Anchor</button>
+        <button type="button" data-sb="back" id="sb-back-btn" title="Back to previous place">Back</button>
         <div id="sb-structure-wrap" hidden>
           <div class="sb-struct-label">Structure</div>
           <div id="sb-structure-btns" class="sb-struct-btns"></div>
@@ -1464,6 +1469,7 @@ function renderShell() {
           if (chip) chip.click();
           break;
         }
+        case 'back': goBack(); break;
         case 'search': openSearch(); break;
         case 'books': openBookNav(); break;
         case 'prev': changeChapter(-1); break;
@@ -1926,10 +1932,14 @@ function updateTrailChip() {
 
 function trailPush(key, source) {
   if (!key) return;
-  const last = studyTrail.nodes[studyTrail.nodes.length - 1];
+  if (studyTrail.nodes.length >= 50) {
+    showAppStatus('Study trail is full (50). Delete some entries to add more.', 'ok');
+    return;
+  }
+  const last = studyTrail.nodes[0]; // newest is now at front
   if (last && last.key === key) return;
   studyTrail.undo.push({ type: 'push' });
-  studyTrail.nodes.push({
+  studyTrail.nodes.unshift({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     key,
     label: formatKeyLabel(key),
@@ -2002,6 +2012,7 @@ function openStudyTrail() {
         <button type="button" id="trail-save">Save as chain…</button>
         <button type="button" id="trail-saved">Saved chains</button>
         <button type="button" id="trail-undo">Undo last edit</button>
+        <button type="button" id="trail-range">Delete range…</button>
         <button type="button" id="trail-clear">Clear trail</button>
       </div>
     </div>
@@ -2071,6 +2082,24 @@ function openStudyTrail() {
     if (!confirm('Clear the whole trail? Original search results stay as they were.')) return;
     studyTrail.undo.push({ type: 'clear', nodes: studyTrail.nodes.slice() });
     studyTrail.nodes = [];
+    persistTrail();
+    updateTrailChip();
+    renderList();
+  };
+  $('#trail-range', overlay).onclick = () => {
+    if (!studyTrail.nodes.length) return;
+    const raw = prompt('Delete range (example: 3-7 or 5). Numbers are 1 = newest at top.');
+    if (!raw) return;
+    const m = raw.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+    if (!m) { alert('Use a number or range like 3-7'); return; }
+    let start = parseInt(m[1], 10) - 1;
+    let end = m[2] ? parseInt(m[2], 10) - 1 : start;
+    if (start > end) [start, end] = [end, start];
+    start = Math.max(0, start);
+    end = Math.min(studyTrail.nodes.length - 1, end);
+    if (start > end) return;
+    studyTrail.undo.push({ type: 'range', nodes: studyTrail.nodes.slice(start, end + 1), index: start });
+    studyTrail.nodes.splice(start, end - start + 1);
     persistTrail();
     updateTrailChip();
     renderList();
@@ -6460,7 +6489,24 @@ function simpleAbbrev(name) {
   return map[name.toLowerCase()] || name.toLowerCase().replace(/\s+/g, '').slice(0, 3);
 }
 
+function pushBackHistory(key) {
+  if (!key) return;
+  if (backHistory.length && backHistory[backHistory.length - 1] === key) return;
+  backHistory.push(key);
+  if (backHistory.length > 2) backHistory.shift();
+}
+function goBack() {
+  if (!backHistory.length) {
+    showAppStatus('No previous place yet.', 'ok');
+    return;
+  }
+  const prev = backHistory.pop();
+  jumpToRef(prev);
+}
 async function jumpToRef(targetKey) {
+  // Record current place before jumping so Back can return
+  const currentKey = getNearestVerseKey();
+  if (currentKey) pushBackHistory(currentKey);
   const { bookId, chapter, verse } = bible.parseKey(targetKey);
   // If the target book is not loaded, just inform the user
   if (!books.find(b => b.id === bookId)) {
@@ -6484,6 +6530,8 @@ async function jumpToRef(targetKey) {
 
 // ---------- Search (sticky header + hierarchical book → verse) ----------
 function openSearch() {
+  const cur = getNearestVerseKey();
+  if (cur) trailPush(cur, 'search-open');
   const overlay = showOverlay(`
     <div class="panel search-panel">
       <div class="search-header">
@@ -13047,6 +13095,8 @@ function parseThemeRefList(raw) {
 }
 
 async function openResearch() {
+  const cur = getNearestVerseKey();
+  if (cur) trailPush(cur, 'research');
   if (!currentBookId || !currentChapter) {
     alert("Open a chapter first, then use Research.");
     return;
@@ -14079,7 +14129,19 @@ function jumpToVerseNum(num) {
 }
 
 function updateVerseSelect(optionsNums) {
-  const html = optionsNums.map(n => '<option value="' + n + '">' + n + '</option>').join('');
+  // Group by structure letter for quick section density view
+  const groups = [];
+  let lastLabel = null;
+  for (const n of optionsNums) {
+    const sect = currentChapterStructure ? sectionForVerse(currentChapterStructure, n) : null;
+    const label = sect ? sect.label : '';
+    groups.push({ n, label, showLabel: label && label !== lastLabel });
+    lastLabel = label;
+  }
+  const html = groups.map(g => {
+    const prefix = g.showLabel ? (g.label + ' — ') : '    ';
+    return '<option value="' + g.n + '">' + prefix + g.n + '</option>';
+  }).join('');
   document.querySelectorAll('.nav-verse-select').forEach((sel) => {
     const current = sel.value;
     sel.innerHTML = html;
