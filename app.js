@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.83
+/* app.js – Main application controller. KJV Study PWA v6.99.84
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -16,7 +16,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.83';
+const APP_VERSION = '6.99.84';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -4907,21 +4907,6 @@ async function openReviewByColor(preselectColor = null) {
   }
 
 
-  function variantBlockHtml(q) {
-    if (!q || q.length < 2) return '';
-    const g = findGroupFor(q);
-    if (!g) return '';
-    const others = otherSpellings(g, q);
-    if (!others.length) return '';
-    const verses = (g.verses || []).map(v => `<div style="font-size:0.85em;color:var(--text-dim);margin:0.2rem 0">${escapeHtml(v)}</div>`).join('');
-    const list = others.map(sp => `<span class="variant-sp" data-sp="${escapeHtml(sp)}" style="display:inline-block;margin:0.2rem 0.4rem 0.2rem 0;padding:0.25rem 0.5rem;background:var(--accent);color:#111;border-radius:6px;font-weight:600;cursor:pointer">${escapeHtml(sp)}</span>`).join('');
-    return `<div class="variant-block" style="margin:0.6rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-alt)">
-      <p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Also appears as:</p>
-      <div>${list}</div>
-      ${verses ? '<div style="margin-top:0.4rem">' + verses + '</div>' : ''}
-      <button type="button" id="remove-variant" data-gid="${escapeHtml(g.id)}" data-sp="${escapeHtml(q)}" style="margin-top:0.5rem;font-size:0.8em;padding:0.3rem 0.6rem">Remove this spelling from group</button>
-    </div>`;
-  }
   function renderBookList() {
     viewMode = 'books';
     selectedBookId = null;
@@ -6783,6 +6768,22 @@ function openSearch() {
         <span class="ref">${escapeHtml(label)}</span>
         Open this verse${note}
       </div>`;
+  }
+
+  function variantBlockHtml(q) {
+    if (!q || q.length < 2) return '';
+    const g = findGroupFor(q);
+    if (!g) return '';
+    const others = otherSpellings(g, q);
+    if (!others.length) return '';
+    const verses = (g.verses || []).map(v => `<div style="font-size:0.85em;color:var(--text-dim);margin:0.2rem 0">${escapeHtml(v)}</div>`).join('');
+    const list = others.map(sp => `<span class="variant-sp" data-sp="${escapeHtml(sp)}" style="display:inline-block;margin:0.2rem 0.4rem 0.2rem 0;padding:0.25rem 0.5rem;background:var(--accent);color:#111;border-radius:6px;font-weight:600;cursor:pointer">${escapeHtml(sp)}</span>`).join('');
+    return `<div class="variant-block" style="margin:0.6rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-alt)">
+      <p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Also appears as:</p>
+      <div>${list}</div>
+      ${verses ? '<div style="margin-top:0.4rem">' + verses + '</div>' : ''}
+      <button type="button" id="remove-variant" data-gid="${escapeHtml(g.id)}" data-sp="${escapeHtml(q)}" style="margin-top:0.5rem;font-size:0.8em;padding:0.3rem 0.6rem">Remove this spelling from group</button>
+    </div>`;
   }
 
   function renderBookList() {
