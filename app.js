@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.78';
+const APP_VERSION = '6.99.79';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1175,7 +1175,6 @@ try {
 /** Ordered study trail workbench. Session only. Named saves go to IndexedDB. */
 let studyTrail = { nodes: [], undo: [] };
 /** Short history for the Back button under Anchor (last 2 places). */
-let backHistory = [];
 
 /**
  * General place recorder.
@@ -1210,10 +1209,6 @@ function recordPlace(label, type, data) {
   updateTrailChip();
   updateLeftPills();
 
-  // Back history (last 2)
-  if (backHistory.length && backHistory[backHistory.length - 1].label === node.label && backHistory[backHistory.length - 1].type === node.type) return;
-  backHistory.push(node);
-  if (backHistory.length > 2) backHistory.shift();
 }
 
 async function restorePlace(node) {
@@ -1429,7 +1424,7 @@ function renderShell() {
         <button type="button" data-sb="crossrefs">Cross-references</button>
         <button type="button" data-sb="notes">Chapter notes</button>
         <button type="button" data-sb="anchor">Anchor</button>
-        <button type="button" data-sb="back" id="sb-back-btn" title="Back to previous place">Back</button>
+        <button type="button" data-sb="trail" title="Study trail">Study trail</button>
         <div id="sb-structure-wrap" hidden>
           <div class="sb-struct-label">Structure</div>
           <div id="sb-structure-btns" class="sb-struct-btns"></div>
@@ -1552,7 +1547,6 @@ function renderShell() {
           if (chip) chip.click();
           break;
         }
-        case 'back': goBack(); break;
         case 'search': openSearch(); break;
         case 'books': openBookNav(); break;
         case 'prev': changeChapter(-1); break;
@@ -6563,20 +6557,6 @@ function simpleAbbrev(name) {
   return map[name.toLowerCase()] || name.toLowerCase().replace(/\s+/g, '').slice(0, 3);
 }
 
-function pushBackHistory(key) {
-  if (!key) return;
-  if (backHistory.length && backHistory[backHistory.length - 1] === key) return;
-  backHistory.push(key);
-  if (backHistory.length > 2) backHistory.shift();
-}
-function goBack() {
-  if (!backHistory.length) {
-    showAppStatus('No previous place yet.', 'ok');
-    return;
-  }
-  const prev = backHistory.pop();
-  restorePlace(prev);
-}
 async function jumpToRef(targetKey) {
   const currentKey = getNearestVerseKey();
   if (currentKey && currentKey !== targetKey) {
