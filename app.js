@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.80';
+const APP_VERSION = '6.99.82';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1459,6 +1459,7 @@ function renderShell() {
         <button type="button" data-sb="font-down">A− Smaller</button>
         <button type="button" data-sb="font-up">A+ Larger</button>
       </details>
+      <button type="button" data-sb="clear-markers" class="sb-standalone" title="Clear minimized markers, then optionally clear the trail">Clear markers</button>
       <button type="button" data-sb="show-controls" class="sb-standalone">Show controls</button>
       <button type="button" data-sb="help" class="sb-standalone">Help</button>
       <button type="button" data-sb="menu" class="sb-standalone">Menu</button>
@@ -1471,8 +1472,7 @@ function renderShell() {
       <button type="button" id="last-dict-chip" class="pill-btn" hidden title="Return to last dictionary">Dict</button>
       <button type="button" id="last-trail-chip" class="pill-btn" hidden title="Open study trail">Trail</button>
     </div>
-    <button type="button" id="summary-chip" class="summary-chip" hidden title="Open minimized summary">Summary</button>
-    <button type="button" id="cs-chip" class="summary-chip" hidden title="Open minimized chapter study">Chapter study</button>
+    <!-- floating chips removed; minimize return lives in sidebar -->
     <div id="chain-read-bar" class="chain-read-bar" hidden>
       <button type="button" id="chain-bar-list">List</button>
       <span id="chain-bar-label">Chain</span>
@@ -1526,7 +1526,7 @@ function renderShell() {
       if (!btn) return;
       const act = btn.getAttribute('data-sb');
       switch (act) {
-        case 'chapter-study': openChapterStudy(); break;
+        case 'chapter-study': if (minimizedChapterStudyOverlay) restoreChapterStudy(); else openChapterStudy(); break;
         case 'context': openContext(); break;
         case 'research': openResearch(); break;
         case 'places': openChapterPicture(); break;
@@ -1537,7 +1537,7 @@ function renderShell() {
           else openSearch();
           break;
         }
-        case 'notes': openChapterStudy(); break;
+        case 'notes': if (minimizedSummary) reopenMinimizedSummary(); else openChapterStudy(); break;
         case 'dict': openDictionary(); break;
         case 'colors': openColorIndex(); break;
         case 'review': openReviewByColor(); break;
@@ -1556,6 +1556,7 @@ function renderShell() {
         case 'show-controls': showChrome(); break;
         case 'help': openHelp(); break;
         case 'menu': openMenu(); break;
+        case 'clear-markers': clearSidebarMarkers(); break;
       }
     });
     // Sidebar Structure buttons: jump to the first verse of that section only.
@@ -1584,17 +1585,14 @@ function renderShell() {
   if (searchChip) searchChip.onclick = () => { if ((searchSession.query || '').trim()) openSearch(); };
   if (dictChip) dictChip.onclick = () => { if (lastDictTerm) openDictionary(lastDictTerm); };
   if (trailChip) trailChip.onclick = () => { if (studyTrail.nodes.length) openStudyTrail(); };
-  const sumChip = document.getElementById('summary-chip');
-  if (sumChip) sumChip.onclick = () => reopenMinimizedSummary();
-  const csChip = document.getElementById('cs-chip');
-  if (csChip) csChip.onclick = () => restoreChapterStudy();
+  // floating chips removed; minimize return is handled by sidebar buttons
   const notesBack = document.getElementById('notes-return-btn');
   const notesBackX = document.getElementById('notes-return-x');
   if (notesBack) notesBack.onclick = () => returnToVerseNotes();
   if (notesBackX) notesBackX.onclick = () => dismissVerseNotesReturn();
   updateNotesReturnBar();
   const sumBtn = document.getElementById('btn-summary');
-  if (sumBtn) sumBtn.onclick = () => openChapterStudy();
+  if (sumBtn) sumBtn.onclick = () => { if (minimizedChapterStudyOverlay) restoreChapterStudy(); else openChapterStudy(); };
   updateAnchorUI();
   const listBtn = document.getElementById('chain-bar-list');
   const nextBtn = document.getElementById('chain-bar-next');
@@ -1763,6 +1761,32 @@ function updateAnchorUI() {
   updateLeftPills();
 }
 
+async function clearSidebarMarkers() {
+  // 1. Close a minimized Chapter study (saves notes/summary first via leaveChapterStudy)
+  if (minimizedChapterStudyOverlay) {
+    try { await leaveChapterStudy(minimizedChapterStudyOverlay); } catch (_) {}
+  }
+  // 2. Drop a minimized summary reference (note was already saved when minimized)
+  if (minimizedSummary) {
+    minimizedSummary = null;
+    updateSummaryChip();
+  }
+  updateSidebarActive();
+  showAppStatus('Sidebar markers cleared.', 'ok');
+
+  // 3. Second confirm for the trail — existing clear-trail logic with undo
+  if (studyTrail && studyTrail.nodes && studyTrail.nodes.length) {
+    if (confirm('Also clear the study trail?')) {
+      studyTrail.undo.push({ type: 'clear', nodes: studyTrail.nodes.slice() });
+      studyTrail.nodes = [];
+      persistTrail();
+      updateTrailChip();
+      updateSidebarActive();
+      showAppStatus('Study trail cleared. Undo is available in the trail panel.', 'ok');
+    }
+  }
+}
+
 function updateSidebarActive() {
   const sb = document.getElementById('study-sidebar');
   if (!sb) return;
@@ -1775,6 +1799,10 @@ function updateSidebarActive() {
   setActive('search', !!(searchSession && (searchSession.query || '').trim()));
   setActive('dict', !!lastDictTerm);
   setActive('books', true); // always available
+  // Minimized Chapter study returns via the sidebar button
+  setActive('chapter-study', !!minimizedChapterStudyOverlay);
+  // Minimized summary returns via Chapter notes button
+  setActive('notes', !!minimizedSummary);
   // Show controls is always useful when chrome is hidden
   const showBtn = sb.querySelector('[data-sb="show-controls"]');
   if (showBtn) showBtn.classList.toggle('sb-active', chromeHidden);
@@ -7702,15 +7730,8 @@ let minimizedSummary = null;
 let summaryHop = null;
 
 function updateSummaryChip() {
-  const chip = document.getElementById('summary-chip');
-  if (!chip) return;
-  if (!minimizedSummary) {
-    chip.hidden = true;
-    chip.textContent = 'Summary';
-    return;
-  }
-  chip.hidden = false;
-  chip.textContent = minimizedSummary.title || 'Summary';
+  // Floating chip removed. Highlight the sidebar Chapter notes button when a summary is minimized.
+  updateSidebarActive();
 }
 
 function summaryRefFromTitle(title, kind) {
@@ -11470,15 +11491,8 @@ async function openChapterStudyFromVerse(key, initialView) {
 let minimizedChapterStudyOverlay = null;
 
 function updateChapterStudyChip() {
-  const chip = document.getElementById('cs-chip');
-  if (!chip) return;
-  if (!minimizedChapterStudyOverlay) {
-    chip.hidden = true;
-    return;
-  }
-  chip.hidden = false;
-  const title = chapterStudy ? (chapterStudyTitle() || 'Chapter study') : 'Chapter study';
-  chip.textContent = title;
+  // Floating chip removed. Highlight the sidebar Chapter study button when minimized.
+  updateSidebarActive();
 }
 
 function updateSectionBar(overlay) {
@@ -11545,6 +11559,14 @@ function restoreChapterStudy() {
 }
 
 async function openChapterStudy(startKey, initialView) {
+  // If a Chapter study session is already minimized for this chapter, restore it
+  // instead of creating a second overlay that would orphan the first.
+  if (minimizedChapterStudyOverlay && chapterStudy &&
+      chapterStudy.bookId === currentBookId &&
+      Number(chapterStudy.chapter) === Number(currentChapter)) {
+    restoreChapterStudy();
+    return;
+  }
   recordPlace('Chapter study', 'chapter-study', {});
   const book = books.find((b) => b.id === currentBookId);
   if (!book) {
