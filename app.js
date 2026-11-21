@@ -1,7 +1,8 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.75
-   Client-side only. Personal data never leaves the device.
-   Highlight system: solid background fills + mandatory pure black/white contrast text.
+/* app.js – Main application controller. KJV Study PWA v6.99.83
+Client-side only. Personal data never leaves the device.
+Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
+import { initNameVariants, findGroupFor, otherSpellings, addSpelling, removeSpelling, allGroups } from './name-variants.js';
 
 import * as storage from './storage.js';
 import * as bible from './bible.js';
@@ -15,7 +16,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.82';
+const APP_VERSION = '6.99.83';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1327,6 +1328,7 @@ function applySettings() {
 async function init() {
   // Password gate first
   await checkPassword();
+  await initNameVariants();
 
   // Register service worker
   if ('serviceWorker' in navigator) {
@@ -4904,6 +4906,22 @@ async function openReviewByColor(preselectColor = null) {
     });
   }
 
+
+  function variantBlockHtml(q) {
+    if (!q || q.length < 2) return '';
+    const g = findGroupFor(q);
+    if (!g) return '';
+    const others = otherSpellings(g, q);
+    if (!others.length) return '';
+    const verses = (g.verses || []).map(v => `<div style="font-size:0.85em;color:var(--text-dim);margin:0.2rem 0">${escapeHtml(v)}</div>`).join('');
+    const list = others.map(sp => `<span class="variant-sp" data-sp="${escapeHtml(sp)}" style="display:inline-block;margin:0.2rem 0.4rem 0.2rem 0;padding:0.25rem 0.5rem;background:var(--accent);color:#111;border-radius:6px;font-weight:600;cursor:pointer">${escapeHtml(sp)}</span>`).join('');
+    return `<div class="variant-block" style="margin:0.6rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-alt)">
+      <p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Also appears as:</p>
+      <div>${list}</div>
+      ${verses ? '<div style="margin-top:0.4rem">' + verses + '</div>' : ''}
+      <button type="button" id="remove-variant" data-gid="${escapeHtml(g.id)}" data-sp="${escapeHtml(q)}" style="margin-top:0.5rem;font-size:0.8em;padding:0.3rem 0.6rem">Remove this spelling from group</button>
+    </div>`;
+  }
   function renderBookList() {
     viewMode = 'books';
     selectedBookId = null;
@@ -6775,6 +6793,7 @@ function openSearch() {
     const q = input.value.trim();
     const subHtml = subjectBlockHtml();
     const refHtml = refJumpHtml();
+    const varHtml = variantBlockHtml(q);
     if (!groups.length && !lastSubjects.length && !lastRefHit) {
       resultsEl.innerHTML = q.length >= 2 ? '<p style="color:var(--text-dim);padding:0.5rem 0">No matches.</p>' : '';
       return;
@@ -6790,9 +6809,42 @@ function openSearch() {
     } else if (q.length >= 2 && lastSubjects.length) {
       wordHtml = '<p style="color:var(--text-dim);padding:0.4rem 0 0.8rem;font-size:0.92em">No word matches in loaded books.</p>';
     }
-    resultsEl.innerHTML = refHtml + wordHtml + subHtml;
+    const addHtml = q.length >= 2 ? `<div style="margin:0.8rem 0"><button type="button" id="add-variant-btn" style="font-size:0.85em;padding:0.4rem 0.7rem">+ Add related spelling for “${escapeHtml(q)}”</button></div>` : '';
+    resultsEl.innerHTML = refHtml + varHtml + wordHtml + subHtml + addHtml;
     bindSubjectRows(resultsEl);
     bindVerseClicks(resultsEl);
+    // Variant spelling clicks: re-search that spelling
+    resultsEl.querySelectorAll('.variant-sp').forEach(el => {
+      el.onclick = () => {
+        input.value = el.dataset.sp;
+        input.dispatchEvent(new Event('input'));
+      };
+    });
+    const remBtn = resultsEl.querySelector('#remove-variant');
+    if (remBtn) {
+      remBtn.onclick = () => {
+        removeSpelling(remBtn.dataset.gid, remBtn.dataset.sp);
+        renderBookList();
+      };
+    }
+    const addBtn = resultsEl.querySelector('#add-variant-btn');
+    if (addBtn) {
+      addBtn.onclick = () => {
+        const other = prompt('Exact KJV spelling to link with “' + q + '”:');
+        if (!other || !other.trim()) return;
+        const verses = prompt('Verse reference(s) that prove they are the same (e.g. 1Ch 3:16; 2Ki 24:6):', '');
+        const note = prompt('Optional short note:', '');
+        const existing = findGroupFor(q);
+        addSpelling({
+          spelling: other.trim(),
+          verses: verses ? verses.split(/[;,]/).map(s => s.trim()).filter(Boolean) : [],
+          note: note || '',
+          existingGroupId: existing ? existing.id : null
+        });
+        alert('Added. Search again or refresh results to see it.');
+        input.dispatchEvent(new Event('input'));
+      };
+    }
     $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
         selectedBookId = row.dataset.bookId;
