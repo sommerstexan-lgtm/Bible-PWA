@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.84
+/* app.js – Main application controller. KJV Study PWA v6.99.85
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -16,7 +16,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.84';
+const APP_VERSION = '6.99.85';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6770,6 +6770,36 @@ function openSearch() {
       </div>`;
   }
 
+
+  function discoverVariantsHtml(q, results) {
+    if (!q || q.length < 3 || !results || !results.length) return '';
+    const qLow = q.toLowerCase();
+    const candidates = new Map(); // spelling -> verse label
+    for (const r of results.slice(0, 40)) { // limit scan
+      const text = (r.snippet || r.text || '').replace(/[“”"]/g, '');
+      // Simple proper-name extraction: sequences of capitalized words
+      const names = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/g) || [];
+      for (const name of names) {
+        const clean = name.trim();
+        if (clean.length < 3 || clean.toLowerCase() === qLow) continue;
+        if (clean.toLowerCase().includes(qLow) || qLow.includes(clean.toLowerCase())) continue;
+        const label = r.bookName + ' ' + r.chapter + ':' + r.verse;
+        if (!candidates.has(clean)) candidates.set(clean, label);
+      }
+    }
+    if (!candidates.size) return '';
+    let html = '<div style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px"><p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Possible related spellings found in the verses:</p>';
+    for (const [sp, verse] of candidates) {
+      html += `<div style="margin:0.3rem 0;display:flex;align-items:center;gap:0.5rem">
+        <span style="font-weight:600">${escapeHtml(sp)}</span>
+        <span style="font-size:0.8em;color:var(--text-dim)">${escapeHtml(verse)}</span>
+        <button type="button" class="accept-variant" data-sp="${escapeHtml(sp)}" data-verse="${escapeHtml(verse)}" style="font-size:0.75em;padding:0.2rem 0.5rem">Keep</button>
+      </div>`;
+    }
+    html += '</div>';
+    return html;
+  }
+
   function variantBlockHtml(q) {
     if (!q || q.length < 2) return '';
     const g = findGroupFor(q);
@@ -6810,8 +6840,8 @@ function openSearch() {
     } else if (q.length >= 2 && lastSubjects.length) {
       wordHtml = '<p style="color:var(--text-dim);padding:0.4rem 0 0.8rem;font-size:0.92em">No word matches in loaded books.</p>';
     }
-    const addHtml = q.length >= 2 ? `<div style="margin:0.8rem 0"><button type="button" id="add-variant-btn" style="font-size:0.85em;padding:0.4rem 0.7rem">+ Add related spelling for “${escapeHtml(q)}”</button></div>` : '';
-    resultsEl.innerHTML = refHtml + varHtml + wordHtml + subHtml + addHtml;
+    const discHtml = discoverVariantsHtml(q, lastResults);
+    resultsEl.innerHTML = refHtml + varHtml + wordHtml + subHtml + discHtml;
     bindSubjectRows(resultsEl);
     bindVerseClicks(resultsEl);
     // Variant spelling clicks: re-search that spelling
@@ -6828,24 +6858,21 @@ function openSearch() {
         renderBookList();
       };
     }
-    const addBtn = resultsEl.querySelector('#add-variant-btn');
-    if (addBtn) {
-      addBtn.onclick = () => {
-        const other = prompt('Exact KJV spelling to link with “' + q + '”:');
-        if (!other || !other.trim()) return;
-        const verses = prompt('Verse reference(s) that prove they are the same (e.g. 1Ch 3:16; 2Ki 24:6):', '');
-        const note = prompt('Optional short note:', '');
+    // Bind accept buttons for discovered variants
+    resultsEl.querySelectorAll('.accept-variant').forEach(btn => {
+      btn.onclick = () => {
+        const sp = btn.dataset.sp;
+        const verse = btn.dataset.verse;
         const existing = findGroupFor(q);
         addSpelling({
-          spelling: other.trim(),
-          verses: verses ? verses.split(/[;,]/).map(s => s.trim()).filter(Boolean) : [],
-          note: note || '',
+          spelling: sp,
+          verses: [verse],
+          note: 'Linked from search evidence',
           existingGroupId: existing ? existing.id : null
         });
-        alert('Added. Search again or refresh results to see it.');
         input.dispatchEvent(new Event('input'));
       };
-    }
+    });
     $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
         selectedBookId = row.dataset.bookId;
