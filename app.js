@@ -15,7 +15,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.79';
+const APP_VERSION = '6.99.80';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1200,7 +1200,7 @@ function recordPlace(label, type, data) {
   if (top && top.label === node.label && top.type === node.type) return;
 
   if (studyTrail.nodes.length >= 50) {
-    showAppStatus('Study trail is full (50). Delete some entries to add more.', 'ok');
+    openStudyTrail();
     return;
   }
   studyTrail.undo.push({ type: 'push' });
@@ -2058,19 +2058,41 @@ function trailUndo() {
   return true;
 }
 
+
+function updateTrailIntro(overlay) {
+  const intro = overlay && overlay.querySelector('#trail-intro');
+  if (!intro) return;
+  if (studyTrail.nodes.length >= 50) {
+    intro.textContent = 'Study trail is full (50). Delete some entries or save a chain before adding more.';
+    intro.style.color = '#c0392b';
+    intro.style.fontWeight = '600';
+  } else {
+    intro.innerHTML = 'Today&rsquo;s workbench. Save a named copy to keep your explanation and share it. Opening a saved chain to read does not replace this list.';
+    intro.style.color = 'var(--text-dim)';
+    intro.style.fontWeight = '';
+  }
+}
+
 function openStudyTrail() {
-  recordPlace('Study trail', 'trail', {});
+  if (studyTrail.nodes.length < 50) {
+    recordPlace('Study trail', 'trail', {});
+  }
+  // Close any existing trail overlay so we do not stack
+  document.querySelectorAll('.trail-panel').forEach(panel => {
+    const ov = panel.closest('.overlay');
+    if (ov) closeOverlay(ov);
+  });
+
   const overlay = showOverlay(`
     <div class="panel trail-panel">
       <div class="search-header-top">
         <h2 class="search-title" style="margin:0">Study trail</h2>
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
-      <p style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.8rem">
+      <p id="trail-intro" style="color:var(--text-dim);font-size:0.92em;margin:0.4rem 0 0.8rem">
         Today&rsquo;s workbench. Save a named copy to keep your explanation and share it. Opening a saved chain to read does not replace this list.
       </p>
-      <div id="trail-list"></div>
-      <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-top:0.9rem">
+      <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin:0 0 0.9rem">
         <button type="button" id="trail-add-here">Add current verse</button>
         <button type="button" id="trail-save">Save as chain…</button>
         <button type="button" id="trail-saved">Saved chains</button>
@@ -2078,6 +2100,7 @@ function openStudyTrail() {
         <button type="button" id="trail-range">Delete range…</button>
         <button type="button" id="trail-clear">Clear trail</button>
       </div>
+      <div id="trail-list"></div>
     </div>
   `);
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
@@ -2125,6 +2148,7 @@ function openStudyTrail() {
         renderList();
       };
     });
+    updateTrailIntro(overlay);
   }
   renderList();
 
@@ -2176,6 +2200,8 @@ function openStudyTrail() {
     closeOverlay(overlay);
     openSavedChainsList();
   };
+
+  updateTrailIntro(overlay);
 }
 
 function snapshotTrailNodes() {
