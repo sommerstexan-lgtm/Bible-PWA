@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.99
+/* app.js – Main application controller. KJV Study PWA v7.0.0
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.99';
+const APP_VERSION = '7.0.0';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7107,13 +7107,13 @@ function openFocusedSearch() {
         <div id="fs-diag" class="fs-diag" hidden></div>
         <div id="fs-variants" class="fs-variants" hidden></div>
         <div class="fs-compare" id="fs-compare" hidden>
-          <div class="fs-col">
-            <div class="fs-col-label">Anchor</div>
-            <div id="fs-anchor-display"></div>
+          <div class="fs-strip">
+            <span class="fs-col-label">Anchor</span>
+            <span id="fs-anchor-display"></span>
           </div>
-          <div class="fs-col">
-            <div class="fs-col-label">Selected</div>
-            <div id="fs-selected-display"></div>
+          <div class="fs-strip">
+            <span class="fs-col-label">Selected</span>
+            <span id="fs-selected-display"></span>
           </div>
         </div>
         <div id="fs-results" class="search-body" tabindex="0" aria-label="Search results"></div>
@@ -7206,16 +7206,16 @@ function openFocusedSearch() {
     }
     compareEl.hidden = false;
     if (anchor) {
-      anchorDisplay.innerHTML = `<div class="verse-ref">${escapeHtml(anchor.ref)}</div><div class="verse-text">${escapeHtml(anchor.text)}</div>`;
+      anchorDisplay.innerHTML = `<strong>${escapeHtml(anchor.ref)}</strong> ${escapeHtml(anchor.text)}`;
     } else {
-      anchorDisplay.innerHTML = '<p class="theme-note">No anchor resolved.</p>';
+      anchorDisplay.innerHTML = 'No anchor resolved.';
     }
     if (selectedIndex >= 0 && list[selectedIndex]) {
       const v = list[selectedIndex];
-      const why = (v.reasons && v.reasons.length) ? `<div class="fs-why">${escapeHtml(v.reasons.join(' · '))}</div>` : '';
-      selectedDisplay.innerHTML = `<div class="verse-ref">${escapeHtml(v.ref)}</div><div class="verse-text">${escapeHtml(v.text)}</div>${why}`;
+      const why = (v.reasons && v.reasons.length) ? ` <span class="fs-why">${escapeHtml(v.reasons.join(' · '))}</span>` : '';
+      selectedDisplay.innerHTML = `<strong>${escapeHtml(v.ref)}</strong> ${escapeHtml(v.text)}${why}`;
     } else {
-      selectedDisplay.innerHTML = '<p class="theme-note">Select a result to compare.</p>';
+      selectedDisplay.innerHTML = 'Select a result.';
     }
   }
 

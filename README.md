@@ -1,3 +1,8 @@
+## New in 7.0.0
+
+- Focused Search layout: wider panel, compact one-line Anchor/Selected strips, result list gets most of the height so verses are readable.
+
+
 ## New in 6.99.99
 
 - Focused Search: single click selects a result for comparison. Double-click (double-tap) jumps to that verse on the main screen and minimizes the panel. Sidebar Focused Search restores exactly where you were.
