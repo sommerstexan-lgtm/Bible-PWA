@@ -7109,11 +7109,12 @@ function openFocusedSearch() {
 
   function render() {
     if (!lastResult) {
-      resultsEl.innerHTML = '<p class="theme-note">Enter a term and optional anchor verse.</p>';
+      resultsEl.innerHTML = '<p class="theme-note">Enter a term and optional anchor verse, then tap Search.</p>';
       return;
     }
     const list = showAll ? lastResult.all : lastResult.focused;
     const anchor = lastResult.anchor;
+    const total = lastResult.totalLoaded || 0;
 
     if (anchor) {
       anchorDisplay.hidden = false;
@@ -7122,26 +7123,36 @@ function openFocusedSearch() {
       anchorDisplay.hidden = true;
     }
 
+    if (total === 0) {
+      resultsEl.innerHTML = '<p class="theme-note">No books are loaded yet. Load a testament or book first.</p>';
+      toggleBtn.hidden = true;
+      return;
+    }
+
     if (!list.length) {
-      resultsEl.innerHTML = '<p class="theme-note">No matches in loaded books.</p>';
+      resultsEl.innerHTML = '<p class="theme-note">No matches for “' + escapeHtml(lastResult.term) + '” in the ' + total + ' loaded verses.</p>';
       toggleBtn.hidden = true;
       return;
     }
 
     toggleBtn.hidden = false;
-    toggleBtn.textContent = showAll ? 'Show focused' : 'Show everything';
+    toggleBtn.textContent = showAll ? 'Show focused' : 'Show everything (' + lastResult.all.length + ')';
 
     resultsEl.innerHTML = list.map(v => `
       <div class="search-result" data-key="${escapeHtml(v.key)}" role="button" tabindex="0">
         <span class="ref">${escapeHtml(v.ref)}</span>
-        <span class="snippet">${escapeHtml(v.text.slice(0, 180))}${v.text.length > 180 ? '…' : ''}</span>
+        <span class="snippet">${escapeHtml(v.text.slice(0, 220))}${v.text.length > 220 ? '…' : ''}</span>
       </div>
     `).join('');
 
     $$('.search-result', resultsEl).forEach(row => {
       row.onclick = async () => {
         const key = row.getAttribute('data-key');
-        if (key) { trailPush(key, "focused"); closeOverlay(overlay); await jumpToRef(key); }
+        if (key) {
+          trailPush(key, 'focused');
+          closeOverlay(overlay);
+          await jumpToRef(key);
+        }
       };
     });
   }

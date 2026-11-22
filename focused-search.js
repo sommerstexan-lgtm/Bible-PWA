@@ -1,30 +1,35 @@
 /**
  * focused-search.js
  * Focused Search for KJV Study PWA
- * Implements the discussed design: term search + anchor verse that stays fixed,
- * focused results, fallback to show everything, comparison view.
- * Works with the existing books array and bible.getVerseText.
+ *
+ * Correctly matches the real book structure used by the rest of the app:
+ *   book.chapters[] → { number, verses: [{ number, text }, ...] }
+ * Uses bible.verseKey for keys that jumpToRef understands.
  */
 
 export function createFocusedSearch(books, bible) {
   function getAllLoadedVerses() {
     const list = [];
-    for (const book of books) {
-      if (!book || !book.chapters) continue;
-      const meta = bible.CANONICAL_BOOKS.find(b => b.id === book.id);
-      const bookName = meta ? meta.name : book.id;
+    const bookList = Array.isArray(books) ? books : [];
+    for (const book of bookList) {
+      if (!book || !Array.isArray(book.chapters)) continue;
+      const bookName = book.name || book.id;
       for (const ch of book.chapters) {
-        if (!ch || !ch.verses) continue;
-        for (let i = 0; i < ch.verses.length; i++) {
-          const text = ch.verses[i] || '';
+        if (!ch || !Array.isArray(ch.verses)) continue;
+        const chapterNum = Number(ch.number);
+        if (!Number.isFinite(chapterNum)) continue;
+        for (const v of ch.verses) {
+          if (!v || typeof v.text !== 'string') continue;
+          const verseNum = Number(v.number);
+          if (!Number.isFinite(verseNum)) continue;
           list.push({
-            ref: `${bookName} ${ch.chapter}:${i + 1}`,
+            ref: `${bookName} ${chapterNum}:${verseNum}`,
             bookId: book.id,
             bookName,
-            chapter: ch.chapter,
-            verse: i + 1,
-            text,
-            key: bible.makeKey(book.id, ch.chapter, i + 1)
+            chapter: chapterNum,
+            verse: verseNum,
+            text: v.text,
+            key: bible.verseKey(book.id, chapterNum, verseNum)
           });
         }
       }
@@ -33,7 +38,7 @@ export function createFocusedSearch(books, bible) {
   }
 
   function tokenize(text) {
-    return (text || '')
+    return String(text || '')
       .toLowerCase()
       .replace(/[^\w\s']/g, ' ')
       .split(/\s+/)
@@ -42,19 +47,25 @@ export function createFocusedSearch(books, bible) {
 
   function resolveAnchor(anchorInput, allVerses) {
     if (!anchorInput) return null;
-    const trimmed = anchorInput.trim();
-    // Try as reference
-    const byRef = allVerses.find(v => v.ref.toLowerCase() === trimmed.toLowerCase());
+    const trimmed = String(anchorInput).trim();
+    if (!trimmed) return null;
+
+    // Exact reference match (case-insensitive, normalized spaces)
+    const normalized = trimmed.replace(/\s+/g, ' ').toLowerCase();
+    const byRef = allVerses.find(v => v.ref.toLowerCase() === normalized);
     if (byRef) return byRef;
-    // Try as text substring
-    const byText = allVerses.find(v => v.text.toLowerCase().includes(trimmed.toLowerCase()));
-    return byText || null;
+
+    // Text substring match
+    const lower = trimmed.toLowerCase();
+    return allVerses.find(v => v.text.toLowerCase().includes(lower)) || null;
   }
 
   function search(term, anchorInput) {
     const allVerses = getAllLoadedVerses();
-    const termLower = (term || '').toLowerCase().trim();
-    if (!termLower) return { anchor: null, focused: [], all: [], term: '' };
+    const termLower = String(term || '').toLowerCase().trim();
+    if (!termLower) {
+      return { anchor: null, focused: [], all: [], term: '', totalLoaded: allVerses.length };
+    }
 
     const tokens = tokenize(term);
     let matches = [];
@@ -66,7 +77,6 @@ export function createFocusedSearch(books, bible) {
 
     const anchor = resolveAnchor(anchorInput, allVerses);
 
-    // Simple scoring for focus (extensible)
     let focused = matches;
     if (anchor) {
       focused = matches
@@ -82,7 +92,13 @@ export function createFocusedSearch(books, bible) {
         .map(x => x.v);
     }
 
-    return { anchor, focused: focused.slice(0, 50), all: matches, term };
+    return {
+      anchor,
+      focused: focused.slice(0, 80),
+      all: matches,
+      term,
+      totalLoaded: allVerses.length
+    };
   }
 
   return { search, getAllLoadedVerses };

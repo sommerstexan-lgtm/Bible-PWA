@@ -1,3 +1,14 @@
+## New in 6.99.93
+
+- Focused Search corrected to the real book structure (chapters[].verses[] are objects with number + text).
+- Uses bible.verseKey. Results, anchor display, and “show everything” now work with loaded books.
+
+
+## New in 6.99.92
+
+- Fixed Focused Search: chapter objects use `number` (not `chapter`). Results now appear for terms such as Zechariah with an anchor verse.
+
+
 ## New in 6.99.91
 
 - **Focused Search** (Study sidebar → Path → Focused Search).
