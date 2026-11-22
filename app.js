@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.88
+/* app.js – Main application controller. KJV Study PWA v6.99.90
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -16,7 +16,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.88';
+const APP_VERSION = '6.99.90';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6813,18 +6813,18 @@ function openSearch() {
     const key = q.toLowerCase().trim();
     const others = VERIFIED_VARIANTS[key];
     if (!others || !others.length) return '';
-    let html = '<div style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px"><p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Verified alternate spellings in the KJV:</p>';
-    for (const item of others) {
-      const prim = item.primary ? ' <span style="font-size:0.7em;background:var(--accent);color:#111;padding:0.1rem 0.3rem;border-radius:4px">primary</span>' : '';
-      html += `<div style="margin:0.45rem 0;padding-bottom:0.35rem;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
-          <span style="font-weight:600">${escapeHtml(item.sp)}</span>${prim}
-          <span style="font-size:0.8em;color:var(--text-dim)">${escapeHtml(item.lang)}</span>
-          <button type="button" class="accept-variant" data-sp="${escapeHtml(item.sp)}" data-verse="${escapeHtml(item.verse)}" style="font-size:0.75em;padding:0.2rem 0.5rem;margin-left:auto">Keep</button>
+    let html = '<div id="verified-box" style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px">';
+    html += '<p style="margin:0 0 0.5rem;font-weight:700;font-size:0.9em">Verified alternate spellings in the KJV:</p>';
+    others.forEach((item, idx) => {
+      html += `<div class="var-row" data-idx="${idx}" style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;padding:0.45rem 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:600">${escapeHtml(item.sp)}</div>
+          <div style="font-size:0.78em;color:var(--text-dim)">${escapeHtml(item.lang)} — ${escapeHtml(item.meaning)} · ${escapeHtml(item.verse)}</div>
         </div>
-        <div style="font-size:0.78em;color:var(--text-dim);margin-top:0.15rem">${escapeHtml(item.meaning)} · ${escapeHtml(item.verse)}</div>
+        <button type="button" class="skip-variant" data-idx="${idx}" style="min-width:72px;min-height:36px;padding:0.35rem 0.7rem;font-size:0.85em;background:var(--accent);color:#111;border:none;border-radius:6px;font-weight:600">Skip</button>
       </div>`;
-    }
+    });
+    html += '<div style="margin-top:0.7rem;text-align:center"><button type="button" id="keep-remaining" style="min-width:160px;min-height:40px;padding:0.45rem 1rem;background:var(--accent);color:#111;border:none;border-radius:6px;font-weight:700">Keep remaining</button></div>';
     html += '</div>';
     return html;
   }
@@ -6887,21 +6887,46 @@ function openSearch() {
         renderBookList();
       };
     }
-    // Bind accept buttons for discovered variants
-    resultsEl.querySelectorAll('.accept-variant').forEach(btn => {
+    // Skip removes the row from this search only
+    resultsEl.querySelectorAll('.skip-variant').forEach(btn => {
       btn.onclick = () => {
-        const sp = btn.dataset.sp;
-        const verse = btn.dataset.verse;
-        const existing = findGroupFor(q);
-        addSpelling({
-          spelling: sp,
-          verses: [verse],
-          note: 'Linked from search evidence',
-          existingGroupId: existing ? existing.id : null
+        const row = btn.closest('.var-row');
+        if (row) row.remove();
+        // hide Keep remaining if no rows left
+        if (!resultsEl.querySelector('.var-row')) {
+          const box = resultsEl.querySelector('#verified-box');
+          if (box) box.remove();
+        }
+      };
+    });
+    // Keep remaining saves every row still visible
+    const keepBtn = resultsEl.querySelector('#keep-remaining');
+    if (keepBtn) {
+      keepBtn.onclick = () => {
+        const rows = resultsEl.querySelectorAll('.var-row');
+        if (!rows.length) return;
+        const key = q.toLowerCase().trim();
+        const all = VERIFIED_VARIANTS[key] || [];
+        let existing = findGroupFor(q);
+        // ensure the searched name is in the group
+        if (!existing) {
+          addSpelling({ spelling: q, verses: [], note: 'Linked from search evidence', existingGroupId: null });
+          existing = findGroupFor(q);
+        }
+        rows.forEach(row => {
+          const idx = Number(row.dataset.idx);
+          const item = all[idx];
+          if (!item) return;
+          addSpelling({
+            spelling: item.sp,
+            verses: [item.verse],
+            note: 'Linked from search evidence',
+            existingGroupId: existing ? existing.id : null
+          });
         });
         input.dispatchEvent(new Event('input'));
       };
-    });
+    }
     $$('.search-book-row[data-book-id]', resultsEl).forEach(row => {
       const go = () => {
         selectedBookId = row.dataset.bookId;
