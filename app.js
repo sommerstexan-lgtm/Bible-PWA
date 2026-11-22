@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.90
+/* app.js – Main application controller. KJV Study PWA v6.99.97
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.90';
+const APP_VERSION = '6.99.97';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1163,6 +1163,7 @@ function closeActiveMap() {
 }
 
 /** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
+let focusedSearchSession = null;
 let searchSession = {
   query: '',
   viewMode: 'books',
@@ -1473,6 +1474,7 @@ function renderShell() {
       <button type="button" id="nav-back" class="pill-btn nav-back" aria-label="Back to previous verse" hidden>← Back</button>
       <button type="button" id="anchor-chip" class="pill-btn anchor-chip" hidden title="Return to Anchor">Anchor</button>
       <button type="button" id="last-search-chip" class="pill-btn" hidden title="Return to last search">Search</button>
+      <button type="button" id="focused-search-chip" class="pill-btn" hidden title="Restore Focused Search">Focused</button>
       <button type="button" id="last-dict-chip" class="pill-btn" hidden title="Return to last dictionary">Dict</button>
       <button type="button" id="last-trail-chip" class="pill-btn" hidden title="Open study trail">Trail</button>
     </div>
@@ -1552,7 +1554,7 @@ function renderShell() {
           break;
         }
         case 'search': openSearch(); break;
-        case 'focused': openFocusedSearch(); break;
+        case 'focused': if (focusedSearchSession && focusedSearchSession.overlay && focusedSearchSession.overlay.parentNode) focusedSearchSession.restore(); else openFocusedSearch(); break;
         case 'books': openBookNav(); break;
         case 'prev': changeChapter(-1); break;
         case 'next': changeChapter(1); break;
@@ -1802,6 +1804,7 @@ function updateSidebarActive() {
   setActive('trail', studyTrail && studyTrail.nodes && studyTrail.nodes.length > 0);
   setActive('anchor', !!readingAnchor);
   setActive('search', !!(searchSession && (searchSession.query || '').trim()));
+  setActive('focused', !!(focusedSearchSession && focusedSearchSession.hasResults));
   setActive('dict', !!lastDictTerm);
   setActive('books', true); // always available
   // Minimized Chapter study returns via the sidebar button
@@ -7078,75 +7081,204 @@ function openFocusedSearch() {
       <div class="search-header">
         <div class="search-header-top">
           <h2 class="search-title">Focused Search</h2>
-          <button type="button" class="close search-close" aria-label="Close">×</button>
+          <div class="fs-header-btns">
+            <button type="button" id="fs-min" class="pill-btn" title="Minimize">Minimize</button>
+            <button type="button" id="fs-clear" class="pill-btn" title="Clear and start fresh">Clear</button>
+            <button type="button" class="close search-close" aria-label="Close">×</button>
+          </div>
         </div>
         <div class="focused-inputs">
-          <input type="search" class="search-box" id="fs-term" placeholder="Any word or phrase" autocomplete="off">
-          <input type="text" class="search-box" id="fs-anchor" placeholder="Anchor verse (ref or text)" autocomplete="off">
+          <input type="search" class="search-box" id="fs-term" placeholder="Any word or phrase" autocomplete="off" aria-label="Search term">
+          <input type="text" class="search-box" id="fs-anchor" placeholder="Anchor verse (ref or full text)" autocomplete="off" aria-label="Anchor verse">
           <button type="button" id="fs-go" class="pill-btn">Search</button>
-          <button type="button" id="fs-toggle" class="pill-btn" hidden>Show everything</button>
+          <button type="button" id="fs-mode" class="pill-btn">Mode: Focused</button>
         </div>
       </div>
       <div class="focused-body">
-        <div id="fs-anchor-display" class="fs-anchor" hidden></div>
-        <div id="fs-results" class="search-body"></div>
+        <div id="fs-diag" class="fs-diag" hidden></div>
+        <div id="fs-variants" class="fs-variants" hidden></div>
+        <div class="fs-compare" id="fs-compare" hidden>
+          <div class="fs-col">
+            <div class="fs-col-label">Anchor</div>
+            <div id="fs-anchor-display"></div>
+          </div>
+          <div class="fs-col">
+            <div class="fs-col-label">Selected</div>
+            <div id="fs-selected-display"></div>
+          </div>
+        </div>
+        <div id="fs-results" class="search-body" tabindex="0" aria-label="Search results"></div>
+        <div class="fs-footer">
+          <button type="button" id="fs-more" class="pill-btn" hidden>Show more</button>
+          <span id="fs-progress" class="fs-progress"></span>
+        </div>
       </div>
     </div>
   `);
 
-  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
-
   const termInput = $('#fs-term', overlay);
   const anchorInput = $('#fs-anchor', overlay);
   const goBtn = $('#fs-go', overlay);
-  const toggleBtn = $('#fs-toggle', overlay);
+  const modeBtn = $('#fs-mode', overlay);
+  const diagEl = $('#fs-diag', overlay);
+  const variantsEl = $('#fs-variants', overlay);
+  const compareEl = $('#fs-compare', overlay);
   const anchorDisplay = $('#fs-anchor-display', overlay);
+  const selectedDisplay = $('#fs-selected-display', overlay);
   const resultsEl = $('#fs-results', overlay);
+  const moreBtn = $('#fs-more', overlay);
+  const progressEl = $('#fs-progress', overlay);
+  const minBtn = $('#fs-min', overlay);
+  const clearBtn = $('#fs-clear', overlay);
+  function updateChip() {
+    if (focusedSearchSession) {
+      const hasTerm = !!(termInput && (termInput.value || '').trim());
+      const hasHits = !!(lastResult && ((lastResult.focused && lastResult.focused.length) || (lastResult.all && lastResult.all.length)));
+      focusedSearchSession.hasResults = hasTerm && hasHits;
+    }
+    if (typeof updateSidebarActive === 'function') updateSidebarActive();
+  }
+
+  function minimize() {
+    overlay.classList.add('is-minimized');
+    overlay.style.display = 'none';
+    updateChip();
+  }
+
+  function restore() {
+    overlay.classList.remove('is-minimized');
+    overlay.style.display = '';
+    updateChip();
+    try { termInput.focus(); } catch (_) {}
+  }
+
+  function clearSearch() {
+    termInput.value = '';
+    anchorInput.value = '';
+    lastResult = null;
+    mode = 'focused';
+    shown = 20;
+    selectedIndex = -1;
+    if (focusedSearchSession) focusedSearchSession.hasResults = false;
+    render();
+    updateChip();
+    try { termInput.focus(); } catch (_) {}
+  }
+
+  function fullClose() {
+    focusedSearchSession = null;
+    if (typeof updateSidebarActive === 'function') updateSidebarActive();
+    const chip = document.getElementById('focused-search-chip');
+    if (chip) chip.hidden = true;
+    closeOverlay(overlay);
+  }
+
+  if (minBtn) minBtn.onclick = minimize;
+  if (clearBtn) clearBtn.onclick = clearSearch;
+  $('.search-close', overlay).onclick = fullClose;
 
   const fs = createFocusedSearch(books, bible);
   let lastResult = null;
-  let showAll = false;
+  let mode = 'focused'; // 'focused' | 'all'
+  let shown = 20;
+  let selectedIndex = -1;
+
+  function currentList() {
+    if (!lastResult) return [];
+    return mode === 'all' ? lastResult.all : lastResult.focused;
+  }
+
+  function renderCompare() {
+    const list = currentList();
+    const anchor = lastResult && lastResult.anchor;
+    if (!anchor && selectedIndex < 0) {
+      compareEl.hidden = true;
+      return;
+    }
+    compareEl.hidden = false;
+    if (anchor) {
+      anchorDisplay.innerHTML = `<div class="verse-ref">${escapeHtml(anchor.ref)}</div><div class="verse-text">${escapeHtml(anchor.text)}</div>`;
+    } else {
+      anchorDisplay.innerHTML = '<p class="theme-note">No anchor resolved.</p>';
+    }
+    if (selectedIndex >= 0 && list[selectedIndex]) {
+      const v = list[selectedIndex];
+      const why = (v.reasons && v.reasons.length) ? `<div class="fs-why">${escapeHtml(v.reasons.join(' · '))}</div>` : '';
+      selectedDisplay.innerHTML = `<div class="verse-ref">${escapeHtml(v.ref)}</div><div class="verse-text">${escapeHtml(v.text)}</div>${why}`;
+    } else {
+      selectedDisplay.innerHTML = '<p class="theme-note">Select a result to compare.</p>';
+    }
+  }
 
   function render() {
     if (!lastResult) {
-      resultsEl.innerHTML = '<p class="theme-note">Enter a term and optional anchor verse, then tap Search.</p>';
+      resultsEl.innerHTML = '<p class="theme-note">Enter a term and optional anchor, then tap Search.</p>';
+      diagEl.hidden = true;
+      variantsEl.hidden = true;
+      compareEl.hidden = true;
+      moreBtn.hidden = true;
+      progressEl.textContent = '';
       return;
     }
-    const list = showAll ? lastResult.all : lastResult.focused;
-    const anchor = lastResult.anchor;
+
+    const list = currentList();
     const total = lastResult.totalLoaded || 0;
 
-    if (anchor) {
-      anchorDisplay.hidden = false;
-      anchorDisplay.innerHTML = `<div class="fs-anchor-label">Anchor</div><div class="verse-ref">${escapeHtml(anchor.ref)}</div><div class="verse-text">${escapeHtml(anchor.text)}</div>`;
+    // Diagnostics
+    if (lastResult.diagnostics && lastResult.diagnostics.length) {
+      diagEl.hidden = false;
+      diagEl.innerHTML = lastResult.diagnostics.map(d => `<div>${escapeHtml(d)}</div>`).join('');
+      console.info('[FocusedSearch]', lastResult.diagnostics);
     } else {
-      anchorDisplay.hidden = true;
+      diagEl.hidden = true;
     }
+
+    // Variants
+    if (lastResult.variants && lastResult.variants.length) {
+      variantsEl.hidden = false;
+      variantsEl.innerHTML = 'Alternate spellings: ' + lastResult.variants.map(sp =>
+        `<button type="button" class="fs-var" data-sp="${escapeHtml(sp)}">${escapeHtml(sp)}</button>`
+      ).join(' ');
+      $$('.fs-var', variantsEl).forEach(btn => {
+        btn.onclick = () => {
+          termInput.value = btn.getAttribute('data-sp');
+          doSearch();
+        };
+      });
+    } else {
+      variantsEl.hidden = true;
+    }
+
+    renderCompare();
 
     if (total === 0) {
       resultsEl.innerHTML = '<p class="theme-note">No books are loaded yet. Load a testament or book first.</p>';
-      toggleBtn.hidden = true;
+      moreBtn.hidden = true;
+      progressEl.textContent = '';
       return;
     }
 
     if (!list.length) {
-      resultsEl.innerHTML = '<p class="theme-note">No matches for “' + escapeHtml(lastResult.term) + '” in the ' + total + ' loaded verses.</p>';
-      toggleBtn.hidden = true;
+      resultsEl.innerHTML = '<p class="theme-note">No matches.</p>';
+      moreBtn.hidden = true;
+      progressEl.textContent = '';
       return;
     }
 
-    toggleBtn.hidden = false;
-    toggleBtn.textContent = showAll ? 'Show focused' : 'Show everything (' + lastResult.all.length + ')';
-
-    resultsEl.innerHTML = list.map(v => `
-      <div class="search-result" data-key="${escapeHtml(v.key)}" role="button" tabindex="0">
+    const slice = list.slice(0, shown);
+    resultsEl.innerHTML = slice.map((v, i) => `
+      <div class="search-result${i === selectedIndex ? ' fs-selected' : ''}" data-idx="${i}" data-key="${escapeHtml(v.key)}" role="button" tabindex="0">
         <span class="ref">${escapeHtml(v.ref)}</span>
-        <span class="snippet">${escapeHtml(v.text.slice(0, 220))}${v.text.length > 220 ? '…' : ''}</span>
+        <span class="snippet">${escapeHtml(v.text.slice(0, 200))}${v.text.length > 200 ? '…' : ''}</span>
       </div>
     `).join('');
 
     $$('.search-result', resultsEl).forEach(row => {
-      row.onclick = async () => {
+      row.onclick = () => {
+        selectedIndex = Number(row.getAttribute('data-idx'));
+        render();
+      };
+      row.ondblclick = async () => {
         const key = row.getAttribute('data-key');
         if (key) {
           trailPush(key, 'focused');
@@ -7155,20 +7287,73 @@ function openFocusedSearch() {
         }
       };
     });
+
+    const hasMore = shown < list.length;
+    moreBtn.hidden = !hasMore;
+    moreBtn.textContent = hasMore ? `Show more (${Math.min(20, list.length - shown)} )` : 'Show more';
+    progressEl.textContent = `Showing ${slice.length} of ${list.length}${mode === 'focused' ? ' (focused)' : ' (all)'}`;
+    modeBtn.textContent = mode === 'focused' ? 'Mode: Focused' : 'Mode: All';
   }
 
   function doSearch() {
     const term = termInput.value.trim();
     const anchor = anchorInput.value.trim();
-    lastResult = fs.search(term, anchor);
-    showAll = false;
+    try {
+      lastResult = fs.search(term, anchor);
+    } catch (err) {
+      console.error('[FocusedSearch]', err);
+      lastResult = { anchor: null, focused: [], all: [], term, totalLoaded: 0, variants: [], diagnostics: ['Search failed: ' + (err && err.message ? err.message : String(err))] };
+    }
+    mode = 'focused';
+    shown = 20;
+    selectedIndex = lastResult && lastResult.focused && lastResult.focused.length ? 0 : -1;
     render();
+    updateChip();
   }
 
   goBtn.onclick = doSearch;
-  termInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
-  anchorInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
-  toggleBtn.onclick = () => { showAll = !showAll; render(); };
+  termInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
+  anchorInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
+  modeBtn.onclick = () => {
+    mode = mode === 'focused' ? 'all' : 'focused';
+    shown = 20;
+    selectedIndex = currentList().length ? 0 : -1;
+    render();
+  };
+  moreBtn.onclick = () => {
+    shown += 20;
+    render();
+  };
+
+  resultsEl.addEventListener('keydown', (e) => {
+    const list = currentList();
+    if (!list.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedIndex = Math.min(list.length - 1, selectedIndex + 1);
+      if (selectedIndex >= shown) shown = selectedIndex + 1;
+      render();
+      const el = resultsEl.querySelector('.fs-selected');
+      if (el) el.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedIndex = Math.max(0, selectedIndex - 1);
+      render();
+      const el = resultsEl.querySelector('.fs-selected');
+      if (el) el.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const v = list[selectedIndex];
+      if (v && v.key) {
+        trailPush(v.key, 'focused');
+        closeOverlay(overlay);
+        jumpToRef(v.key);
+      }
+    }
+  });
+
+  focusedSearchSession = { overlay, restore, clear: clearSearch, termInput, hasResults: false };
+  updateChip();
 
   setTimeout(() => { try { termInput.focus(); } catch (_) {} }, 80);
 }

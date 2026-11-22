@@ -1,3 +1,24 @@
+## New in 6.99.97
+
+- Focused Search minimize restores only through the Study sidebar button (highlighted while results exist). No separate mini bar.
+
+
+## New in 6.99.96
+
+- Focused Search sidebar button highlights when a search has results; turns off when cleared or closed.
+- Mini bar is a single Restore Focused Search button (no small ×). Close remains on the main panel.
+
+
+## New in 6.99.95
+
+- Focused Search: Minimize keeps your place (mini bar + sidebar restore). Clear empties the term, anchor, and results so you can start fresh.
+
+
+## New in 6.99.94
+
+- Focused Search: contextual scoring by shared distinctive words, diagnostics, name variants, 20-at-a-time paging, Focused/All mode, side-by-side comparison, keyboard arrows + Enter.
+
+
 ## New in 6.99.93
 
 - Focused Search corrected to the real book structure (chapters[].verses[] are objects with number + text).
