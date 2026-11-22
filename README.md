@@ -1,3 +1,12 @@
+## New in 6.99.91
+
+- **Focused Search** (Study sidebar → Path → Focused Search).
+- Enter any word or phrase plus an optional anchor verse (reference or full text).
+- Anchor verse stays fixed on screen while related verses appear beside it.
+- Toggle between focused results and “show everything.”
+- Click any result to jump to that verse (anchor remains available until you close the panel).
+
+
 ## New in 6.99.65
 
 - Restored the main-screen Study sidebar (left column).

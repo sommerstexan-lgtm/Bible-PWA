@@ -14,6 +14,7 @@ import { suggestSubjectHeadings, getSubjectHeading, formatSubjectRef } from './s
 import { lookupPackTopics, packTopicCount } from './topics-search.js';
 import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
+import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
 const APP_VERSION = '6.99.90';
@@ -1449,6 +1450,7 @@ function renderShell() {
         <summary>Path</summary>
         <button type="button" data-sb="trail">Study trail</button>
         <button type="button" data-sb="search">Search</button>
+        <button type="button" data-sb="focused">Focused Search</button>
       </details>
       <details>
         <summary>Navigation</summary>
@@ -1550,6 +1552,7 @@ function renderShell() {
           break;
         }
         case 'search': openSearch(); break;
+        case 'focused': openFocusedSearch(); break;
         case 'books': openBookNav(); break;
         case 'prev': changeChapter(-1); break;
         case 'next': changeChapter(1); break;
@@ -7063,6 +7066,102 @@ function openSearch() {
 
 
 // ---------- Verse notes list + filter ----------
+
+// ---------- Focused Search (term + fixed anchor verse) ----------
+function openFocusedSearch() {
+  recordPlace('Focused Search', 'focused-search', {});
+  const cur = getNearestVerseKey();
+  if (cur) trailPush(cur, 'focused-search-open');
+
+  const overlay = showOverlay(`
+    <div class="panel search-panel focused-panel">
+      <div class="search-header">
+        <div class="search-header-top">
+          <h2 class="search-title">Focused Search</h2>
+          <button type="button" class="close search-close" aria-label="Close">×</button>
+        </div>
+        <div class="focused-inputs">
+          <input type="search" class="search-box" id="fs-term" placeholder="Any word or phrase" autocomplete="off">
+          <input type="text" class="search-box" id="fs-anchor" placeholder="Anchor verse (ref or text)" autocomplete="off">
+          <button type="button" id="fs-go" class="pill-btn">Search</button>
+          <button type="button" id="fs-toggle" class="pill-btn" hidden>Show everything</button>
+        </div>
+      </div>
+      <div class="focused-body">
+        <div id="fs-anchor-display" class="fs-anchor" hidden></div>
+        <div id="fs-results" class="search-body"></div>
+      </div>
+    </div>
+  `);
+
+  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+
+  const termInput = $('#fs-term', overlay);
+  const anchorInput = $('#fs-anchor', overlay);
+  const goBtn = $('#fs-go', overlay);
+  const toggleBtn = $('#fs-toggle', overlay);
+  const anchorDisplay = $('#fs-anchor-display', overlay);
+  const resultsEl = $('#fs-results', overlay);
+
+  const fs = createFocusedSearch(books, bible);
+  let lastResult = null;
+  let showAll = false;
+
+  function render() {
+    if (!lastResult) {
+      resultsEl.innerHTML = '<p class="theme-note">Enter a term and optional anchor verse.</p>';
+      return;
+    }
+    const list = showAll ? lastResult.all : lastResult.focused;
+    const anchor = lastResult.anchor;
+
+    if (anchor) {
+      anchorDisplay.hidden = false;
+      anchorDisplay.innerHTML = `<div class="fs-anchor-label">Anchor</div><div class="verse-ref">${escapeHtml(anchor.ref)}</div><div class="verse-text">${escapeHtml(anchor.text)}</div>`;
+    } else {
+      anchorDisplay.hidden = true;
+    }
+
+    if (!list.length) {
+      resultsEl.innerHTML = '<p class="theme-note">No matches in loaded books.</p>';
+      toggleBtn.hidden = true;
+      return;
+    }
+
+    toggleBtn.hidden = false;
+    toggleBtn.textContent = showAll ? 'Show focused' : 'Show everything';
+
+    resultsEl.innerHTML = list.map(v => `
+      <div class="search-result" data-key="${escapeHtml(v.key)}" role="button" tabindex="0">
+        <span class="ref">${escapeHtml(v.ref)}</span>
+        <span class="snippet">${escapeHtml(v.text.slice(0, 180))}${v.text.length > 180 ? '…' : ''}</span>
+      </div>
+    `).join('');
+
+    $$('.search-result', resultsEl).forEach(row => {
+      row.onclick = async () => {
+        const key = row.getAttribute('data-key');
+        if (key) { trailPush(key, "focused"); closeOverlay(overlay); await jumpToRef(key); }
+      };
+    });
+  }
+
+  function doSearch() {
+    const term = termInput.value.trim();
+    const anchor = anchorInput.value.trim();
+    lastResult = fs.search(term, anchor);
+    showAll = false;
+    render();
+  }
+
+  goBtn.onclick = doSearch;
+  termInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
+  anchorInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
+  toggleBtn.onclick = () => { showAll = !showAll; render(); };
+
+  setTimeout(() => { try { termInput.focus(); } catch (_) {} }, 80);
+}
+
 
 function notesReadingPlain(blocks) {
   return (blocks || []).map((b) => {
@@ -13817,7 +13916,7 @@ async function openResearch() {
 
     function bindHitClicks(container) {
       $$(".theme-hit", container).forEach(row => {
-        row.onclick = () => {
+        row.onclick = async () => {
           persistThemeFields();
           showPeek(row.dataset.key);
         };
@@ -13929,7 +14028,7 @@ async function openResearch() {
           </div>`
         ).join('');
         $$('.dossier-row', hitsBox).forEach((row) => {
-          row.onclick = () => {
+          row.onclick = async () => {
             const d = list.find((x) => x.id === row.dataset.id);
             if (!d) return;
             qEl.value = d.question || '';
