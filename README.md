@@ -1,3 +1,8 @@
+## New in 7.0.1
+
+- Sidebar section identifiers (Chapter Tools, Geography, Word Study, Marks, Path, Navigation, Display) are red, the opposite of cyan.
+
+
 ## New in 7.0.0
 
 - Focused Search layout: wider panel, compact one-line Anchor/Selected strips, result list gets most of the height so verses are readable.

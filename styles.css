@@ -3390,12 +3390,14 @@ textarea.cs-answer {
   border-radius: 6px;
   list-style: none;
   user-select: none;
+  color: #ff6b6b;
 }
 .study-sidebar summary::-webkit-details-marker { display: none; }
 .study-sidebar summary::before {
   content: "▸ ";
   display: inline-block;
   transition: transform 0.15s;
+  color: #ff6b6b;
 }
 .study-sidebar details[open] summary::before { content: "▾ "; }
 .study-sidebar details button,
