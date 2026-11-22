@@ -3,7 +3,7 @@
    IndexedDB data is never cached by the SW.
    version.json is never written to Cache Storage.
 */
-const \g<1>kjv-study-v6.99.87\2;
+const \g<1>kjv-study-v6.99.88\2;
 const SHELL = [
   './',
   './index.html',

@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.87
+/* app.js – Main application controller. KJV Study PWA v6.99.88
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -16,7 +16,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.87';
+const APP_VERSION = '6.99.88';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6772,19 +6772,40 @@ function openSearch() {
 
 
   // Verified KJV alternate spellings only. No relatives, no guesses.
+  // Each entry: spelling, language, meaning, isPrimary, keyVerse
   const VERIFIED_VARIANTS = {
-    'jehoiachin': ['Jeconiah', 'Coniah', 'Jechonias'],
-    'jeconiah': ['Jehoiachin', 'Coniah', 'Jechonias'],
-    'coniah': ['Jehoiachin', 'Jeconiah', 'Jechonias'],
-    'jechonias': ['Jehoiachin', 'Jeconiah', 'Coniah'],
-    'elijah': ['Elias'],
-    'elias': ['Elijah'],
-    'isaiah': ['Esaias'],
-    'esaias': ['Isaiah'],
-    'joshua': ['Jesus'],
-    'jesus': ['Joshua'],
-    'uriah': ['Urias'],
-    'urias': ['Uriah']
+    'jehoiachin': [
+      {sp:'Jeconiah', lang:'Hebrew', meaning:'Yahweh establishes', primary:false, verse:'1Ch 3:16'},
+      {sp:'Coniah', lang:'Hebrew (shortened)', meaning:'Yahweh establishes', primary:false, verse:'Jer 22:24'},
+      {sp:'Jechonias', lang:'Greek', meaning:'Yahweh establishes', primary:false, verse:'Mat 1:11'}
+    ],
+    'jeconiah': [
+      {sp:'Jehoiachin', lang:'Hebrew', meaning:'Yahweh establishes', primary:true, verse:'2Ki 24:6'},
+      {sp:'Coniah', lang:'Hebrew (shortened)', meaning:'Yahweh establishes', primary:false, verse:'Jer 22:24'},
+      {sp:'Jechonias', lang:'Greek', meaning:'Yahweh establishes', primary:false, verse:'Mat 1:11'}
+    ],
+    'coniah': [
+      {sp:'Jehoiachin', lang:'Hebrew', meaning:'Yahweh establishes', primary:true, verse:'2Ki 24:6'},
+      {sp:'Jeconiah', lang:'Hebrew', meaning:'Yahweh establishes', primary:false, verse:'1Ch 3:16'},
+      {sp:'Jechonias', lang:'Greek', meaning:'Yahweh establishes', primary:false, verse:'Mat 1:11'}
+    ],
+    'jechonias': [
+      {sp:'Jehoiachin', lang:'Hebrew', meaning:'Yahweh establishes', primary:true, verse:'2Ki 24:6'},
+      {sp:'Jeconiah', lang:'Hebrew', meaning:'Yahweh establishes', primary:false, verse:'1Ch 3:16'},
+      {sp:'Coniah', lang:'Hebrew (shortened)', meaning:'Yahweh establishes', primary:false, verse:'Jer 22:24'}
+    ],
+    'elijah': [
+      {sp:'Elias', lang:'Greek', meaning:'My God is Yahweh', primary:false, verse:'Mat 11:14'}
+    ],
+    'elias': [
+      {sp:'Elijah', lang:'Hebrew', meaning:'My God is Yahweh', primary:true, verse:'1Ki 17:1'}
+    ],
+    'isaiah': [
+      {sp:'Esaias', lang:'Greek', meaning:'Yahweh is salvation', primary:false, verse:'Mat 3:3'}
+    ],
+    'esaias': [
+      {sp:'Isaiah', lang:'Hebrew', meaning:'Yahweh is salvation', primary:true, verse:'Isa 1:1'}
+    ]
   };
 
   function discoverVariantsHtml(q, results) {
@@ -6793,10 +6814,15 @@ function openSearch() {
     const others = VERIFIED_VARIANTS[key];
     if (!others || !others.length) return '';
     let html = '<div style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px"><p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Verified alternate spellings in the KJV:</p>';
-    for (const sp of others) {
-      html += `<div style="margin:0.3rem 0;display:flex;align-items:center;gap:0.5rem">
-        <span style="font-weight:600">${escapeHtml(sp)}</span>
-        <button type="button" class="accept-variant" data-sp="${escapeHtml(sp)}" data-verse="verified KJV form" style="font-size:0.75em;padding:0.2rem 0.5rem">Keep</button>
+    for (const item of others) {
+      const prim = item.primary ? ' <span style="font-size:0.7em;background:var(--accent);color:#111;padding:0.1rem 0.3rem;border-radius:4px">primary</span>' : '';
+      html += `<div style="margin:0.45rem 0;padding-bottom:0.35rem;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+          <span style="font-weight:600">${escapeHtml(item.sp)}</span>${prim}
+          <span style="font-size:0.8em;color:var(--text-dim)">${escapeHtml(item.lang)}</span>
+          <button type="button" class="accept-variant" data-sp="${escapeHtml(item.sp)}" data-verse="${escapeHtml(item.verse)}" style="font-size:0.75em;padding:0.2rem 0.5rem;margin-left:auto">Keep</button>
+        </div>
+        <div style="font-size:0.78em;color:var(--text-dim);margin-top:0.15rem">${escapeHtml(item.meaning)} · ${escapeHtml(item.verse)}</div>
       </div>`;
     }
     html += '</div>';
