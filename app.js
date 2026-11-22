@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.85
+/* app.js – Main application controller. KJV Study PWA v6.99.87
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -16,7 +16,7 @@ import * as precision from './precision.js';
 import { getLiteraryStructure } from './literary-structures.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.85';
+const APP_VERSION = '6.99.87';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -6771,29 +6771,32 @@ function openSearch() {
   }
 
 
+  // Verified KJV alternate spellings only. No relatives, no guesses.
+  const VERIFIED_VARIANTS = {
+    'jehoiachin': ['Jeconiah', 'Coniah', 'Jechonias'],
+    'jeconiah': ['Jehoiachin', 'Coniah', 'Jechonias'],
+    'coniah': ['Jehoiachin', 'Jeconiah', 'Jechonias'],
+    'jechonias': ['Jehoiachin', 'Jeconiah', 'Coniah'],
+    'elijah': ['Elias'],
+    'elias': ['Elijah'],
+    'isaiah': ['Esaias'],
+    'esaias': ['Isaiah'],
+    'joshua': ['Jesus'],
+    'jesus': ['Joshua'],
+    'uriah': ['Urias'],
+    'urias': ['Uriah']
+  };
+
   function discoverVariantsHtml(q, results) {
-    if (!q || q.length < 3 || !results || !results.length) return '';
-    const qLow = q.toLowerCase();
-    const candidates = new Map(); // spelling -> verse label
-    for (const r of results.slice(0, 40)) { // limit scan
-      const text = (r.snippet || r.text || '').replace(/[“”"]/g, '');
-      // Simple proper-name extraction: sequences of capitalized words
-      const names = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/g) || [];
-      for (const name of names) {
-        const clean = name.trim();
-        if (clean.length < 3 || clean.toLowerCase() === qLow) continue;
-        if (clean.toLowerCase().includes(qLow) || qLow.includes(clean.toLowerCase())) continue;
-        const label = r.bookName + ' ' + r.chapter + ':' + r.verse;
-        if (!candidates.has(clean)) candidates.set(clean, label);
-      }
-    }
-    if (!candidates.size) return '';
-    let html = '<div style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px"><p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Possible related spellings found in the verses:</p>';
-    for (const [sp, verse] of candidates) {
+    if (!q || q.length < 3) return '';
+    const key = q.toLowerCase().trim();
+    const others = VERIFIED_VARIANTS[key];
+    if (!others || !others.length) return '';
+    let html = '<div style="margin:0.8rem 0;padding:0.6rem;border:1px solid var(--border);border-radius:8px"><p style="margin:0 0 0.4rem;font-weight:700;font-size:0.9em">Verified alternate spellings in the KJV:</p>';
+    for (const sp of others) {
       html += `<div style="margin:0.3rem 0;display:flex;align-items:center;gap:0.5rem">
         <span style="font-weight:600">${escapeHtml(sp)}</span>
-        <span style="font-size:0.8em;color:var(--text-dim)">${escapeHtml(verse)}</span>
-        <button type="button" class="accept-variant" data-sp="${escapeHtml(sp)}" data-verse="${escapeHtml(verse)}" style="font-size:0.75em;padding:0.2rem 0.5rem">Keep</button>
+        <button type="button" class="accept-variant" data-sp="${escapeHtml(sp)}" data-verse="verified KJV form" style="font-size:0.75em;padding:0.2rem 0.5rem">Keep</button>
       </div>`;
     }
     html += '</div>';
