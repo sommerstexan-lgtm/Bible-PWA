@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v6.99.97
+/* app.js – Main application controller. KJV Study PWA v6.99.99
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '6.99.97';
+const APP_VERSION = '6.99.99';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1328,10 +1328,15 @@ function applySettings() {
 
 // ---------- Boot ----------
 async function init() {
+  const mark = (m) => { const el = document.getElementById('boot-msg'); if (el) el.textContent = m; };
+  mark('init start');
   // Password gate first
   await checkPassword();
+  mark('after password');
   await initNameVariants();
+  mark('after names');
 
+  mark('before SW');
   // Register service worker
   if ('serviceWorker' in navigator) {
     try {
@@ -1364,14 +1369,17 @@ async function init() {
       try { await reg.update(); } catch (_) {}
     } catch (e) {
       console.warn('SW registration failed (normal on file://)', e);
+      mark('SW error ' + e.message);
     }
   }
+  mark('after SW');
 
   settings = await storage.getSettings();
   applySettings();
   try { await storage.collapseDuplicateSummaryNotes(); } catch (_) {}
 
   books = await bible.loadSampleIfEmpty();
+  mark('after books ' + (books && books.length));
   const last = await storage.getLastPosition();
   if (last && books.find(b => b.id === last.bookId)) {
     currentBookId = last.bookId;
@@ -1381,6 +1389,7 @@ async function init() {
     currentChapter = 1;
   }
 
+  mark('render shell');
   renderShell();
   setupVerseNavDelegation();
   if (currentBookId) {
@@ -7278,11 +7287,14 @@ function openFocusedSearch() {
         selectedIndex = Number(row.getAttribute('data-idx'));
         render();
       };
-      row.ondblclick = async () => {
+      row.ondblclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const key = row.getAttribute('data-key');
         if (key) {
+          selectedIndex = Number(row.getAttribute('data-idx'));
           trailPush(key, 'focused');
-          closeOverlay(overlay);
+          minimize();
           await jumpToRef(key);
         }
       };
@@ -7346,7 +7358,7 @@ function openFocusedSearch() {
       const v = list[selectedIndex];
       if (v && v.key) {
         trailPush(v.key, 'focused');
-        closeOverlay(overlay);
+        minimize();
         jumpToRef(v.key);
       }
     }
@@ -14588,7 +14600,23 @@ function openAbout() {
 }
 
 // ---------- Start ----------
-document.addEventListener('DOMContentLoaded', init);
+function boot() {
+  init().catch(err => {
+    const app = document.getElementById('app');
+    if (app) app.innerHTML = '<pre style="color:#e57373;padding:1rem;white-space:pre-wrap">' + (err && err.stack ? err.stack : String(err)) + '</pre>';
+  });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+window.addEventListener('error', (e) => {
+  const app = document.getElementById('app');
+  if (app && app.textContent.includes('Loading')) {
+    app.innerHTML = '<pre style="color:#e57373;padding:1rem;white-space:pre-wrap">ERROR: ' + e.message + '\n' + (e.error && e.error.stack || '') + '</pre>';
+  }
+});
 
 // ---------- Chapter search + verse nav (inside verse Tools) ----------
 let chapterSearchState = { term: '', matches: [] };

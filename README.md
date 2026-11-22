@@ -1,3 +1,13 @@
+## New in 6.99.99
+
+- Focused Search: single click selects a result for comparison. Double-click (double-tap) jumps to that verse on the main screen and minimizes the panel. Sidebar Focused Search restores exactly where you were.
+
+
+## New in 6.99.98
+
+- Focused Search: comparison block is height-capped. The result list is always visible and scrollable. Mode All and Show more are usable.
+
+
 ## New in 6.99.97
 
 - Focused Search minimize restores only through the Study sidebar button (highlighted while results exist). No separate mini bar.
