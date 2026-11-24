@@ -3747,3 +3747,47 @@ textarea.cs-answer {
 .focused-panel .fs-footer {
   padding: 0.25rem 0.6rem 0.45rem;
 }
+
+/* Search scope indicator and out-of-scope dimming */
+.search-scope-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  color: #ffeb3b;
+  margin-left: 0.3rem;
+  white-space: nowrap;
+}
+.search-scope-label.is-all {
+  color: #aaa;
+  font-weight: 500;
+  background: transparent;
+}
+.verse.out-of-scope {
+  opacity: 0.38;
+  transition: opacity 0.15s ease;
+}
+.verse.out-of-scope .verse-text {
+  filter: grayscale(0.4);
+}
+
+/* Anchor button color states (Tools panel only, bright) */
+.verse-actions button.anchor-yellow {
+  background: #ffeb3b !important;
+  color: #111 !important;
+  font-weight: 800 !important;
+  border-color: #ffeb3b !important;
+}
+.verse-actions button.anchor-red {
+  background: #f44336 !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+  border-color: #f44336 !important;
+}
+.verse-actions button.anchor-green {
+  background: #4caf50 !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+  border-color: #4caf50 !important;
+}

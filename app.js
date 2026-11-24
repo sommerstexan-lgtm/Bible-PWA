@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.1
+/* app.js – Main application controller. KJV Study PWA v7.0.2
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.1';
+const APP_VERSION = '7.0.2';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1891,6 +1891,51 @@ function setAnchorHere() {
 }
 
 /** Tools path: this verse, not the verse nearest the top of the screen. */
+let anchorColorTimer = null;
+let anchorColorKey = null;
+
+function clearAnchorButtonColors() {
+  document.querySelectorAll('.verse-actions button[data-act="anchor"]').forEach((btn) => {
+    btn.classList.remove('anchor-yellow', 'anchor-red', 'anchor-green');
+  });
+  if (anchorColorTimer) {
+    clearTimeout(anchorColorTimer);
+    anchorColorTimer = null;
+  }
+  anchorColorKey = null;
+}
+
+function applyAnchorButtonColor(key, state) {
+  clearAnchorButtonColors();
+  if (!key) return;
+  const btn = document.querySelector('.verse-actions button[data-act="anchor"][data-key="' + key + '"]');
+  if (!btn) return;
+  btn.classList.add('anchor-' + state);
+  anchorColorKey = key;
+  if (state === 'red') {
+    anchorColorTimer = setTimeout(() => {
+      if (anchorColorKey === key && openVerseToolKeys.has(key)) {
+        const isAnchor = readingAnchor && readingAnchor.verseKey === key;
+        applyAnchorButtonColor(key, isAnchor ? 'green' : 'yellow');
+      } else {
+        clearAnchorButtonColors();
+      }
+    }, 2500);
+  }
+}
+
+function refreshAnchorButtonColor() {
+  const openKeys = Array.from(openVerseToolKeys);
+  if (!openKeys.length) {
+    clearAnchorButtonColors();
+    return;
+  }
+  // Use the most recently opened tools panel
+  const key = openKeys[openKeys.length - 1];
+  const isAnchor = readingAnchor && readingAnchor.verseKey === key;
+  applyAnchorButtonColor(key, isAnchor ? 'green' : 'yellow');
+}
+
 function setAnchorFromVerse(key) {
   const parsed = bible.parseKey(key);
   if (!parsed || !parsed.bookId) return;
@@ -1906,6 +1951,7 @@ function setAnchorFromVerse(key) {
     label: name + ' ' + parsed.chapter + ':' + parsed.verse
   });
   showAppStatus('Anchor set to ' + name + ' ' + parsed.chapter + ':' + parsed.verse, 'ok');
+  refreshAnchorButtonColor();
 }
 
 function undoAnchor() {
@@ -1915,6 +1961,7 @@ function undoAnchor() {
   if (anchorUndoTimer) clearTimeout(anchorUndoTimer);
   persistAnchor();
   updateAnchorUI();
+  refreshAnchorButtonColor();
 }
 
 function persistSearchSession() {
@@ -4109,6 +4156,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
           '</div>' : ''}
         <div class="verse-nav-row">
           <input type="text" class="chapter-search" placeholder="Search in this chapter" aria-label="Search in this chapter">
+          <span class="search-scope-label"></span>
           <button type="button" class="search-clear" title="Clear search">Clear</button>
           <button type="button" class="search-go" title="Search">Search</button>
           <select class="nav-verse-select" aria-label="Select verse">${verseOptionsHtml}</select>
@@ -4306,10 +4354,19 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       const row = btn.closest('.verse');
       const box = row && row.querySelector('.verse-actions');
       const open = !openVerseToolKeys.has(key);
+      // If we are about to leave a yellow button, flash red briefly
+      if (open && anchorColorKey && anchorColorKey !== key && openVerseToolKeys.has(anchorColorKey)) {
+        applyAnchorButtonColor(anchorColorKey, 'red');
+      }
       if (open) openVerseToolKeys.add(key);
       else openVerseToolKeys.delete(key);
       if (box) box.classList.toggle('is-collapsed', !open);
       btn.textContent = open ? 'Hide tools' : 'Tools';
+      if (open) {
+        refreshAnchorButtonColor();
+      } else if (anchorColorKey === key) {
+        clearAnchorButtonColors();
+      }
     }
     else if (act === 'chip') openColorSpanInfo(key, btn.dataset.color);
     else if (act === 'analyze') openAnalyze(key);
@@ -4374,6 +4431,9 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   await storage.saveLastPosition({ bookId, chapter: chapterNum });
   updateChapterButtons();
   updateNavBackButton();
+  updateSearchScopeUI();
+  applyOutOfScopeDimming();
+  refreshAnchorButtonColor();
 }
 
 function escapeHtml(str) {
@@ -14633,6 +14693,8 @@ function setupVerseNavDelegation() {
       else selectedStructureLabels.add(label);
       updateStructureSidebar();
       clearStructJumpHits();
+      updateSearchScopeUI();
+      applyOutOfScopeDimming();
       const term = (chapterSearchState && chapterSearchState.term) || '';
       if (term && term.length >= 2) applyChapterSearch(term);
       return;
@@ -14641,6 +14703,8 @@ function setupVerseNavDelegation() {
       selectedStructureLabels.clear();
       updateStructureSidebar();
       clearStructJumpHits();
+      updateSearchScopeUI();
+      applyOutOfScopeDimming();
       const term = (chapterSearchState && chapterSearchState.term) || '';
       if (term && term.length >= 2) applyChapterSearch(term, { skipJump: true });
       return;
@@ -14657,6 +14721,7 @@ function setupVerseNavDelegation() {
       selectedStructureLabels.clear();
       updateStructureSidebar();
       clearStructJumpHits();
+      chapterSearchScrollTop = null;
       applyChapterSearch('');
     }
   });
@@ -14671,7 +14736,12 @@ function setupVerseNavDelegation() {
   document.addEventListener('change', (e) => {
     if (e.target.classList && e.target.classList.contains('nav-verse-select')) {
       const num = Number(e.target.value);
-      if (num) jumpToVerseNum(num);
+      if (num) {
+        if (anchorColorKey && openVerseToolKeys.has(anchorColorKey)) {
+          applyAnchorButtonColor(anchorColorKey, 'red');
+        }
+        jumpToVerseNum(num);
+      }
     }
   });
 }
@@ -14717,13 +14787,34 @@ function updateVerseSelect(optionsNums) {
   });
 }
 
+function updateSearchScopeUI() {
+  const labels = Array.from(selectedStructureLabels);
+  const isAll = !labels.length;
+  const text = isAll ? 'Scope: All' : 'Scope: ' + labels.join(', ');
+  document.querySelectorAll('.search-scope-label').forEach((el) => {
+    el.textContent = text;
+    el.classList.toggle('is-all', isAll);
+    el.title = isAll ? 'Searching the whole chapter' : 'Searching only the selected section(s)';
+  });
+}
+
+function applyOutOfScopeDimming() {
+  const hasScope = selectedStructureLabels.size > 0 && currentChapterStructure;
+  document.querySelectorAll('.verse').forEach((verse) => {
+    if (!hasScope) {
+      verse.classList.remove('out-of-scope');
+      return;
+    }
+    const num = Number((verse.dataset.key || '').split('.').pop());
+    if (num && !verseInSelectedSections(num)) verse.classList.add('out-of-scope');
+    else verse.classList.remove('out-of-scope');
+  });
+}
+
 function applyChapterSearch(term, opts) {
   opts = opts || {};
   const main = document.getElementById('main');
-  // Remember where the user was before this search, so Clear can return them
-  if (term && term.length >= 2 && chapterSearchScrollTop == null && main) {
-    chapterSearchScrollTop = main.scrollTop;
-  }
+  // Clear no longer restores a previous scroll position
   // Clear previous highlights and marks
   document.querySelectorAll('.verse.search-hit').forEach(el => el.classList.remove('search-hit'));
   document.querySelectorAll('.verse.struct-jump-hit').forEach(el => el.classList.remove('struct-jump-hit'));
@@ -14743,10 +14834,9 @@ function applyChapterSearch(term, opts) {
 
   if (!term || term.length < 2) {
     updateVerseSelect(allVerses);
-    if (chapterSearchScrollTop != null && main) {
-      main.scrollTop = chapterSearchScrollTop;
-      chapterSearchScrollTop = null;
-    }
+    updateSearchScopeUI();
+    applyOutOfScopeDimming();
+    chapterSearchScrollTop = null;
     return;
   }
 
@@ -14766,6 +14856,8 @@ function applyChapterSearch(term, opts) {
   });
 
   chapterSearchState.matches = matches;
+  updateSearchScopeUI();
+  applyOutOfScopeDimming();
   if (matches.length) {
     updateVerseSelect(matches);
     if (!opts.skipJump) {
@@ -14797,7 +14889,20 @@ function applyChapterSearch(term, opts) {
     const scope = selectedStructureLabels.size
       ? 'section ' + Array.from(selectedStructureLabels).join(', ')
       : 'this chapter';
-    showAppStatus('No matches for “' + term + '” in ' + scope, 'ok');
+    // Check if the term exists anywhere in the chapter
+    let fullCount = 0;
+    if (selectedStructureLabels.size) {
+      document.querySelectorAll('.verse').forEach((verse) => {
+        const textEl = verse.querySelector('.verse-text');
+        if (!textEl) return;
+        if ((textEl.textContent || '').toLowerCase().includes(lower)) fullCount++;
+      });
+    }
+    if (fullCount > 0) {
+      showAppStatus('No matches in ' + scope + '. ' + fullCount + ' in the chapter — tap All to search the whole chapter', 'ok');
+    } else {
+      showAppStatus('No matches for “' + term + '” in ' + scope, 'ok');
+    }
   }
 }
 

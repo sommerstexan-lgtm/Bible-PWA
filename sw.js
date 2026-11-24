@@ -1,4 +1,4 @@
-/* KJV Study PWA – Service Worker  v7.0.1
+/* KJV Study PWA – Service Worker  v7.0.2
    Network-first for app shell so updates apply on the first reload.
    IndexedDB data is never cached by the SW.
    version.json is never written to Cache Storage.
