@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.2';
+const APP_VERSION = '7.0.3';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1563,7 +1563,13 @@ function renderShell() {
           break;
         }
         case 'search': openSearch(); break;
-        case 'focused': if (focusedSearchSession && focusedSearchSession.overlay && focusedSearchSession.overlay.parentNode) focusedSearchSession.restore(); else openFocusedSearch(); break;
+        case 'focused':
+          (async () => {
+            if (!(await requireAnchorLeaveOk())) return;
+            if (focusedSearchSession && focusedSearchSession.overlay && focusedSearchSession.overlay.parentNode) focusedSearchSession.restore();
+            else openFocusedSearch();
+          })();
+          break;
         case 'books': openBookNav(); break;
         case 'prev': changeChapter(-1); break;
         case 'next': changeChapter(1); break;
@@ -1952,6 +1958,88 @@ function setAnchorFromVerse(key) {
   });
   showAppStatus('Anchor set to ' + name + ' ' + parsed.chapter + ':' + parsed.verse, 'ok');
   refreshAnchorButtonColor();
+}
+
+/** Yellow Tools panel that is not the current Anchor. One reminder per key until Tools change. */
+let dismissedPendingAnchorKey = null;
+let anchorLeaveBannerOpen = false;
+let skipAnchorLeaveCheck = false;
+
+function getPendingYellowAnchorKey() {
+  const openKeys = Array.from(openVerseToolKeys);
+  if (!openKeys.length) return null;
+  const key = openKeys[openKeys.length - 1];
+  if (!key) return null;
+  if (readingAnchor && readingAnchor.verseKey === key) return null;
+  if (key === dismissedPendingAnchorKey) return null;
+  return key;
+}
+
+function clearDismissedPendingIfStale() {
+  if (!dismissedPendingAnchorKey) return;
+  if (!openVerseToolKeys.has(dismissedPendingAnchorKey)) dismissedPendingAnchorKey = null;
+}
+
+function formatVerseKeyShort(key) {
+  const parsed = bible.parseKey(key);
+  if (!parsed || !parsed.bookId) return key || '';
+  const book = books.find((b) => b.id === parsed.bookId);
+  const name = book ? book.name : parsed.bookId;
+  return name + ' ' + parsed.chapter + ':' + parsed.verse;
+}
+
+function showAnchorLeaveBanner(key) {
+  return new Promise((resolve) => {
+    const old = document.getElementById('anchor-leave-banner');
+    if (old) old.remove();
+    const label = formatVerseKeyShort(key);
+    const banner = document.createElement('div');
+    banner.id = 'anchor-leave-banner';
+    banner.className = 'anchor-leave-banner';
+    banner.setAttribute('role', 'alertdialog');
+    banner.setAttribute('aria-label', 'Set Anchor reminder');
+    banner.innerHTML =
+      '<div class="anchor-leave-msg">Set Anchor on ' + escapeHtml(label) + '?</div>' +
+      '<div class="anchor-leave-actions">' +
+        '<button type="button" data-choice="set" class="alb-set">Set Anchor</button>' +
+        '<button type="button" data-choice="continue" class="alb-continue">Continue</button>' +
+        '<button type="button" data-choice="cancel" class="alb-cancel">Choose different</button>' +
+      '</div>';
+    document.body.appendChild(banner);
+    const setBtn = banner.querySelector('[data-choice="set"]');
+    if (setBtn) setBtn.focus();
+    const finish = (choice) => {
+      banner.remove();
+      anchorLeaveBannerOpen = false;
+      resolve(choice);
+    };
+    banner.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-choice]');
+      if (!btn) return;
+      finish(btn.getAttribute('data-choice'));
+    });
+  });
+}
+
+/** true = proceed with navigation; false = stay (Choose different). */
+async function requireAnchorLeaveOk() {
+  clearDismissedPendingIfStale();
+  if (skipAnchorLeaveCheck) return true;
+  if (anchorLeaveBannerOpen) return false;
+  const key = getPendingYellowAnchorKey();
+  if (!key) return true;
+  anchorLeaveBannerOpen = true;
+  const choice = await showAnchorLeaveBanner(key);
+  if (choice === 'set') {
+    setAnchorFromVerse(key);
+    dismissedPendingAnchorKey = null;
+    return true;
+  }
+  if (choice === 'continue') {
+    dismissedPendingAnchorKey = key;
+    return true;
+  }
+  return false;
 }
 
 function undoAnchor() {
@@ -3233,6 +3321,8 @@ async function changeChapter(dir) {
   if (ch > total) {
     return;
   }
+  if (!(await requireAnchorLeaveOk())) return;
+  skipAnchorLeaveCheck = true;
   // Chapter arrows live in Controls. Keep the panel open so Set Anchor
   // can be used on the new chapter without reopening Controls.
   pauseChromeHide(600);
@@ -3986,6 +4076,12 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   const ch = book.chapters.find(c => c.number === chapterNum);
   if (!ch) return;
 
+  const leavingChapter = !!(currentBookId && (currentBookId !== bookId || Number(currentChapter) !== Number(chapterNum)));
+  if (leavingChapter && !skipAnchorLeaveCheck) {
+    if (!(await requireAnchorLeaveOk())) return;
+  }
+  skipAnchorLeaveCheck = false;
+
   if (currentBookId !== bookId || Number(currentChapter) !== Number(chapterNum)) {
     selectedStructureLabels.clear();
     chapterSearchState = { term: '', matches: [], lastMatch: 0 };
@@ -4359,7 +4455,10 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
         applyAnchorButtonColor(anchorColorKey, 'red');
       }
       if (open) openVerseToolKeys.add(key);
-      else openVerseToolKeys.delete(key);
+      else {
+        openVerseToolKeys.delete(key);
+        if (dismissedPendingAnchorKey === key) dismissedPendingAnchorKey = null;
+      }
       if (box) box.classList.toggle('is-collapsed', !open);
       btn.textContent = open ? 'Hide tools' : 'Tools';
       if (open) {
@@ -4454,6 +4553,7 @@ function showEmptyState() {
 // ---------- Navigation ----------
 
 async function openBookNav(opts = {}) {
+  if (!(await requireAnchorLeaveOk())) return;
   const loaded = new Map(books.map(b => [b.id, b]));
   const lastPos = await storage.getLastPosition().catch(() => null);
   const lastBookId = lastPos && lastPos.bookId;
@@ -6716,7 +6816,8 @@ async function jumpToRef(targetKey) {
 }
 
 // ---------- Search (sticky header + hierarchical book → verse) ----------
-function openSearch() {
+async function openSearch() {
+  if (!(await requireAnchorLeaveOk())) return;
   recordPlace('Search', 'search', {});
   const cur = getNearestVerseKey();
   if (cur) trailPush(cur, 'search-open');
@@ -7140,7 +7241,8 @@ function openSearch() {
 // ---------- Verse notes list + filter ----------
 
 // ---------- Focused Search (term + fixed anchor verse) ----------
-function openFocusedSearch() {
+async function openFocusedSearch() {
+  if (!(await requireAnchorLeaveOk())) return;
   recordPlace('Focused Search', 'focused-search', {});
   const cur = getNearestVerseKey();
   if (cur) trailPush(cur, 'focused-search-open');

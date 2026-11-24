@@ -2248,6 +2248,57 @@ body.chrome-is-hidden main#main {
 .app-status-toast.fail { border-color: #e57373; color: #ffcdd2; }
 .app-status-toast[hidden] { display: none !important; }
 
+/* Top red reminder when leaving with a yellow (unset) Anchor tools panel. */
+.anchor-leave-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2500;
+  background: #c62828;
+  color: #fff;
+  padding: calc(env(safe-area-inset-top, 0px) + 0.55rem) 1rem 0.6rem;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.anchor-leave-msg {
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+.anchor-leave-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.anchor-leave-actions button {
+  min-height: 38px;
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.45);
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.anchor-leave-actions .alb-set {
+  background: #fff;
+  color: #b71c1c;
+  border-color: #fff;
+}
+.anchor-leave-actions .alb-continue,
+.anchor-leave-actions .alb-cancel {
+  background: transparent;
+  color: #fff;
+}
+.anchor-leave-actions .alb-cancel {
+  border-style: dashed;
+}
+
 .anchor-bar.is-unset #anchor-label {
   color: var(--text-dim, #b8b8c8);
   font-weight: 600;

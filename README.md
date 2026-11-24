@@ -1,3 +1,8 @@
+## New in 7.0.3
+
+- Yellow Anchor reminder: when Tools are open on a verse that is not the Anchor and you start a major navigation (different chapter/book, Prev/Next, Books, Search, Focused Search), a red banner appears at the top. Set Anchor sets that verse and continues. Continue dismisses and continues. Choose different cancels the navigation so you can pick another verse. No forced pause. One reminder per yellow verse until Tools change.
+
+
 ## New in 7.0.1
 
 - Sidebar section identifiers (Chapter Tools, Geography, Word Study, Marks, Path, Navigation, Display) are red, the opposite of cyan.
