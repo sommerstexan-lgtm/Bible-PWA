@@ -1,9 +1,10 @@
-/* KJV Study PWA – Service Worker  v7.0.3
+/* KJV Study PWA – Service Worker  v7.0.5
    Network-first for app shell so updates apply on the first reload.
    IndexedDB data is never cached by the SW.
    version.json is never written to Cache Storage.
+   Large lexicon files are not in the install shell; they cache on first use.
 */
-const CACHE_NAME = "kjv-study-v7.0.3";
+const CACHE_NAME = "kjv-study-v7.0.5";
 const SHELL = [
   './',
   './index.html',
@@ -26,18 +27,15 @@ const SHELL = [
   './icon-512.png',
   './leaflet.js',
   './html2canvas.min.js',
-  './leaflet.css',
-  './strongs-align.json',
-  './strongs-gloss.json',
-  './bdb-clean.json',
-  './thayers.json'
+  './leaflet.css'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(SHELL.map((url) => cache.add(url).catch(() => {})))
+    ).then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -63,10 +61,19 @@ function isVersionManifest(req) {
   }
 }
 
-// Network-first: try live files, fall back to cache (offline / flaky network)
+function isServiceWorkerScript(req) {
+  try {
+    return new URL(req.url).pathname.endsWith('/sw.js') || new URL(req.url).pathname.endsWith('sw.js');
+  } catch (_) {
+    return false;
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
+  if (!req.url || req.url.indexOf('http') !== 0) return;
+  if (isServiceWorkerScript(req)) return;
 
   if (isVersionManifest(req)) {
     event.respondWith(
@@ -78,11 +85,11 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(req)
       .then((response) => {
-        if (response && response.ok) {
+        if (response && response.ok && (response.type === 'basic' || response.type === 'cors')) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            try { cache.put(req, copy); } catch (_) {}
-          });
+            cache.put(req, copy).catch(() => {});
+          }).catch(() => {});
         }
         return response;
       })

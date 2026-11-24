@@ -1,3 +1,13 @@
+## New in 7.0.5
+
+- Service worker hardened. Install no longer pre-caches the large lexicon files (about 14 MB); those cache on first use. Install waits for skipWaiting, ignores non-http requests and its own script, and only caches basic or CORS responses. A bad or slow worker cannot block boot.
+
+
+## New in 7.0.4
+
+- Boot no longer waits on service-worker registration. The previous version could stop on the “before SW” message while the new cache pre-loaded large lexicon files. Registration now starts in the background with an 8-second timeout, and the install caches files individually so one slow file cannot stall it.
+
+
 ## New in 7.0.3
 
 - Yellow Anchor reminder: when Tools are open on a verse that is not the Anchor and you start a major navigation (different chapter/book, Prev/Next, Books, Search, Focused Search), a red banner appears at the top. Set Anchor sets that verse and continues. Continue dismisses and continues. Choose different cancels the navigation so you can pick another verse. No forced pause. One reminder per yellow verse until Tools change.

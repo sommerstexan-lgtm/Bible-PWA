@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.3';
+const APP_VERSION = '7.0.5';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1337,39 +1337,39 @@ async function init() {
   mark('after names');
 
   mark('before SW');
-  // Register service worker
+  // Register service worker without blocking boot. The install pre-caches
+  // large lexicon files and can hang the register promise on a slow link.
   if ('serviceWorker' in navigator) {
     try {
-      // Reload once when a new SW takes control
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (refreshing) return;
-        // Don't wipe the UI mid-import / mid-note
         if (document.querySelector('.overlay')) return;
         refreshing = true;
         location.reload();
       });
-
-      // updateViaCache:'none' + version query force iOS/Safari to re-fetch sw.js
-      const reg = await navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION, {
+      const swReg = navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION, {
         updateViaCache: 'none'
       });
-      if (reg.waiting) {
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      }
-      reg.addEventListener('updatefound', () => {
-        const nw = reg.installing;
-        if (!nw) return;
-        nw.addEventListener('statechange', () => {
-          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-            nw.postMessage({ type: 'SKIP_WAITING' });
-          }
+      const swTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SW register timeout')), 8000));
+      Promise.race([swReg, swTimeout]).then((reg) => {
+        if (!reg) return;
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              nw.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
         });
+        try { reg.update(); } catch (_) {}
+      }).catch((e) => {
+        console.warn('SW registration failed (normal on file://)', e);
       });
-      try { await reg.update(); } catch (_) {}
     } catch (e) {
       console.warn('SW registration failed (normal on file://)', e);
-      mark('SW error ' + e.message);
     }
   }
   mark('after SW');
