@@ -1,3 +1,9 @@
+## New in 7.0.6
+
+- Sidebar Places / Map opens the map. It no longer depends on a chapter picture (only 1 Samuel 9 has one), so the tap no longer does nothing.
+- Tools → Set Anchor turns that verse’s button green no matter which Tools panel was opened last. Set Anchor here also updates an open Tools button.
+
+
 ## New in 7.0.5
 
 - Service worker hardened. Install no longer pre-caches the large lexicon files (about 14 MB); those cache on first use. Install waits for skipWaiting, ignores non-http requests and its own script, and only caches basic or CORS responses. A bad or slow worker cannot block boot.

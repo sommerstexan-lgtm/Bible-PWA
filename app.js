@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.5';
+const APP_VERSION = '7.0.6';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1224,7 +1224,7 @@ async function restorePlace(node) {
     } else if (t === 'research') {
       await openResearch();
     } else if (t === 'map' || t === 'places') {
-      openChapterPicture();
+      restoreActiveMap();
     } else if (t === 'search') {
       openSearch();
     } else if (t === 'dict' || t === 'dictionary') {
@@ -1544,7 +1544,7 @@ function renderShell() {
         case 'chapter-study': if (minimizedChapterStudyOverlay) restoreChapterStudy(); else openChapterStudy(); break;
         case 'context': openContext(); break;
         case 'research': openResearch(); break;
-        case 'places': openChapterPicture(); break;
+        case 'places': restoreActiveMap(); break;
         case 'crossrefs': {
           // Open cross-refs for the first verse of the current chapter if possible
           const firstKey = currentBookId && currentChapter ? `${currentBookId}.${currentChapter}.1` : null;
@@ -1894,6 +1894,7 @@ function commitAnchor(seat) {
 
 function setAnchorHere() {
   commitAnchor(currentSeatForAnchor());
+  refreshAnchorButtonColor();
 }
 
 /** Tools path: this verse, not the verse nearest the top of the screen. */
@@ -1931,15 +1932,31 @@ function applyAnchorButtonColor(key, state) {
 }
 
 function refreshAnchorButtonColor() {
+  document.querySelectorAll('.verse-actions button[data-act="anchor"]').forEach((btn) => {
+    btn.classList.remove('anchor-yellow', 'anchor-red', 'anchor-green');
+  });
+  if (anchorColorTimer) {
+    clearTimeout(anchorColorTimer);
+    anchorColorTimer = null;
+  }
   const openKeys = Array.from(openVerseToolKeys);
   if (!openKeys.length) {
-    clearAnchorButtonColors();
+    anchorColorKey = null;
     return;
   }
-  // Use the most recently opened tools panel
-  const key = openKeys[openKeys.length - 1];
-  const isAnchor = readingAnchor && readingAnchor.verseKey === key;
-  applyAnchorButtonColor(key, isAnchor ? 'green' : 'yellow');
+  const latest = openKeys[openKeys.length - 1];
+  const anchorKey = readingAnchor && readingAnchor.verseKey;
+  if (anchorKey && openVerseToolKeys.has(anchorKey)) {
+    const anchorBtn = document.querySelector('.verse-actions button[data-act="anchor"][data-key="' + anchorKey + '"]');
+    if (anchorBtn) anchorBtn.classList.add('anchor-green');
+  }
+  if (latest && latest !== anchorKey) {
+    const latestBtn = document.querySelector('.verse-actions button[data-act="anchor"][data-key="' + latest + '"]');
+    if (latestBtn) latestBtn.classList.add('anchor-yellow');
+    anchorColorKey = latest;
+  } else {
+    anchorColorKey = anchorKey || latest;
+  }
 }
 
 function setAnchorFromVerse(key) {
