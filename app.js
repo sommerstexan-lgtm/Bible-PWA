@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.12';
+const APP_VERSION = '7.0.14';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1164,6 +1164,7 @@ function closeActiveMap() {
 
 /** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
 let focusedSearchSession = null;
+let gnResultsSession = null;
 let searchSession = {
   query: '',
   viewMode: 'books',
@@ -1461,6 +1462,7 @@ function renderShell() {
         <button type="button" data-sb="trail">Study trail</button>
         <button type="button" data-sb="search">Search</button>
         <button type="button" data-sb="focused">Focused Search</button>
+        <button type="button" data-sb="general-notes">General notes</button>
       </details>
       <details>
         <summary>Navigation</summary>
@@ -1564,6 +1566,10 @@ function renderShell() {
           break;
         }
         case 'search': openSearch(); break;
+        case 'general-notes':
+          if (gnResultsSession && gnResultsSession.overlay && gnResultsSession.overlay.parentNode && gnResultsSession.restore) gnResultsSession.restore();
+          else openGeneralNotesList();
+          break;
         case 'focused':
           (async () => {
             if (!(await requireAnchorLeaveOk())) return;
@@ -1821,6 +1827,7 @@ function updateSidebarActive() {
   setActive('anchor', !!readingAnchor);
   setActive('search', !!(searchSession && (searchSession.query || '').trim()));
   setActive('focused', !!(focusedSearchSession && focusedSearchSession.hasResults));
+  setActive('general-notes', !!(gnResultsSession && gnResultsSession.overlay));
   setActive('dict', !!lastDictTerm);
   setActive('books', true); // always available
   // Minimized Chapter study returns via the sidebar button
@@ -10646,124 +10653,635 @@ async function openManageCategories(currentList, onChanged) {
   });
 }
 
-async function openGeneralNotesList() {
-  let list = [];
-  try { list = await storage.getAllGeneralNotes(); } catch (_) { list = []; }
-  list.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+async function openGeneralNotesList(restoreState) {
+  const SUMMARY_QS = [
+    'What is the key verse in this chapter?',
+    'What happened before the key?',
+    'What happened after the key?',
+    'What is still unresolved?'
+  ];
+  const BOOK_QS = [
+    'Which chapter is the key chapter, and why?',
+    'What do the chapter summaries before it say?',
+    'What do the chapter summaries after it say?',
+    'What is the message of this book, stated from those summaries?',
+    'Who needs to read this book, and why?'
+  ];
+
+  const canon = bible.CANONICAL_BOOKS || [];
+  const bookOrder = new Map(canon.map((b, i) => [String(b.name || '').toLowerCase(), i]));
+
+  function parseBookChapter(title) {
+    const t = String(title || '').trim();
+    const m = t.match(/^((?:[123]\s+)?[A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(\d+)/);
+    if (!m) return null;
+    const book = m[1];
+    const key = book.toLowerCase();
+    const chapter = parseInt(m[2], 10);
+    if (!bookOrder.has(key) || isNaN(chapter)) return null;
+    return { book, bookKey: key, chapter };
+  }
+  function parseVerseRef(ref) {
+    const m = String(ref || '').match(/^((?:[123]\s+)?[A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(\d+):(\d+)/);
+    if (!m) return null;
+    const book = m[1];
+    const key = book.toLowerCase();
+    if (!bookOrder.has(key)) return null;
+    return { book, bookKey: key, chapter: parseInt(m[2], 10), verse: parseInt(m[3], 10) };
+  }
+  function bookIdForName(name) {
+    const meta = canon.find(b => String(b.name || '').toLowerCase() === String(name || '').toLowerCase());
+    return meta ? meta.id : '';
+  }
+
+  let general = [], summaries = [], verseNotes = [];
+  try { general = await storage.getAllGeneralNotes() || []; } catch (_) {}
+  try { summaries = await storage.getAllSummaryNotes() || []; } catch (_) {}
+  try { verseNotes = await storage.getAllNotes() || []; } catch (_) {}
+
+  function summaryBody(n) {
+    const qs = n.kind === 'book' ? BOOK_QS : SUMMARY_QS;
+    const answers = Array.isArray(n.answers) ? n.answers : [];
+    const parts = [];
+    qs.forEach((q, i) => {
+      const body = String(answers[i] || '').trim();
+      if (body) parts.push(q + ' ' + body);
+    });
+    const legacy = String(n.legacyText || n.text || '').trim();
+    if (legacy && !parts.length) parts.push(legacy);
+    return parts.join('\n');
+  }
+  function studyStatus(n) {
+    if (!n || n.kind === 'book') return '';
+    const answers = Array.isArray(n.answers) ? n.answers.map(a => String(a || '').trim()) : [];
+    const keyFilled = !!answers[0];
+    const others = answers.slice(1).some(Boolean);
+    if (keyFilled && others) return 'full summary';
+    if (keyFilled) return 'key-verse only';
+    if (String(n.legacyText || n.text || '').trim()) return 'full summary';
+    return 'none';
+  }
+
+  const items = [];
+  general.forEach(n => {
+    items.push({
+      source: 'General note',
+      id: n.id,
+      title: n.title || 'Untitled note',
+      text: n.text || '',
+      category: n.category || '',
+      updatedAt: n.updatedAt || n.createdAt || '',
+      raw: n
+    });
+  });
+  summaries.forEach(n => {
+    const isBook = n.kind === 'book';
+    items.push({
+      source: isBook ? 'Book summary' : 'Chapter summary',
+      id: n.id,
+      title: n.title || 'Untitled summary',
+      text: summaryBody(n),
+      answers: Array.isArray(n.answers) ? n.answers.slice() : [],
+      category: '',
+      status: isBook ? '' : studyStatus(n),
+      kind: n.kind || 'chapter',
+      updatedAt: n.updatedAt || n.createdAt || '',
+      raw: n
+    });
+  });
+  verseNotes.forEach(n => {
+    const key = n.key || '';
+    const parsed = bible.parseKey ? bible.parseKey(key) : null;
+    if (!parsed || !parsed.bookId) return;
+    const meta = canon.find(b => b.id === parsed.bookId);
+    const ref = (meta ? meta.name : parsed.bookId) + ' ' + parsed.chapter + ':' + parsed.verse;
+    const body = String(n.text || '').trim();
+    if (!body) return;
+    items.push({
+      source: 'Verse note',
+      id: key,
+      key: key,
+      title: ref,
+      text: body,
+      category: '',
+      updatedAt: n.updatedAt || '',
+      bookId: parsed.bookId,
+      chapter: parsed.chapter,
+      verse: parsed.verse,
+      raw: n
+    });
+  });
+
+  const rs = restoreState || {};
+  let sortMode = rs.sort || 'updated';
+  let scopeType = (rs.scope && rs.scope.type) || 'all';
+  let scopeBook = (rs.scope && rs.scope.bookKey) || '';
+  let scopeChapter = (rs.scope && rs.scope.chapter) || '';
+  let phrase = rs.phrase || '';
+  let category = rs.category || '';
+
+  function loadViews() {
+    try { return JSON.parse(localStorage.getItem('kjv-gn-saved-views') || '[]'); } catch (_) { return []; }
+  }
+  function saveViews(list) {
+    try { localStorage.setItem('kjv-gn-saved-views', JSON.stringify(list || [])); } catch (_) {}
+  }
+  function loadPins() {
+    try { return JSON.parse(localStorage.getItem('kjv-gn-pins') || '[]'); } catch (_) { return []; }
+  }
+  function savePins(list) {
+    try { localStorage.setItem('kjv-gn-pins', JSON.stringify(list || [])); } catch (_) {}
+  }
+
+  function scopeOf(item) {
+    if (item.source === 'Verse note') {
+      const meta = canon.find(b => b.id === item.bookId);
+      return meta ? { bookKey: meta.name.toLowerCase(), chapter: item.chapter } : null;
+    }
+    return parseBookChapter(item.title);
+  }
+  function matchesScope(item) {
+    if (scopeType === 'all') return true;
+    const ref = scopeOf(item);
+    if (!ref) return false;
+    if (scopeType === 'book') return ref.bookKey === scopeBook;
+    if (scopeType === 'chapter') return ref.bookKey === scopeBook && Number(ref.chapter) === Number(scopeChapter);
+    return false;
+  }
+  function matchesPhrase(item) {
+    if (!phrase) return true;
+    const hay = ((item.title || '') + ' ' + (item.text || '')).toLowerCase();
+    return hay.includes(phrase.toLowerCase());
+  }
+  function matchesCategory(item) {
+    if (!category) return true;
+    if (item.source !== 'General note') return true;
+    return item.category === category;
+  }
+  function sortItems(list) {
+    const arr = list.slice();
+    if (sortMode === 'title') {
+      arr.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' }));
+    } else if (sortMode === 'biblical') {
+      arr.sort((a, b) => {
+        const pa = scopeOf(a);
+        const pb = scopeOf(b);
+        const ia = pa ? (bookOrder.get(pa.bookKey) ?? 9999) : 9999;
+        const ib = pb ? (bookOrder.get(pb.bookKey) ?? 9999) : 9999;
+        if (ia !== ib) return ia - ib;
+        const ca = pa ? pa.chapter : 9999;
+        const cb = pb ? pb.chapter : 9999;
+        if (ca !== cb) return ca - cb;
+        return String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' });
+      });
+    } else {
+      arr.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    }
+    return arr;
+  }
+  function snippetAround(text, q) {
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!one) return '';
+    if (!q) return one.length <= 140 ? one : one.slice(0, 137) + '…';
+    const idx = one.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return one.length <= 140 ? one : one.slice(0, 137) + '…';
+    const start = Math.max(0, idx - 40);
+    const end = Math.min(one.length, idx + q.length + 60);
+    let s = one.slice(start, end);
+    if (start > 0) s = '…' + s;
+    if (end < one.length) s = s + '…';
+    return s;
+  }
+  function matchingAnswerIndex(item) {
+    if (!phrase || !Array.isArray(item.answers)) return -1;
+    const q = phrase.toLowerCase();
+    for (let i = 0; i < item.answers.length; i++) {
+      if (String(item.answers[i] || '').toLowerCase().includes(q)) return i;
+    }
+    return -1;
+  }
 
   const overlay = showOverlay(`
-    <div class="panel trail-panel">
+    <div class="panel trail-panel" id="gn-panel">
       <div class="search-header-top">
         <h2 class="search-title" style="margin:0">General notes</h2>
-        <button type="button" class="close search-close" aria-label="Close">×</button>
+        <div style="display:flex;gap:0.3rem">
+          <button type="button" id="gn-min" title="Minimize" style="min-height:40px;min-width:40px">–</button>
+          <button type="button" class="close search-close" aria-label="Close">×</button>
+        </div>
       </div>
       <div style="display:flex;gap:0.4rem;align-items:center;margin:0.5rem 0 0.4rem;flex-wrap:wrap">
+        <select id="gn-sort" style="min-height:40px;padding:0.3rem 0.5rem;border-radius:8px">
+          <option value="updated">Recently updated</option>
+          <option value="title">Title A–Z</option>
+          <option value="biblical">Biblical order</option>
+        </select>
+        <select id="gn-scope" style="min-height:40px;padding:0.3rem 0.5rem;border-radius:8px">
+          <option value="all">All notes</option>
+          <option value="book">This book</option>
+          <option value="chapter">This chapter</option>
+        </select>
+        <select id="gn-scope-book" style="min-height:40px;padding:0.3rem 0.5rem;border-radius:8px"></select>
+        <input id="gn-scope-ch" type="number" min="1" placeholder="Ch" style="width:4.2rem;min-height:40px;padding:0.3rem;border-radius:8px">
         <select id="gn-cat-filter" style="min-height:40px;padding:0.3rem 0.5rem;border-radius:8px">
           <option value="">All categories</option>
         </select>
-        <input id="gn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="flex:1;min-width:140px">
+        <input id="gn-filter" class="search-box" type="search" placeholder="Word or phrase" autocomplete="off" style="flex:1;min-width:140px">
       </div>
       <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.5rem">
-        Title plus body are searched. These notes are not tied to a verse.
+        Searches general notes, chapter summaries, book summaries, and verse notes. Category limits general notes only.
       </p>
-      <div style="display:flex;gap:0.5rem;margin-bottom:0.7rem">
-        <button type="button" id="gn-new" style="flex:1;min-height:52px;background:var(--accent);color:#111;font-weight:600">New note</button>
-        <button type="button" id="gn-defs" style="flex:1;min-height:52px">What do these mean?</button>
-        <button type="button" id="gn-manage" style="flex:1;min-height:52px">Manage categories</button>
+      <div style="display:flex;gap:0.4rem;margin-bottom:0.7rem;flex-wrap:wrap">
+        <button type="button" id="gn-new" style="flex:1;min-height:48px;background:var(--accent);color:#111;font-weight:600">New note</button>
+        <button type="button" id="gn-defs" style="flex:1;min-height:48px">What do these mean?</button>
+        <button type="button" id="gn-manage" style="flex:1;min-height:48px">Manage categories</button>
+        <button type="button" id="gn-save-view" style="flex:1;min-height:48px">Save view…</button>
+        <button type="button" id="gn-pinned" style="flex:1;min-height:48px">Pinned</button>
+        <button type="button" id="gn-copy" style="flex:1;min-height:48px">Copy shown</button>
       </div>
       <div id="gn-list"></div>
     </div>
   `);
-  $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+
+  const panel = $('#gn-panel', overlay);
+  const listEl = $('#gn-list', overlay);
+  const sortSel = $('#gn-sort', overlay);
+  const scopeSel = $('#gn-scope', overlay);
+  const scopeBookSel = $('#gn-scope-book', overlay);
+  const scopeCh = $('#gn-scope-ch', overlay);
+  const catFilter = $('#gn-cat-filter', overlay);
+  const filterBox = $('#gn-filter', overlay);
+
+  // Book dropdown
+  scopeBookSel.innerHTML = canon.map(b => `<option value="${escapeHtml(b.name.toLowerCase())}">${escapeHtml(b.name)}</option>`).join('');
+  sortSel.value = sortMode;
+  scopeSel.value = scopeType;
+  if (scopeBook) scopeBookSel.value = scopeBook;
+  if (scopeChapter) scopeCh.value = scopeChapter;
+  filterBox.value = phrase;
+
+  function currentState() {
+    return {
+      sort: sortMode,
+      scope: { type: scopeType, bookKey: scopeBookSel.value, chapter: scopeCh.value ? Number(scopeCh.value) : '' },
+      phrase: phrase,
+      category: category,
+      scrollTop: panel ? panel.scrollTop : 0
+    };
+  }
+
+  function populateCatFilter() {
+    const cats = new Set();
+    general.forEach(n => { if (n.category) cats.add(n.category); });
+    const current = category;
+    catFilter.innerHTML = '<option value="">All categories</option>' +
+      Array.from(cats).sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    if (current && cats.has(current)) catFilter.value = current;
+  }
+
+  let expandedId = null;
+  let saveTimer = null;
+  let statusTimer = null;
+
+  function visibleItems() {
+    return sortItems(items.filter(it => matchesScope(it) && matchesPhrase(it) && matchesCategory(it)));
+  }
+
+  async function persistItem(item, newText, newTitle) {
+    if (item.source === 'General note') {
+      const rec = Object.assign({}, item.raw, { text: newText, title: newTitle != null ? newTitle : item.title });
+      await storage.saveGeneralNote(rec);
+      item.text = newText;
+      item.title = rec.title;
+      item.raw = rec;
+    } else if (item.source === 'Chapter summary' || item.source === 'Book summary') {
+      const rec = Object.assign({}, item.raw);
+      const idx = item._editIndex;
+      if (idx != null && idx >= 0) {
+        const answers = Array.isArray(rec.answers) ? rec.answers.slice() : [];
+        answers[idx] = newText;
+        rec.answers = answers;
+      } else {
+        rec.text = newText;
+      }
+      await storage.saveSummaryNote(rec);
+      item.raw = rec;
+      item.answers = rec.answers || item.answers;
+      item.text = summaryBody(rec);
+    } else if (item.source === 'Verse note') {
+      await storage.setNote(item.key, newText, item.raw && item.raw.imageIds);
+      item.text = newText;
+      if (item.raw) item.raw.text = newText;
+    }
+  }
+
+  function showSaved(row) {
+    let badge = row.querySelector('.gn-saved');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'gn-saved';
+      badge.style.cssText = 'float:right;font-size:0.8em;color:var(--accent);font-weight:700';
+      row.insertBefore(badge, row.firstChild);
+    }
+    badge.textContent = 'Saved';
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { if (badge) badge.textContent = ''; }, 1500);
+  }
+
+  function renderList() {
+    const shown = visibleItems();
+    if (!items.length) {
+      listEl.innerHTML = '<p style="color:var(--text-dim)">None yet. Tap New note and give it a title.</p>';
+      return;
+    }
+    if (!shown.length) {
+      listEl.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="gn-filter-clear">Clear</button>';
+      const clr = $('#gn-filter-clear', overlay);
+      if (clr) clr.onclick = () => {
+        filterBox.value = ''; phrase = '';
+        catFilter.value = ''; category = '';
+        scopeSel.value = 'all'; scopeType = 'all';
+        renderList();
+      };
+      return;
+    }
+    listEl.innerHTML = shown.map(n => {
+      const open = expandedId === (n.source + ':' + n.id);
+      const snip = snippetAround(n.text, phrase);
+      const status = n.status ? `<div style="font-size:0.8em;color:var(--text-dim)">${escapeHtml(n.status)}</div>` : '';
+      const cat = n.category ? `<div style="font-size:0.85em;color:var(--text-dim)">${escapeHtml(n.category)}</div>` : '';
+      if (!open) {
+        return `<div class="xref-item gn-row" data-id="${escapeHtml(n.source + ':' + n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;padding:0.7rem;cursor:pointer">
+          <div style="font-size:0.78em;color:var(--accent);font-weight:700">${escapeHtml(n.source)}</div>
+          <strong>${escapeHtml(n.title)}</strong>
+          ${cat}${status}
+          ${snip ? `<div class="trail-src">${escapeHtml(snip)}</div>` : ''}
+          <div style="margin-top:0.35rem;display:flex;gap:0.3rem;flex-wrap:wrap">
+            <button type="button" class="gn-pin" data-id="${escapeHtml(n.source + ':' + n.id)}" style="min-height:36px">Pin</button>
+            ${n.source === 'Verse note' ? `<button type="button" class="gn-open-verse" data-id="${escapeHtml(n.source + ':' + n.id)}" style="min-height:36px">Open verse</button>` : ''}
+          </div>
+        </div>`;
+      }
+      const editIdx = matchingAnswerIndex(n);
+      const editText = (editIdx >= 0 && n.answers) ? (n.answers[editIdx] || '') : (n.text || '');
+      const qLabel = (editIdx >= 0) ? ((n.kind === 'book' ? BOOK_QS : SUMMARY_QS)[editIdx] || '') : '';
+      return `<div class="xref-item gn-row gn-open" data-id="${escapeHtml(n.source + ':' + n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;padding:0.7rem">
+        <div style="font-size:0.78em;color:var(--accent);font-weight:700">${escapeHtml(n.source)}</div>
+        ${n.source === 'General note'
+          ? `<input class="gn-title-edit search-box" data-id="${escapeHtml(n.source + ':' + n.id)}" value="${escapeHtml(n.title)}" style="margin:0.3rem 0;width:100%">`
+          : `<strong>${escapeHtml(n.title)}</strong>`}
+        ${qLabel ? `<div style="font-size:0.85em;color:var(--text-dim);margin:0.2rem 0">${escapeHtml(qLabel)}</div>` : ''}
+        <textarea class="gn-body-edit" data-id="${escapeHtml(n.source + ':' + n.id)}" data-idx="${editIdx}" rows="8" style="width:100%;max-height:50vh;overflow:auto;margin-top:0.3rem">${escapeHtml(editText)}</textarea>
+        <div style="margin-top:0.35rem;display:flex;gap:0.3rem">
+          <button type="button" class="gn-collapse" data-id="${escapeHtml(n.source + ':' + n.id)}" style="min-height:40px">Done</button>
+          <button type="button" class="gn-cancel" data-id="${escapeHtml(n.source + ':' + n.id)}" style="min-height:40px">Cancel</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    $$('.gn-row', overlay).forEach(row => {
+      row.onclick = (e) => {
+        if (e.target.closest('button,input,textarea')) return;
+        const id = row.dataset.id;
+        if (expandedId && expandedId !== id) {
+          // save pending of previous is handled by blur/debounce already
+        }
+        expandedId = (expandedId === id) ? null : id;
+        renderList();
+      };
+    });
+    $$('.gn-pin', overlay).forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const item = shown.find(x => (x.source + ':' + x.id) === btn.dataset.id);
+        if (!item) return;
+        const pins = loadPins();
+        pins.push({
+          id: 'pin_' + Date.now().toString(36),
+          source: item.source,
+          title: item.title,
+          snippet: snippetAround(item.text, phrase),
+          pinnedAt: new Date().toISOString()
+        });
+        savePins(pins);
+        showAppStatus('Pinned.', 'ok');
+      };
+    });
+    $$('.gn-open-verse', overlay).forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const item = shown.find(x => (x.source + ':' + x.id) === btn.dataset.id);
+        if (!item || !item.bookId) return;
+        closeOverlay(overlay);
+        gnResultsSession = null;
+        if (typeof updateSidebarActive === 'function') updateSidebarActive();
+        await renderChapter(item.bookId, item.chapter);
+        setTimeout(() => {
+          const el = document.getElementById('v-' + String(item.key || '').replace(/\./g, '-'));
+          if (el) el.scrollIntoView({ block: 'center' });
+        }, 60);
+      };
+    });
+    $$('.gn-body-edit', overlay).forEach(ta => {
+      const item = shown.find(x => (x.source + ':' + x.id) === ta.dataset.id);
+      if (item) item._editIndex = ta.dataset.idx === '-1' || ta.dataset.idx === '' ? -1 : Number(ta.dataset.idx);
+      const original = ta.value;
+      ta.dataset.original = original;
+      ta.oninput = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(async () => {
+          if (!item) return;
+          const titleEl = rowTitle(ta.dataset.id);
+          await persistItem(item, ta.value, titleEl ? titleEl.value : null);
+          showSaved(ta.closest('.gn-row'));
+        }, 350);
+      };
+      ta.onblur = async () => {
+        clearTimeout(saveTimer);
+        if (!item) return;
+        const titleEl = rowTitle(ta.dataset.id);
+        await persistItem(item, ta.value, titleEl ? titleEl.value : null);
+        showSaved(ta.closest('.gn-row'));
+      };
+    });
+    $$('.gn-title-edit', overlay).forEach(inp => {
+      inp.oninput = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(async () => {
+          const item = shown.find(x => (x.source + ':' + x.id) === inp.dataset.id);
+          const ta = overlay.querySelector('.gn-body-edit[data-id="' + inp.dataset.id + '"]');
+          if (item) await persistItem(item, ta ? ta.value : item.text, inp.value);
+        }, 350);
+      };
+    });
+    $$('.gn-collapse', overlay).forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const ta = overlay.querySelector('.gn-body-edit[data-id="' + btn.dataset.id + '"]');
+        const item = shown.find(x => (x.source + ':' + x.id) === btn.dataset.id);
+        if (ta && item) {
+          clearTimeout(saveTimer);
+          const titleEl = rowTitle(btn.dataset.id);
+          await persistItem(item, ta.value, titleEl ? titleEl.value : null);
+        }
+        expandedId = null;
+        renderList();
+      };
+    });
+    $$('.gn-cancel', overlay).forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        clearTimeout(saveTimer);
+        expandedId = null;
+        renderList();
+      };
+    });
+    function rowTitle(id) {
+      return overlay.querySelector('.gn-title-edit[data-id="' + id + '"]');
+    }
+  }
+
+  function readControls() {
+    sortMode = sortSel.value;
+    scopeType = scopeSel.value;
+    scopeBook = scopeBookSel.value;
+    scopeChapter = scopeCh.value ? Number(scopeCh.value) : '';
+    phrase = (filterBox.value || '').trim();
+    category = catFilter.value;
+  }
+
+  sortSel.onchange = () => { readControls(); renderList(); };
+  scopeSel.onchange = () => { readControls(); renderList(); };
+  scopeBookSel.onchange = () => { readControls(); renderList(); };
+  scopeCh.oninput = () => { readControls(); renderList(); };
+  catFilter.onchange = () => { readControls(); renderList(); };
+  filterBox.oninput = () => { readControls(); renderList(); };
+
   $('#gn-new', overlay).onclick = () => {
-    closeOverlay(overlay);
+    fullClose();
     openGeneralNoteEditor(null);
   };
   $('#gn-defs', overlay).onclick = () => {
     const defs = getAllCategoryDefs();
-    const html = Object.keys(defs).sort().map(name => 
+    const html = Object.keys(defs).sort().map(name =>
       `<p style="margin:0.6rem 0"><strong>${escapeHtml(name)}</strong><br><span style="color:var(--text-dim)">${escapeHtml(defs[name])}</span></p>`
     ).join('');
     const dOverlay = showOverlay(`
       <div class="panel">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
           <h2 style="margin:0;border:none;padding:0">What do these mean?</h2>
-          <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+          <button type="button" class="close">×</button>
         </div>
-        <div style="max-height:70vh;overflow:auto;padding-right:0.4rem">${html || '<p>No categories defined yet.</p>'}</div>
-      </div>
-    `);
+        ${html || '<p>No categories.</p>'}
+      </div>`);
     $('.close', dOverlay).onclick = () => closeOverlay(dOverlay);
   };
-
-  $('#gn-manage', overlay).onclick = () => openManageCategories(list, () => {
-    // refresh the list after changes
-    openGeneralNotesList();
-  });
-
-  const el = $('#gn-list', overlay);
-  const filterBox = $('#gn-filter', overlay);
-  const catFilter = $('#gn-cat-filter', overlay);
-
-  function snippet(text) {
-    const one = String(text || '').replace(/\s+/g, ' ').trim();
-    if (!one) return '';
-    if (one.length <= 140) return one;
-    return one.slice(0, 137) + '…';
-  }
-
-  function matches(note, q) {
-    if (!q) return true;
-    const hay = ((note.title || '') + ' ' + (note.text || '')).toLowerCase();
-    return hay.includes(q);
-  }
-
-  function populateCatFilter() {
-    const cats = new Set();
-    list.forEach(n => { if (n.category) cats.add(n.category); });
-    const current = catFilter.value;
-    catFilter.innerHTML = '<option value="">All categories</option>' +
-      Array.from(cats).sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-    if (current && cats.has(current)) catFilter.value = current;
-  }
-
-  function renderList() {
-    const q = ((filterBox && filterBox.value || '')).trim().toLowerCase();
-    const cat = catFilter.value;
-    const shown = list.filter(n => matches(n, q) && (!cat || n.category === cat));
-    if (!list.length) {
-      el.innerHTML = '<p style="color:var(--text-dim)">None yet. Tap New note and give it a title.</p>';
-      return;
-    }
-    if (!shown.length) {
-      el.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="gn-filter-clear">Clear</button>';
-      const clr = $('#gn-filter-clear', overlay);
-      if (clr) clr.onclick = () => { filterBox.value = ''; catFilter.value = ''; renderList(); };
-      return;
-    }
-    el.innerHTML = shown.map(n => `
-      <button type="button" class="xref-item gn-row" data-id="${escapeHtml(n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
-        <strong>${escapeHtml(n.title || 'Untitled note')}</strong>
-        ${n.category ? `<div style="font-size:0.85em;color:var(--text-dim);margin-top:0.15rem">${escapeHtml(n.category)}</div>` : ''}
-        ${snippet(n.text) ? `<div class="trail-src">${escapeHtml(snippet(n.text))}</div>` : ''}
-      </button>
-    `).join('');
-    $$('.gn-row', overlay).forEach(btn => {
+  $('#gn-manage', overlay).onclick = () => {
+    fullClose();
+    if (typeof openManageCategories === 'function') openManageCategories(general, () => openGeneralNotesList(currentState()));
+  };
+  $('#gn-save-view', overlay).onclick = () => {
+    readControls();
+    const name = prompt('Name this view');
+    if (!name || !name.trim()) return;
+    const views = loadViews().filter(v => v.name !== name.trim());
+    views.push({ name: name.trim(), ...currentState(), savedAt: new Date().toISOString() });
+    saveViews(views);
+    showAppStatus('View saved.', 'ok');
+  };
+  $('#gn-pinned', overlay).onclick = () => {
+    const pins = loadPins();
+    const html = pins.length
+      ? pins.map(p => `<div class="xref-item" style="margin-bottom:0.4rem;padding:0.6rem">
+          <div style="font-size:0.78em;color:var(--accent);font-weight:700">${escapeHtml(p.source)}</div>
+          <strong>${escapeHtml(p.title)}</strong>
+          <div class="trail-src">${escapeHtml(p.snippet || '')}</div>
+          <button type="button" class="gn-unpin" data-id="${escapeHtml(p.id)}" style="min-height:36px;margin-top:0.3rem">Remove</button>
+        </div>`).join('')
+      : '<p style="color:var(--text-dim)">No pinned findings yet.</p>';
+    const pOverlay = showOverlay(`
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+          <h2 style="margin:0;border:none;padding:0">Pinned findings</h2>
+          <button type="button" class="close">×</button>
+        </div>
+        <div style="margin-bottom:0.6rem">
+          ${loadViews().map(v => `<button type="button" class="gn-open-view" data-name="${escapeHtml(v.name)}" style="display:block;width:100%;text-align:left;min-height:44px;margin-bottom:0.3rem">${escapeHtml(v.name)}</button>`).join('') || ''}
+        </div>
+        ${html}
+      </div>`);
+    $('.close', pOverlay).onclick = () => closeOverlay(pOverlay);
+    $$('.gn-unpin', pOverlay).forEach(btn => {
       btn.onclick = () => {
-        const rec = list.find(x => x.id === btn.dataset.id);
-        closeOverlay(overlay);
-        openGeneralNoteEditor(rec || { id: btn.dataset.id });
+        savePins(loadPins().filter(p => p.id !== btn.dataset.id));
+        closeOverlay(pOverlay);
+        $('#gn-pinned', overlay).click();
       };
     });
+    $$('.gn-open-view', pOverlay).forEach(btn => {
+      btn.onclick = () => {
+        const v = loadViews().find(x => x.name === btn.dataset.name);
+        closeOverlay(pOverlay);
+        if (!v) return;
+        sortMode = v.sort || 'updated';
+        scopeType = (v.scope && v.scope.type) || 'all';
+        scopeBook = (v.scope && v.scope.bookKey) || scopeBookSel.value;
+        scopeChapter = (v.scope && v.scope.chapter) || '';
+        phrase = v.phrase || '';
+        category = v.category || '';
+        sortSel.value = sortMode;
+        scopeSel.value = scopeType;
+        if (scopeBook) scopeBookSel.value = scopeBook;
+        scopeCh.value = scopeChapter || '';
+        filterBox.value = phrase;
+        catFilter.value = category;
+        renderList();
+      };
+    });
+  };
+  $('#gn-copy', overlay).onclick = async () => {
+    const shown = visibleItems();
+    const text = shown.map(n => `[${n.source}] ${n.title}\n${snippetAround(n.text, phrase) || n.text || ''}`).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      showAppStatus('Copied.', 'ok');
+    } catch (_) {
+      showAppStatus('Could not copy.', 'fail');
+    }
+  };
+
+  function minimize() {
+    clearTimeout(saveTimer);
+    overlay.classList.add('is-minimized');
+    overlay.style.display = 'none';
+    gnResultsSession = { overlay, restore, state: currentState() };
+    if (typeof updateSidebarActive === 'function') updateSidebarActive();
+  }
+  function restore() {
+    overlay.classList.remove('is-minimized');
+    overlay.style.display = '';
+    const st = gnResultsSession && gnResultsSession.state;
+    if (st && panel) panel.scrollTop = st.scrollTop || 0;
+    if (typeof updateSidebarActive === 'function') updateSidebarActive();
+  }
+  function fullClose() {
+    clearTimeout(saveTimer);
+    gnResultsSession = null;
+    if (typeof updateSidebarActive === 'function') updateSidebarActive();
+    closeOverlay(overlay);
   }
 
-  if (filterBox) filterBox.oninput = renderList;
-  if (catFilter) catFilter.onchange = renderList;
+  $('#gn-min', overlay).onclick = minimize;
+  $('.search-close', overlay).onclick = fullClose;
+
+  gnResultsSession = { overlay, restore, state: currentState() };
+  if (typeof updateSidebarActive === 'function') updateSidebarActive();
+
   populateCatFilter();
   renderList();
+  if (rs.scrollTop && panel) setTimeout(() => { panel.scrollTop = rs.scrollTop; }, 40);
   setTimeout(() => filterBox && filterBox.focus(), 80);
 }
-
 
 function compareSemver(a, b) {
   const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
@@ -14779,7 +15297,7 @@ function openHelp() {
         From any verse: Tools → <strong>Chapter notes</strong> or <strong>Chapter study</strong> without going through Menu. Gold hop buttons keep your place between verse, verse notes, and chapter summary.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
-        Menu → <strong>General notes</strong>. New note needs a title. Filter matches the title and the note body.
+        Menu or Path → <strong>General notes</strong>. Search covers notes, summaries, and verse notes. Sort, scope, pin, and save views are on that screen.
         These notes are not tied to a verse. They stay on this device and go out with Export study data.</p>
 
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
