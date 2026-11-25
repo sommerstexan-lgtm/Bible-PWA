@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.9';
+const APP_VERSION = '7.0.10';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -11848,6 +11848,28 @@ async function flushStructureAnalysis(overlay) {
   }
 }
 
+function lastLookedAtVerseNum() {
+  const openKeys = Array.from(openVerseToolKeys);
+  const key = openKeys.length ? openKeys[openKeys.length - 1] : (getNearestVerseKey() || verseOnScreenKey());
+  const parsed = key ? bible.parseKey(key) : null;
+  if (!parsed || parsed.bookId !== currentBookId || Number(parsed.chapter) !== Number(currentChapter) || !parsed.verse) return 0;
+  return Number(parsed.verse);
+}
+
+function firstVerseForSectId(structure, id) {
+  if (!structure || !id) return 0;
+  if (id.indexOf('el-') === 0) {
+    return firstVerseOfSection(structure.elements[Number(id.slice(3))]);
+  }
+  if (id.indexOf('grp-') === 0) {
+    const g = (structure.groups || [])[Number(id.slice(4))];
+    if (!g || !g.labels || !g.labels.length) return 0;
+    const el = (structure.elements || []).find((e) => e.label === g.labels[0]);
+    return firstVerseOfSection(el);
+  }
+  return 0;
+}
+
 async function switchChapterStudyView(overlay, view) {
   if (!chapterStudy || chapterStudy.view === view) return;
   try {
@@ -11862,6 +11884,10 @@ async function switchChapterStudyView(overlay, view) {
   } catch (_) {
     showAppStatus('Could not keep the last edit.', 'fail');
     return;
+  }
+  if (view === 'notes' && !chapterStudy.sectionPickedVerse) {
+    const n = lastLookedAtVerseNum();
+    if (n) chapterStudy.verse = n;
   }
   chapterStudy.view = view;
   await paintChapterStudyBody(overlay);
@@ -12164,12 +12190,18 @@ function updateSectionBar(overlay) {
       btn.onclick = () => {
         const id = btn.dataset.sect;
         if (id === 'clear') {
+          chapterStudy.sectionPickedVerse = 0;
           clearLastSection(chapterStudy.bookId, chapterStudy.chapter);
           updateSectionBar(overlay);
           showAppStatus('Place cleared. Summary opens at the top until you select a section.', 'ok');
           return;
         }
         rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
+        const first = firstVerseForSectId(s, id);
+        if (first) {
+          chapterStudy.verse = first;
+          chapterStudy.sectionPickedVerse = first;
+        }
         if (chapterStudy.view !== 'structure') {
           switchChapterStudyView(overlay, 'structure').then(() => {
             setTimeout(() => scrollToStructSection(overlay, id), 80);
@@ -12193,9 +12225,15 @@ function minimizeChapterStudy(overlay) {
 
 function restoreChapterStudy() {
   if (!minimizedChapterStudyOverlay) return;
-  minimizedChapterStudyOverlay.style.display = '';
+  const overlay = minimizedChapterStudyOverlay;
+  if (chapterStudy && chapterStudy.view === 'notes' && !chapterStudy.sectionPickedVerse) {
+    const n = lastLookedAtVerseNum();
+    if (n) chapterStudy.verse = n;
+  }
+  overlay.style.display = '';
   minimizedChapterStudyOverlay = null;
   updateChapterStudyChip();
+  if (chapterStudy && chapterStudy.view === 'notes') markChapterStudyVerse(overlay);
 }
 
 async function openChapterStudy(startKey, initialView) {

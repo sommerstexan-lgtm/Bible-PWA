@@ -1,3 +1,9 @@
+## New in 7.0.10
+
+- Chapter study → Verse notes opens on the last verse you were looking at (open Tools verse, otherwise the verse nearest the top).
+- A section letter (A, B, C, X) still opens that section in Literary structure, and Verse notes then opens on the first verse of that section.
+
+
 ## New in 7.0.9
 
 - Chapter name is a bar above the scrolling chapter, not inside it. Scrolling can no longer move it. Structure and the cross-references banner stay below it.
