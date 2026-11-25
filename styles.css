@@ -3847,3 +3847,30 @@ textarea.cs-answer {
   font-weight: 800 !important;
   border-color: #4caf50 !important;
 }
+
+/* General notes workstation — wide, tall, readable */
+.overlay.gn-work { align-items: center; justify-content: center; padding: 1.2rem; }
+.panel.gn-work-panel {
+  width: min(1100px, 94vw);
+  height: 90vh;
+  max-width: none;
+  max-height: none;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.gn-work-panel .gn-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1.1rem 0.3rem; }
+.gn-work-panel .gn-bar { flex: 0 0 auto; display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; padding: 0.35rem 1.1rem 0.45rem; }
+.gn-work-panel .gn-bar select,
+.gn-work-panel .gn-bar input,
+.gn-work-panel .gn-bar button { min-height: 40px; }
+.gn-work-panel .gn-status { flex: 0 0 auto; padding: 0.1rem 1.1rem 0.45rem; color: var(--accent); font-weight: 600; }
+.gn-work-panel #gn-list { flex: 1 1 auto; overflow: auto; padding: 0.2rem 1.1rem 1.2rem; min-height: 0; }
+.gn-work-panel .gn-row { padding: 0.85rem 1rem; margin-bottom: 0.55rem; }
+.gn-work-panel .gn-src { font-size: 0.8rem; color: var(--accent); font-weight: 700; }
+.gn-work-panel .gn-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin: 0.15rem 0; }
+.gn-work-panel .gn-cat { font-size: 0.9rem; color: var(--text-dim); }
+.gn-work-panel .gn-snip { font-size: 1rem; color: var(--text); margin-top: 0.3rem; line-height: 1.45; }
+.gn-work-panel .gn-actions { margin-top: 0.4rem; display: flex; gap: 0.35rem; flex-wrap: wrap; }
