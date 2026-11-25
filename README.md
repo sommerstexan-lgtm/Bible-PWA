@@ -1,3 +1,8 @@
+## New in 7.0.8
+
+- Chapter name sticks to the top of the reading area. The previous offset left a gap, so Structure and the cross-references banner slid above the name. The bar now starts at the top; only the text is padded below the Controls chip.
+
+
 ## New in 7.0.7
 
 - Chapter name stays visible while you scroll. It is smaller and sticks to the top of the chapter.
