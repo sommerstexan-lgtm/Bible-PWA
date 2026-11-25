@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.10';
+const APP_VERSION = '7.0.12';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3808,6 +3808,7 @@ async function openChapterStructure(book, chapterNum) {
         clearStructDraft(userKey);
         showAppStatus('Structure deleted.', 'ok');
         closeOverlay(overlay);
+        refreshOpenChapterStudyBar();
       };
     }
   } else {
@@ -3825,6 +3826,7 @@ async function openChapterStructure(book, chapterNum) {
         clearStructDraft(userKey);
         showAppStatus('Structure saved.', 'ok');
         closeOverlay(overlay);
+        refreshOpenChapterStudyBar();
       };
     }
     const promptBtn = $('#struct-prompt', overlay);
@@ -4085,6 +4087,7 @@ function openChapterStructureEditor(book, chapterNum, initialText) {
     clearStructDraft(userKey);
     showAppStatus('Structure saved.', 'ok');
     closeOverlay(overlay);
+    refreshOpenChapterStudyBar();
   };
 }
 
@@ -11547,6 +11550,7 @@ async function paintChapterStudyBody(overlay) {
             await storage.saveLiteraryStructure(userKey, userRec.outlineText || '', s);
             chapterStudy.structDirty = false;
             showAppStatus('Structure analysis saved.', 'ok');
+            updateSectionBar(overlay);
           } catch (_) {
             showAppStatus('Could not save structure analysis.', 'fail');
           }
@@ -11577,6 +11581,7 @@ async function paintChapterStudyBody(overlay) {
             await storage.saveLiteraryStructure(userKey, userRec.outlineText || '', s);
             chapterStudy.structDirty = false;
             showAppStatus('Structure analysis saved.', 'ok');
+            updateSectionBar(overlay);
           } catch (_) {
             showAppStatus('Could not save structure analysis.', 'fail');
           }
@@ -11843,6 +11848,7 @@ async function flushStructureAnalysis(overlay) {
   try {
     await storage.saveLiteraryStructure(userKey, (userRec && userRec.outlineText) || '', chapterStudy.structDraft);
     chapterStudy.structDirty = false;
+    updateSectionBar(overlay);
   } catch (_) {
     showAppStatus('Could not save structure analysis.', 'fail');
   }
@@ -12167,22 +12173,27 @@ function updateSectionBar(overlay) {
   const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
   storage.getLiteraryStructureUser(userKey).then((rec) => {
     const s = rec && rec.structure;
-    if (!s || !Array.isArray(s.elements) || !s.elements.length) {
-      bar.hidden = true;
-      return;
-    }
+    const hasStructure = !!(s && Array.isArray(s.elements) && s.elements.length);
     const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
     let html = '';
-    s.elements.forEach((el, ei) => {
-      const id = 'el-' + ei;
-      const on = id === last ? ' cs-sect-on' : '';
-      html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(el.label) + '</button>';
-    });
-    (s.groups || []).forEach((g, gi) => {
-      const id = 'grp-' + gi;
-      const on = id === last ? ' cs-sect-on' : '';
-      html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(g.labels.join('/')) + '</button>';
-    });
+    if (hasStructure) {
+      s.elements.forEach((el, ei) => {
+        const id = 'el-' + ei;
+        const on = id === last ? ' cs-sect-on' : '';
+        html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(el.label) + '</button>';
+      });
+      (s.groups || []).forEach((g, gi) => {
+        const id = 'grp-' + gi;
+        const on = id === last ? ' cs-sect-on' : '';
+        html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(g.labels.join('/')) + '</button>';
+      });
+    } else {
+      // Always-visible placeholders when no structure is loaded
+      const placeholders = ['A', 'B', 'X', 'B′', 'A′', 'A/A′', 'B/B′'];
+      placeholders.forEach((lab) => {
+        html += '<button type="button" class="cs-sect" data-sect="empty">' + escapeHtml(lab) + '</button>';
+      });
+    }
     html += '<button type="button" class="cs-sect cs-sect-clear" data-sect="clear">Clear place</button>';
     bar.innerHTML = html;
     bar.hidden = false;
@@ -12196,8 +12207,22 @@ function updateSectionBar(overlay) {
           showAppStatus('Place cleared. Summary opens at the top until you select a section.', 'ok');
           return;
         }
+        if (!hasStructure || id === 'empty') {
+          showAppStatus('Chapter Structure Not Loaded', 'ok');
+          return;
+        }
         rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
         const first = firstVerseForSectId(s, id);
+        const view = chapterStudy.view || 'verses';
+        if (view === 'verses' || view === 'notes') {
+          if (first) {
+            chapterStudy.sectionPickedVerse = first;
+            setChapterStudyVerse(overlay, first);
+          }
+          updateSectionBar(overlay);
+          return;
+        }
+        // Literary structure tab: original behavior preserved
         if (first) {
           chapterStudy.verse = first;
           chapterStudy.sectionPickedVerse = first;
@@ -12212,7 +12237,33 @@ function updateSectionBar(overlay) {
         updateSectionBar(overlay);
       };
     });
-  }).catch(() => { bar.hidden = true; });
+  }).catch(() => {
+    // Still show placeholders on error
+    const placeholders = ['A', 'B', 'X', 'B′', 'A′', 'A/A′', 'B/B′'];
+    let html = placeholders.map(lab => '<button type="button" class="cs-sect" data-sect="empty">' + escapeHtml(lab) + '</button>').join('');
+    html += '<button type="button" class="cs-sect cs-sect-clear" data-sect="clear">Clear place</button>';
+    bar.innerHTML = html;
+    bar.hidden = false;
+    bar.querySelectorAll('.cs-sect').forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.sect === 'clear') {
+          chapterStudy.sectionPickedVerse = 0;
+          clearLastSection(chapterStudy.bookId, chapterStudy.chapter);
+          updateSectionBar(overlay);
+          showAppStatus('Place cleared. Summary opens at the top until you select a section.', 'ok');
+          return;
+        }
+        showAppStatus('Chapter Structure Not Loaded', 'ok');
+      };
+    });
+  });
+}
+
+function refreshOpenChapterStudyBar() {
+  const panel = document.querySelector('.overlay .cs-panel');
+  if (!panel || !chapterStudy) return;
+  const overlay = panel.closest('.overlay') || panel.parentElement;
+  if (overlay) updateSectionBar(overlay);
 }
 function minimizeChapterStudy(overlay) {
   if (!overlay) return;

@@ -1,3 +1,9 @@
+## New in 7.0.11
+- Chapter study Verses and Verse notes tabs: letter row always visible.
+- Tapping a section letter on Verses or Verse notes jumps to the first verse of that section and updates the navigator.
+- Selected section letter is highlighted in gold on all three tabs.
+- Structure edits immediately refresh the letter buttons while Chapter study is open.
+
 ## New in 7.0.10
 
 - Chapter study → Verse notes opens on the last verse you were looking at (open Tools verse, otherwise the verse nearest the top).

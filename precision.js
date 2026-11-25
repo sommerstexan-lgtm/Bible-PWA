@@ -1,4 +1,4 @@
-/* precision.js – Color apply policy, KJV probes, word counts. v6.66.0
+/* precision.js - Color apply policy, KJV probes, word counts. v6.66.0
    Pure helpers. No DOM. No IndexedDB.
 */
 
@@ -85,7 +85,7 @@ function isNamedHolySpirit(text, hit) {
   return /\bholy\s+spirit\b/i.test(win)
     || /\bholy\s+ghost\b/i.test(win)
     || /\bspirit\s+of\s+(god|christ|jesus|his\s+son|the\s+lord|the\s+living\s+god)\b/i.test(win)
-    || /\bgod['’]s\s+spirit\b/i.test(win);
+    || /\bgod['\u2019]s\s+spirit\b/i.test(win);
 }
 
 export function ambiguousTokens(text, bookId) {
@@ -112,19 +112,19 @@ export function senseChoices(tokenKey) {
   if (tokenKey === 'spirit') {
     return [
       { id: 'holy', label: 'Holy Spirit', colorId: 'yellow', reason: 'Holy Spirit' },
-      { id: 'human', label: 'Human / other spirit — do not paint' }
+      { id: 'human', label: 'Human / other spirit - do not paint' }
     ];
   }
   if (tokenKey === 'beast') {
     return [
       { id: 'antichrist', label: 'Antichrist figure', colorId: 'pink', reason: 'Antichrist figure' },
-      { id: 'animal', label: 'Animal / other — do not paint' }
+      { id: 'animal', label: 'Animal / other - do not paint' }
     ];
   }
   if (tokenKey === 'serpent') {
     return [
       { id: 'satan', label: 'Satan / adversary', colorId: 'grey', reason: 'Satan / adversary' },
-      { id: 'animal', label: 'Snake / other — do not paint' }
+      { id: 'animal', label: 'Snake / other - do not paint' }
     ];
   }
   return [];
@@ -138,7 +138,7 @@ export function identifySpan(text, token, senseId) {
     patterns.push(
       /\bholy\s+spirit\b/gi,
       /\bholy\s+ghost\b/gi,
-      /\bgod['’]s\s+spirit\b/gi,
+      /\bgod['\u2019]s\s+spirit\b/gi,
       /\bspirit\s+of\s+(?:god|christ|jesus|his\s+son|the\s+lord|the\s+living\s+god)\b/gi
     );
   } else if (senseId === 'antichrist') {
@@ -216,7 +216,7 @@ export function planColorApply(text, colorId, bookId, selection, opts) {
 
   result.ranges = [{ color: colorId, start: 0, end: len }];
   result.mode = 'whole-verse';
-  result.note = 'No speech frame and no selection — whole verse.';
+  result.note = 'No speech frame and no selection - whole verse.';
   return result;
 }
 
