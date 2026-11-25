@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.6';
+const APP_VERSION = '7.0.7';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -7257,6 +7257,18 @@ async function openSearch() {
 
 // ---------- Verse notes list + filter ----------
 
+function focusedAnchorRef() {
+  if (readingAnchor && (readingAnchor.label || readingAnchor.bookId)) return formatAnchorShort(readingAnchor);
+  const openKeys = Array.from(openVerseToolKeys);
+  const key = openKeys.length ? openKeys[openKeys.length - 1] : null;
+  if (!key) return '';
+  const parsed = bible.parseKey(key);
+  if (!parsed || !parsed.bookId) return '';
+  const book = books.find((b) => b.id === parsed.bookId);
+  const name = book ? book.name : parsed.bookId;
+  return name + ' ' + parsed.chapter + ':' + parsed.verse;
+}
+
 // ---------- Focused Search (term + fixed anchor verse) ----------
 async function openFocusedSearch() {
   if (!(await requireAnchorLeaveOk())) return;
@@ -7306,6 +7318,8 @@ async function openFocusedSearch() {
 
   const termInput = $('#fs-term', overlay);
   const anchorInput = $('#fs-anchor', overlay);
+  const prefill = focusedAnchorRef();
+  if (prefill) anchorInput.value = prefill;
   const goBtn = $('#fs-go', overlay);
   const modeBtn = $('#fs-mode', overlay);
   const diagEl = $('#fs-diag', overlay);

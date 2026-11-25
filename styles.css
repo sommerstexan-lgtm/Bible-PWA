@@ -134,11 +134,18 @@ main#main {
 }
 
 .chapter-header {
-  font-size: 1.35rem;
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  font-size: 0.95rem;
   font-weight: 700;
-  margin: 0.15rem 0 0.6rem;
-  padding-bottom: 0.4rem;
+  margin: 0 0 0.45rem;
+  padding: 0.28rem 0.2rem 0.3rem;
   border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+body.chrome-is-hidden .chapter-header {
+  top: 2.8rem;
 }
 
 /* Verse block */

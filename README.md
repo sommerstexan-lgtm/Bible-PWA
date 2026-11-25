@@ -1,3 +1,9 @@
+## New in 7.0.7
+
+- Chapter name stays visible while you scroll. It is smaller and sticks to the top of the chapter.
+- Focused Search fills the anchor field with the reading Anchor reference (for example 1 Chronicles 17:24). If no Anchor is set, it uses the last verse whose Tools you opened. Search itself is unchanged.
+
+
 ## New in 7.0.6
 
 - Sidebar Places / Map opens the map. It no longer depends on a chapter picture (only 1 Samuel 9 has one), so the tap no longer does nothing.
