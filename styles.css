@@ -133,20 +133,16 @@ main#main {
   overscroll-behavior: contain;
 }
 
-.chapter-header {
-  position: sticky;
-  top: 0;
-  z-index: 8;
+.chapter-bar {
+  flex-shrink: 0;
   font-size: 0.95rem;
   font-weight: 700;
-  margin: 0 0 0.45rem;
-  padding: 0.28rem 0.2rem 0.3rem;
+  padding: 0.35rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+  z-index: 8;
 }
-/* Bar starts at the top of the reading area so nothing can slide above the name.
-   Extra padding only lowers the text below the Controls chip; the bar still covers the top. */
-body.chrome-is-hidden .chapter-header {
+body.chrome-is-hidden .chapter-bar {
   padding-top: 2.6rem;
 }
 

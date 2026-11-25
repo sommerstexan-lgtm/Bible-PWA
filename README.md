@@ -1,3 +1,8 @@
+## New in 7.0.9
+
+- Chapter name is a bar above the scrolling chapter, not inside it. Scrolling can no longer move it. Structure and the cross-references banner stay below it.
+
+
 ## New in 7.0.8
 
 - Chapter name sticks to the top of the reading area. The previous offset left a gap, so Structure and the cross-references banner slid above the name. The bar now starts at the top; only the text is padded below the Controls chip.

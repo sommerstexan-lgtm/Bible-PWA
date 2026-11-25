@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.8';
+const APP_VERSION = '7.0.9';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1498,6 +1498,7 @@ function renderShell() {
       <button type="button" id="notes-return-btn">Back to notes</button>
       <button type="button" id="notes-return-x" aria-label="Dismiss back to notes">×</button>
     </div>
+    <div id="chapter-bar" class="chapter-bar"></div>
     <main id="main"></main>
   `;
 
@@ -4110,6 +4111,10 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
   $('#header-title').textContent = isSample
     ? `${book.name} ${chapterNum} (KJV sample)`
     : `${book.name} ${chapterNum}`;
+  const chapterBar = document.getElementById('chapter-bar');
+  if (chapterBar) chapterBar.textContent = isSample
+    ? `${book.name} ${chapterNum} (KJV sample)`
+    : `${book.name} ${chapterNum}`;
 
   const main = $('#main');
   const missingBooks = missingBundledBooks();
@@ -4131,7 +4136,6 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       </div>`
     : '';
   main.innerHTML = `
-    <div class="chapter-header">${book.name} ${chapterNum}</div>
     <div style="margin:0.4rem 0 0.6rem"><button type="button" id="btn-chapter-structure" class="quiet">Structure</button></div>
     ${kjvBanner}
     ${loadBanner}
@@ -4557,6 +4561,8 @@ function escapeHtml(str) {
 }
 
 function showEmptyState() {
+  const chapterBar = document.getElementById('chapter-bar');
+  if (chapterBar) chapterBar.textContent = '';
   $('#main').innerHTML = `
     <div class="empty-state">
       <p><strong>No books loaded yet.</strong></p>
