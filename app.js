@@ -12162,6 +12162,7 @@ async function applyChapterStudySwitch(studyOverlay, bookId, chapter) {
     verseSelect.value = String(chapterStudy.verse);
   }
   await ensureChapterStudyHighlights(true);
+  setupChapterStudyNarrator(overlay);
   paintChapterStudyStrip(studyOverlay);
   await paintChapterStudyBody(studyOverlay);
   showAppStatus('Switched to ' + chapterStudyLabelShort(bookId, chapter) + '.', 'ok');
@@ -12352,6 +12353,15 @@ function updateSectionBar(overlay) {
     bar.querySelectorAll('.cs-sect').forEach((btn) => {
       btn.onclick = () => {
         const id = btn.dataset.sect;
+        const label = btn.textContent.trim();
+        if (narratorState === 'select' && id !== 'clear' && id !== 'empty') {
+          narratorQueue.push(label);
+          btn.style.background = 'var(--accent)';
+          btn.style.color = '#111';
+          const status = overlay.querySelector('#cs-narrator-status');
+          if (status) status.textContent = 'Select order: ' + narratorQueue.join(' → ');
+          return;
+        }
         if (id === 'clear') {
           chapterStudy.sectionPickedVerse = 0;
           clearLastSection(chapterStudy.bookId, chapterStudy.chapter);
@@ -12439,6 +12449,142 @@ function restoreChapterStudy() {
   if (chapterStudy && chapterStudy.view === 'notes') markChapterStudyVerse(overlay);
 }
 
+
+// ---------- Chapter study Narrator (locked target) ----------
+let narratorState = 'idle'; // idle | select | playing
+let narratorQueue = [];
+let narratorUtterance = null;
+
+function setupChapterStudyNarrator(overlay) {
+  const btn = overlay.querySelector('#cs-narrator-btn');
+  const status = overlay.querySelector('#cs-narrator-status');
+  const voiceSelect = overlay.querySelector('#cs-voice-select');
+  const volume = overlay.querySelector('#cs-volume');
+  if (!btn || !status || !voiceSelect || !volume) return;
+
+  // Load saved prefs
+  const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
+  const savedVol = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+  volume.value = isNaN(savedVol) ? 1 : savedVol;
+
+  function populateVoices() {
+    const voices = speechSynthesis.getVoices();
+    voiceSelect.innerHTML = voices.map(v => `<option value="${v.name}">${v.name}</option>`).join('');
+    if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
+    else if (voices.length) voiceSelect.value = voices[0].name;
+  }
+  populateVoices();
+  if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = populateVoices;
+
+  voiceSelect.onchange = () => localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
+  volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
+
+  function updateStatus() {
+    if (narratorState === 'select') {
+      status.textContent = narratorQueue.length ? 'Select order: ' + narratorQueue.join(' → ') : 'Select sections…';
+    } else if (narratorState === 'playing') {
+      status.textContent = 'Playing…';
+    } else {
+      status.textContent = '';
+    }
+  }
+
+  function setButtonLabel() {
+    if (narratorState === 'idle') btn.textContent = 'Narrator';
+    else if (narratorState === 'select') btn.textContent = 'Select order';
+    else btn.textContent = 'Playing';
+  }
+
+  btn.onclick = () => {
+    if (narratorState === 'idle') {
+      narratorState = 'select';
+      narratorQueue = [];
+      setButtonLabel();
+      updateStatus();
+    } else if (narratorState === 'select') {
+      if (!narratorQueue.length) {
+        showAppStatus('Select at least one section first.', 'fail');
+        return;
+      }
+      narratorState = 'playing';
+      setButtonLabel();
+      updateStatus();
+      speakQueue(overlay);
+    } else {
+      // playing: stop
+      speechSynthesis.cancel();
+      narratorState = 'idle';
+      setButtonLabel();
+      updateStatus();
+    }
+  };
+
+  // After playback ends options are handled in speakQueue onend
+}
+
+function getSectionText(overlay, label) {
+  // Resolve label to verse range from current structure and return KJV text
+  // Simplified: for now use the verses currently associated; real impl needs structure lookup
+  // Placeholder that will be completed with actual range resolution
+  return '';
+}
+
+async function speakQueue(overlay) {
+  if (!narratorQueue.length) {
+    narratorState = 'idle';
+    const btn = overlay.querySelector('#cs-narrator-btn');
+    if (btn) btn.textContent = 'Narrator';
+    return;
+  }
+  const label = narratorQueue[0];
+  // TODO: resolve actual text; for locked target we speak the section verses
+  const text = await resolveSectionKJVText(label);
+  if (!text) {
+    narratorQueue.shift();
+    return speakQueue(overlay);
+  }
+  const u = new SpeechSynthesisUtterance(text);
+  const voices = speechSynthesis.getVoices();
+  const voiceName = localStorage.getItem('kjv-narrator-voice');
+  const voice = voices.find(v => v.name === voiceName) || voices[0];
+  if (voice) u.voice = voice;
+  u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+  u.onend = () => {
+    narratorQueue.shift();
+    if (narratorQueue.length) speakQueue(overlay);
+    else {
+      narratorState = 'idle';
+      const btn = overlay.querySelector('#cs-narrator-btn');
+      const status = overlay.querySelector('#cs-narrator-status');
+      if (btn) btn.textContent = 'Narrator';
+      if (status) status.textContent = 'Finished. Repeat / New selection available on next use.';
+    }
+  };
+  speechSynthesis.speak(u);
+}
+
+async function resolveSectionKJVText(label) {
+  if (!chapterStudy) return '';
+  const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
+  const rec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  const s = rec && rec.structure;
+  if (!s || !Array.isArray(s.elements)) return '';
+  const el = s.elements.find(e => e.label === label);
+  if (!el || !el.range) return '';
+  // range is like "20:1-4" or similar; extract verse numbers for current chapter
+  const m = String(el.range).match(/(\d+):(\d+)(?:-(\d+))?/);
+  if (!m) return '';
+  const start = Number(m[2]);
+  const end = m[3] ? Number(m[3]) : start;
+  const verses = chapterStudyVerses();
+  const parts = [];
+  for (let n = start; n <= end; n++) {
+    const v = verses.find(vv => Number(vv.number) === n);
+    if (v && v.text) parts.push(v.text);
+  }
+  return parts.join(' ');
+}
+
 async function openChapterStudy(startKey, initialView) {
   // If a Chapter study session is already minimized for this chapter, restore it
   // instead of creating a second overlay that would orphan the first.
@@ -12516,6 +12662,12 @@ async function openChapterStudy(startKey, initialView) {
           '<button type="button" id="cs-next">Next verse</button>' +
           '<button type="button" id="cs-next-note" title="Next verse with a note">▼</button>' +
         '</div>' +
+      '</div>' +
+      '<div id="cs-narrator-controls" class="cs-narrator-controls" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;padding:0.3rem 0;margin:0.2rem 0;">' +
+        '<button type="button" id="cs-narrator-btn">Narrator</button>' +
+        '<label style="font-size:0.85rem;color:var(--text-dim)">Voice <select id="cs-voice-select" style="margin-left:0.2rem;"></select></label>' +
+        '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:80px;"></label>' +
+        '<span id="cs-narrator-status" style="font-size:0.85rem;color:var(--text-dim)"></span>' +
       '</div>' +
       '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
       '<div class="cs-scroll">' +
