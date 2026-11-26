@@ -3867,7 +3867,7 @@ textarea.cs-answer {
 .gn-work-panel .gn-bar input,
 .gn-work-panel .gn-bar button { min-height: 40px; }
 .gn-work-panel .gn-status { flex: 0 0 auto; padding: 0.1rem 1.1rem 0.45rem; color: var(--accent); font-weight: 600; }
-.gn-work-panel #gn-list { flex: 1 1 auto; overflow: auto; padding: 0.2rem 1.1rem 1.2rem; min-height: 0; }
+.gn-work-panel #gn-list, .gn-work-panel #csq-list { flex: 1 1 auto; overflow: auto; padding: 0.2rem 1.1rem 1.2rem; min-height: 0; }
 .gn-work-panel .gn-row { padding: 0.85rem 1rem; margin-bottom: 0.55rem; }
 .gn-work-panel .gn-src { font-size: 0.8rem; color: var(--accent); font-weight: 700; }
 .gn-work-panel .gn-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin: 0.15rem 0; }

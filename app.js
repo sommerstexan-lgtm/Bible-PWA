@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.17';
+const APP_VERSION = '7.0.18';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1165,6 +1165,8 @@ function closeActiveMap() {
 /** Last Search overlay session (query + which list you were in). Memory + sessionStorage only. */
 let focusedSearchSession = null;
 let gnResultsSession = null;
+let csSearchSession = null;
+let csOpenedFromSearch = false;
 let searchSession = {
   query: '',
   viewMode: 'books',
@@ -1568,7 +1570,12 @@ function renderShell() {
         }
         case 'search': openSearch(); break;
         case 'general-notes': openGeneralNotesList(); break;
-        case 'cs-search': openChapterStudySearch(); break;
+        case 'cs-search':
+          if (csSearchSession && csSearchSession.overlay && csSearchSession.overlay.parentNode) {
+            csSearchSession.overlay.style.display = '';
+            csSearchSession.overlay.classList.remove('is-minimized');
+          } else openChapterStudySearch();
+          break;
         case 'focused':
           (async () => {
             if (!(await requireAnchorLeaveOk())) return;
@@ -10895,7 +10902,9 @@ async function openChapterStudySearch() {
       btn.onclick = async () => {
         const h = hits[Number(btn.dataset.i)];
         if (!h) return;
-        closeOverlay(overlay);
+        csSearchSession = { overlay };
+        overlay.style.display = 'none';
+        csOpenedFromSearch = true;
         await openChapterStudyFromVerse(h.key, h.view);
       };
     });
@@ -12570,6 +12579,25 @@ async function openChapterStudy(startKey, initialView) {
   if (forceStructure && chapterStudy && chapterStudy.view !== 'structure') {
     chapterStudy.view = 'structure';
     await paintChapterStudyBody(overlay);
+  }
+  if (csOpenedFromSearch) {
+    csOpenedFromSearch = false;
+    const header = overlay.querySelector('.search-header-top');
+    if (header && !header.querySelector('#cs-back-search')) {
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.id = 'cs-back-search';
+      back.textContent = 'Back to search';
+      back.style.cssText = 'min-height:40px;margin-right:0.4rem;background:var(--accent);color:#111;font-weight:700';
+      header.insertBefore(back, header.firstChild);
+      back.onclick = () => {
+        minimizeChapterStudy(overlay);
+        if (csSearchSession && csSearchSession.overlay && csSearchSession.overlay.parentNode) {
+          csSearchSession.overlay.style.display = '';
+          csSearchSession.overlay.classList.remove('is-minimized');
+        }
+      };
+    }
   }
 }
 
