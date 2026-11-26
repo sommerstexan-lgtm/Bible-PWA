@@ -1055,6 +1055,15 @@ export async function saveLiteraryStructure(key, outlineText, structure) {
   });
 }
 
+export async function getAllLiteraryStructures() {
+  await openDB();
+  return new Promise((res, rej) => {
+    const r = tx('literaryStructures').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
 export async function getLiteraryStructureUser(key) {
   await openDB();
   return new Promise((res, rej) => {
