@@ -1,3 +1,10 @@
+## New in 7.0.39
+- Chapter study message line: one line now reports where you are (chapter, view, verse), what is still to do (unsaved notes, missing structure, voice), mistakes with how to fix them, and what was done. Colored marks: blue information, gold still to do, red mistake, green done or reading. Chapter study messages no longer flash at the bottom of the screen; they stay on the line until something new happens.
+- Narrator works as soon as Chapter study opens (it used to start only after Switch Chapter).
+- Narrator reads in any order: in Narrator mode tap letters (whole sections) and verse buttons (single verses) in the order you want. Green numbers show the order; tap again to take an item out; Undo and Clear are on the message line. The verse being read is outlined in green.
+- The voice you choose is saved as your default (★) until you change it. If it is missing on a device, the message line says so; the narrator never switches voices by itself.
+- Fixed: Switch Chapter stopped part-way because of a script error.
+
 ## New in 7.0.11
 - Chapter study Verses and Verse notes tabs: letter row always visible.
 - Tapping a section letter on Verses or Verse notes jumps to the first verse of that section and updates the navigator.

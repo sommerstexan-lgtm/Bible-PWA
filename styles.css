@@ -3874,3 +3874,80 @@ textarea.cs-answer {
 .gn-work-panel .gn-cat { font-size: 0.9rem; color: var(--text-dim); }
 .gn-work-panel .gn-snip { font-size: 1rem; color: var(--text); margin-top: 0.3rem; line-height: 1.45; }
 .gn-work-panel .gn-actions { margin-top: 0.4rem; display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+
+/* ===== v7.0.39 Chapter study message line + narrator ===== */
+.cs-msg {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  min-height: 2rem;
+  flex-shrink: 0;
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+.cs-msg-icon {
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #111;
+  background: var(--accent);
+}
+.cs-msg-text { flex: 1; min-width: 0; }
+.cs-msg-act { flex: 0 0 auto; display: flex; gap: 0.3rem; }
+.panel .cs-msg-link {
+  min-height: 28px;
+  min-width: 0;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  background: none;
+  border: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.cs-msg-todo { box-shadow: inset 4px 0 0 #f4c430; }
+.cs-msg-todo .cs-msg-icon { background: #f4c430; }
+.cs-msg-error { box-shadow: inset 4px 0 0 var(--danger); }
+.cs-msg-error .cs-msg-icon { background: var(--danger); }
+.cs-msg-done, .cs-msg-play { box-shadow: inset 4px 0 0 var(--success); }
+.cs-msg-done .cs-msg-icon, .cs-msg-play .cs-msg-icon { background: var(--success); }
+@media (max-width: 640px) {
+  .cs-msg-act { flex-direction: column; gap: 0; }
+}
+.cs-sect, .cs-pick { position: relative; }
+.cs-sect-ghost { color: var(--text-dim); border-style: dashed; }
+.cs-queued { border-color: var(--success) !important; }
+.cs-ord {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--success);
+  color: #111;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  pointer-events: none;
+}
+.cs-row.cs-reading {
+  outline: 2px solid var(--success);
+  border-radius: 8px;
+  padding: 0.55rem;
+  background: rgba(129, 199, 132, 0.07);
+}

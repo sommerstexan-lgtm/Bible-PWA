@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.38
+/* app.js – Main application controller. KJV Study PWA v7.0.39
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.38';
+const APP_VERSION = '7.0.39';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1302,6 +1302,9 @@ function closeOverlay(overlay) {
 }
 
 function showAppStatus(message, kind) {
+  if (chapterStudyTakesStatus(message, kind)) return;
+  if (kind === 'done') kind = 'ok';
+  else if (kind === 'error') kind = 'fail';
   let el = document.getElementById('app-status-toast');
   if (!el) {
     el = document.createElement('div');
@@ -11977,6 +11980,7 @@ async function paintChapterStudyBody(overlay) {
   if (step) step.hidden = (view === 'summary' || view === 'structure');
   const mapRow = overlay.querySelector('.cs-map-row');
   if (mapRow) mapRow.hidden = (view === 'summary' || view === 'structure');
+  chapterStudyRefreshMsg(overlay);
 }
 
 function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
@@ -11987,6 +11991,7 @@ function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
   chapterStudy.verse = Number(verseNum);
   paintChapterStudyStrip(overlay);
   markChapterStudyVerse(overlay, !!fromNoteFocus);
+  chapterStudyRefreshMsg(overlay);
   if (!fromNoteFocus) {
     const on = overlay.querySelector('.cs-row.cs-on textarea');
     if (on && document.activeElement !== on) on.focus();
@@ -12080,6 +12085,7 @@ async function leaveChapterStudy(overlay) {
   const place = chapterStudy
     ? { bookId: chapterStudy.bookId, chapter: chapterStudy.chapter, verse: chapterStudy.verse }
     : null;
+  if (overlay && overlay._narr) overlay._narr.stop(true);
   try {
     if (overlay && chapterStudy) {
       await flushChapterStudyNotes(overlay);
@@ -12162,10 +12168,11 @@ async function applyChapterStudySwitch(studyOverlay, bookId, chapter) {
     verseSelect.value = String(chapterStudy.verse);
   }
   await ensureChapterStudyHighlights(true);
-  setupChapterStudyNarrator(overlay);
+  setupChapterStudyNarrator(studyOverlay);
   paintChapterStudyStrip(studyOverlay);
   await paintChapterStudyBody(studyOverlay);
-  showAppStatus('Switched to ' + chapterStudyLabelShort(bookId, chapter) + '.', 'ok');
+  updateSectionBar(studyOverlay);
+  showAppStatus('Switched to ' + chapterStudyLabelShort(bookId, chapter) + '. Your place in ' + chapterStudyLabelShort(chapterStudy.startingBookId, chapterStudy.startingChapter) + ' is kept under Switch Chapter.', 'done');
 }
 
 function openSwitchChapter(studyOverlay) {
@@ -12284,22 +12291,22 @@ async function saveChapterStudyCurrent(overlay) {
   try {
     if (view === 'notes') {
       await flushChapterStudyNotes(overlay);
-      showAppStatus('Verse notes saved.', 'ok');
+      showAppStatus('Saved the verse notes for ' + chapterStudyTitle().trim() + '.', 'done');
     } else if (view === 'summary') {
       captureChapterStudySummary(overlay);
       await saveChapterStudySummary(overlay);
-      showAppStatus('Chapter summary saved.', 'ok');
+      showAppStatus('Saved the Key verse answers for ' + chapterStudyTitle().trim() + '.', 'done');
     } else if (view === 'structure') {
       await flushStructureAnalysis(overlay);
-      showAppStatus('Literary structure saved.', 'ok');
+      showAppStatus('Saved the literary structure for ' + chapterStudyTitle().trim() + '.', 'done');
     } else if (view === 'images') {
       await saveChapterStudyImages();
-      showAppStatus('Images saved.', 'ok');
+      showAppStatus('Saved the images for ' + chapterStudyTitle().trim() + '.', 'done');
     } else {
-      showAppStatus('Nothing to save on the Verses tab.', 'ok');
+      showAppStatus('Nothing to save on Verses. Notes are written and saved on Verse notes.', 'info');
     }
   } catch (_) {
-    showAppStatus('Could not save.', 'fail');
+    showAppStatus('Could not save. Your text is still on screen. Tap Save again.', 'fail');
   }
 }
 
@@ -12328,47 +12335,45 @@ function updateSectionBar(overlay) {
     const s = rec && rec.structure;
     const hasStructure = !!(s && Array.isArray(s.elements) && s.elements.length);
     const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
+    overlay._csStruct = hasStructure ? s : null;
+    overlay._csStructCount = hasStructure ? s.elements.length : 0;
     let html = '';
     if (hasStructure) {
       s.elements.forEach((el, ei) => {
         const id = 'el-' + ei;
         const on = id === last ? ' cs-sect-on' : '';
-        html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(el.label) + '</button>';
+        html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '" data-label="' + escapeHtml(el.label) + '">' + escapeHtml(el.label) + '</button>';
       });
       (s.groups || []).forEach((g, gi) => {
         const id = 'grp-' + gi;
         const on = id === last ? ' cs-sect-on' : '';
-        html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '">' + escapeHtml(g.labels.join('/')) + '</button>';
+        html += '<button type="button" class="cs-sect' + on + '" data-sect="' + id + '" data-label="' + escapeHtml(g.labels.join('/')) + '">' + escapeHtml(g.labels.join('/')) + '</button>';
       });
     } else {
       // Always-visible placeholders when no structure is loaded
       const placeholders = ['A', 'B', 'X', 'B′', 'A′', 'A/A′', 'B/B′'];
       placeholders.forEach((lab) => {
-        html += '<button type="button" class="cs-sect" data-sect="empty">' + escapeHtml(lab) + '</button>';
+        html += '<button type="button" class="cs-sect cs-sect-ghost" data-sect="empty" data-label="' + escapeHtml(lab) + '">' + escapeHtml(lab) + '</button>';
       });
     }
     html += '<button type="button" class="cs-sect cs-sect-clear" data-sect="clear">Clear place</button>';
     bar.innerHTML = html;
     bar.hidden = false;
+    if (overlay._csMsgIsDefault !== false) chapterStudyRefreshMsg(overlay);
     bar.querySelectorAll('.cs-sect').forEach((btn) => {
       btn.onclick = () => {
         const id = btn.dataset.sect;
-        const label = btn.textContent.trim();
-        if (window._narratorAddSection && id !== 'clear' && id !== 'empty') {
-          window._narratorAddSection(label);
-          btn.style.background = 'var(--accent)';
-          btn.style.color = '#111';
-          return;
-        }
+        const label = btn.dataset.label || btn.textContent.trim();
+        if (overlay._narr && overlay._narr.toggleSection(id, label)) return;
         if (id === 'clear') {
           chapterStudy.sectionPickedVerse = 0;
           clearLastSection(chapterStudy.bookId, chapterStudy.chapter);
           updateSectionBar(overlay);
-          showAppStatus('Place cleared. Summary opens at the top until you select a section.', 'ok');
+          showAppStatus('Place cleared. No letter is selected, so Key verse opens at the top until you tap a letter.', 'done');
           return;
         }
         if (!hasStructure || id === 'empty') {
-          showAppStatus('Chapter Structure Not Loaded', 'ok');
+          showAppStatus(chapterStudyTitle().trim() + ' has no literary structure yet, so letter ' + label + ' has nowhere to go. Choose Literary structure in the first menu to add one.', 'todo');
           return;
         }
         rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
@@ -12380,6 +12385,8 @@ function updateSectionBar(overlay) {
             setChapterStudyVerse(overlay, first);
           }
           updateSectionBar(overlay);
+          const sel = id.indexOf('el-') === 0 ? s.elements[Number(id.slice(3))] : null;
+          showAppStatus('Jumped to ' + label + (sel && sel.range ? ' (' + sel.range + ')' : '') + (first ? '. Now on verse ' + first + '.' : '.'), 'info');
           return;
         }
         // Literary structure tab: original behavior preserved
@@ -12398,22 +12405,25 @@ function updateSectionBar(overlay) {
       };
     });
   }).catch(() => {
+    overlay._csStruct = null;
+    overlay._csStructCount = 0;
     // Still show placeholders on error
     const placeholders = ['A', 'B', 'X', 'B′', 'A′', 'A/A′', 'B/B′'];
-    let html = placeholders.map(lab => '<button type="button" class="cs-sect" data-sect="empty">' + escapeHtml(lab) + '</button>').join('');
+    let html = placeholders.map(lab => '<button type="button" class="cs-sect cs-sect-ghost" data-sect="empty" data-label="' + escapeHtml(lab) + '">' + escapeHtml(lab) + '</button>').join('');
     html += '<button type="button" class="cs-sect cs-sect-clear" data-sect="clear">Clear place</button>';
     bar.innerHTML = html;
     bar.hidden = false;
     bar.querySelectorAll('.cs-sect').forEach((btn) => {
       btn.onclick = () => {
+        if (overlay._narr && overlay._narr.toggleSection(btn.dataset.sect, btn.dataset.label || '')) return;
         if (btn.dataset.sect === 'clear') {
           chapterStudy.sectionPickedVerse = 0;
           clearLastSection(chapterStudy.bookId, chapterStudy.chapter);
           updateSectionBar(overlay);
-          showAppStatus('Place cleared. Summary opens at the top until you select a section.', 'ok');
+          showAppStatus('Place cleared. No letter is selected, so Key verse opens at the top until you tap a letter.', 'done');
           return;
         }
-        showAppStatus('Chapter Structure Not Loaded', 'ok');
+        showAppStatus('Could not read the literary structure for ' + chapterStudyTitle().trim() + '. Close Chapter study and open it again.', 'error');
       };
     });
   });
@@ -12448,263 +12458,545 @@ function restoreChapterStudy() {
 }
 
 
-// ---------- Chapter study Narrator (locked target) ----------
-let narratorState = 'idle'; // idle | select | playing
-let narratorQueue = [];
-let narratorUtterance = null;
+// ---------- Chapter study message line (v7.0.39) ----------
+// One line under the letters tells the user where they are, what is still to do,
+// what went wrong and how to fix it. Kinds: info, todo, error, done, play.
+const CS_MSG_ICON = { info: 'i', todo: '!', error: '✕', done: '✓', play: '▶' };
+const CS_VIEW_LABELS = { verses: 'Verses', notes: 'Verse notes', structure: 'Literary structure', summary: 'Key verse', images: 'Images' };
+
+function chapterStudyOverlayEl() {
+  const panel = document.querySelector('.overlay .cs-panel');
+  return panel ? (panel.closest('.overlay') || panel.parentElement) : null;
+}
+
+// True when Chapter study is open, visible, and no other window sits on top of it.
+function chapterStudyIsFront() {
+  const ov = chapterStudyOverlayEl();
+  if (!ov || !chapterStudy || ov.style.display === 'none' || ov.classList.contains('is-minimized')) return false;
+  const open = Array.from(document.querySelectorAll('.overlay'))
+    .filter((o) => o.style.display !== 'none' && !o.classList.contains('is-minimized'));
+  return open.length > 0 && open[open.length - 1] === ov;
+}
+
+function csSay(overlay, kind, html, actions, isDefault) {
+  const el = overlay && overlay.querySelector('#cs-status-msg');
+  if (!el) return false;
+  const k = CS_MSG_ICON[kind] ? kind : 'info';
+  const acts = Array.isArray(actions) ? actions.filter(Boolean) : [];
+  el.className = 'cs-msg cs-msg-' + k;
+  el.innerHTML =
+    '<span class="cs-msg-icon" aria-hidden="true">' + CS_MSG_ICON[k] + '</span>' +
+    '<span class="cs-msg-text">' + html + '</span>' +
+    (acts.length
+      ? '<span class="cs-msg-act">' + acts.map((a, i) =>
+          '<button type="button" class="cs-msg-link" data-i="' + i + '">' + escapeHtml(a.label) + '</button>').join('') + '</span>'
+      : '');
+  el.querySelectorAll('.cs-msg-link').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const a = acts[Number(b.dataset.i)];
+      if (a && typeof a.fn === 'function') a.fn();
+    };
+  });
+  overlay._csMsgIsDefault = !!isDefault;
+  return true;
+}
+
+// Called by showAppStatus: while Chapter study is in front, its messages go to the line.
+function chapterStudyTakesStatus(message, kind) {
+  if (!chapterStudyIsFront()) return false;
+  const map = { ok: 'done', fail: 'error' };
+  const k = map[kind] || kind || 'info';
+  return csSay(chapterStudyOverlayEl(), k, escapeHtml(String(message || '')), null, false);
+}
+
+function chapterStudyUnsaved(overlay) {
+  const out = [];
+  if (!overlay || !chapterStudy) return out;
+  const nums = [];
+  overlay.querySelectorAll('textarea.cs-note').forEach((box) => {
+    const key = box.dataset.key;
+    if (!key) return;
+    const cached = chapterStudy.noteMap && chapterStudy.noteMap[key];
+    const was = cached ? String(cached.text || '') : '';
+    if ((box.value || '') !== was) {
+      const p = bible.parseKey(key);
+      if (p && p.verse) nums.push(Number(p.verse));
+    }
+  });
+  if (nums.length === 1) out.push('verse note ' + nums[0]);
+  else if (nums.length > 1) out.push('verse notes ' + nums.slice(0, 5).join(', ') + (nums.length > 5 ? ' and ' + (nums.length - 5) + ' more' : ''));
+  if (chapterStudy.summaryDirty) out.push('Key verse answers');
+  if (chapterStudy.structDirty) out.push('structure analysis');
+  return out;
+}
+
+function chapterStudyDefaultMessage(overlay) {
+  if (!chapterStudy) return null;
+  const view = chapterStudy.view || 'verses';
+  const verses = chapterStudyVerses();
+  const lastNum = verses.length ? Number(verses[verses.length - 1].number) : 0;
+  const name = escapeHtml(chapterStudyTitle().trim());
+  let head = name + ' · ' + (CS_VIEW_LABELS[view] || view);
+  if ((view === 'verses' || view === 'notes') && lastNum) head += ' · verse ' + chapterStudy.verse + ' of ' + lastNum;
+  head = '<b>' + head + '.</b> ';
+
+  const unsaved = chapterStudyUnsaved(overlay);
+  if (unsaved.length) {
+    return {
+      kind: 'todo',
+      html: head + '<b>Not saved yet:</b> ' + escapeHtml(unsaved.join(', ')) + (unsaved.length === 1 && /^verse note/.test(unsaved[0])
+        ? '. It saves when you tap <b>Save</b> or leave the box.'
+        : '. Tap <b>Save</b> before you switch chapter or close.'),
+      actions: [{ label: 'Save now', fn: () => saveChapterStudyCurrent(overlay) }]
+    };
+  }
+  const count = overlay ? overlay._csStructCount : undefined;
+  if (count === 0) {
+    return {
+      kind: 'todo',
+      html: head + 'No literary structure yet, so the letters are only placeholders. Choose <b>Literary structure</b> in the first menu to add one.'
+    };
+  }
+  const tips = {
+    verses: 'Tap a letter to jump to its section, or a verse button to work on that verse.',
+    notes: 'Type in a verse’s box to write its note. ▲ ▼ jump between verses that have notes.',
+    structure: 'Tap a letter to go to that section of the structure.',
+    summary: 'Answer the questions, then tap Save.',
+    images: 'Add or remove images for this chapter, then tap Save.'
+  };
+  const sect = (typeof count === 'number' && count > 0) ? 'Structure has ' + count + ' section' + (count === 1 ? '' : 's') + '. ' : '';
+  return { kind: 'info', html: head + sect + (tips[view] || '') };
+}
+
+// Show the "where you are" message (or the narrator's status in Narrator mode).
+function chapterStudyRefreshMsg(overlay) {
+  if (!overlay || !chapterStudy) return;
+  const N = overlay._narr;
+  const m = (N && N.isOn()) ? N.status() : chapterStudyDefaultMessage(overlay);
+  if (m) csSay(overlay, m.kind, m.html, m.actions, true);
+}
+
+// ---------- Chapter study Narrator (v7.0.39) ----------
+// Reads sections (letters) and single verses in the order the user taps them.
+// The chosen voice is saved and stays the default until the user picks another.
+const NARRATOR_VOICE_KEY = 'kjv-narrator-voice';
+const NARRATOR_VOLUME_KEY = 'kjv-narrator-volume';
+
+function narratorStoreGet(key) {
+  try { return localStorage.getItem(key) || ''; } catch (_) { return ''; }
+}
+function narratorStoreSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) {}
+}
 
 function setupChapterStudyNarrator(overlay) {
+  if (!overlay) return;
+  if (overlay._narr) { overlay._narr.reset(); return; }
   const modeSelect = overlay.querySelector('#cs-mode-select');
   const voiceSelect = overlay.querySelector('#cs-voice-select');
   const volume = overlay.querySelector('#cs-volume');
   const startBtn = overlay.querySelector('#cs-start-btn');
   const stopBtn = overlay.querySelector('#cs-stop-btn');
-  const statusEl = overlay.querySelector('#cs-status-msg');
-  if (!modeSelect || !voiceSelect || !startBtn || !stopBtn || !statusEl) return;
+  const body = overlay.querySelector('#cs-body');
+  const bar = overlay.querySelector('#cs-section-bar');
+  if (!modeSelect || !voiceSelect || !startBtn || !stopBtn) return;
+  const synth = window.speechSynthesis || null;
 
-  const MESSAGES = {
-    reader: 'Reader — letters jump to sections',
-    selectOrder: 'Select order with the letters',
-    queued: (q) => 'Queued: ' + q.join(' → ') + ' — tap Start',
-    playing: 'Playing…',
-    stopped: 'Stopped',
-    chooseVoice: 'Choose a voice',
-    chooseVoiceFirst: 'Choose a voice first',
-    selectSection: 'Select at least one section',
-    speechFailed: 'Could not start speech',
-    noVoices: 'No voices available on this device',
-    noStructure: 'No literary structure for this chapter'
+  const N = {
+    queue: [],        // { type: 'sect', id, label, nums } | { type: 'verse', n }
+    playing: false,
+    runId: 0,
+    pos: null,        // { qi, n } while reading
+    lastDone: null,   // { items, verses } after a full read
+    voiceMissing: ''  // saved default voice that this device does not have
+  };
+  overlay._narr = N;
+  N.isOn = () => modeSelect.value === 'narrator';
+
+  const say = (kind, html, actions) => csSay(overlay, kind, html, actions, false);
+  const chap = () => (chapterStudy ? chapterStudy.chapter : '');
+  const bookName = () => { const b = chapterStudyBook(); return b ? b.name : ''; };
+  const allVoices = () => (synth ? (synth.getVoices() || []) : []);
+
+  function rangeText(nums) {
+    if (!nums || !nums.length) return '';
+    // Contiguous runs: 1, 2, 26, 27, 28 -> "1:1–2, 26–28"
+    const runs = [];
+    nums.forEach((n) => {
+      const r = runs[runs.length - 1];
+      if (r && n === r[1] + 1) r[1] = n;
+      else runs.push([n, n]);
+    });
+    return chap() + ':' + runs.map((r) => (r[0] === r[1] ? String(r[0]) : r[0] + '–' + r[1])).join(', ');
+  }
+  function itemText(it) {
+    return it.type === 'verse' ? chap() + ':' + it.n : it.label + ' (' + rangeText(it.nums) + ')';
+  }
+  function itemsText() {
+    const shown = N.queue.slice(0, 6).map((it) => escapeHtml(itemText(it))).join(' → ');
+    return shown + (N.queue.length > 6 ? ' … and ' + (N.queue.length - 6) + ' more' : '');
+  }
+  function voiceName() {
+    const v = voiceSelect.value || '';
+    return v ? escapeHtml(v) : '';
+  }
+  const undoAct = { label: 'Undo', fn: () => { if (N.playing) return; N.queue.pop(); N.lastDone = null; paintBadges(); chapterStudyRefreshMsg(overlay); } };
+  const clearAct = { label: 'Clear', fn: () => { if (N.playing) return; N.queue = []; N.lastDone = null; paintBadges(); chapterStudyRefreshMsg(overlay); } };
+
+  N.status = () => {
+    if (!synth) return { kind: 'error', html: '<b>This device has no speech voices,</b> so the narrator cannot read. Switch back to Reader.' };
+    if (N.playing && N.pos) return playMsg();
+    if (N.lastDone && N.queue.length) {
+      return {
+        kind: 'done',
+        html: '<b>Finished: ' + N.lastDone.items + ' item' + (N.lastDone.items === 1 ? '' : 's') + ', ' + N.lastDone.verses + ' verse' + (N.lastDone.verses === 1 ? '' : 's') + '.</b> Start reads them again. Clear starts a new order.',
+        actions: [clearAct]
+      };
+    }
+    const vn = voiceName();
+    let voiceBit;
+    if (N.voiceMissing) voiceBit = ' <b>Your default voice “' + escapeHtml(N.voiceMissing) + '” is not on this device.</b> Pick another in the Voice menu.';
+    else if (vn) voiceBit = ' Voice: <b>' + vn + '</b> (your default).';
+    else voiceBit = ' Then pick a voice in the Voice menu next to Stop.';
+    if (!N.queue.length) {
+      const view = chapterStudy ? chapterStudy.view : 'verses';
+      const hasVerseBtns = view === 'verses' || view === 'notes';
+      const noStruct = overlay._csStructCount === 0;
+      let how;
+      if (noStruct && hasVerseBtns) how = 'Tap verse buttons in the order you want them read (this chapter has no structure, so the letters cannot be read).';
+      else if (noStruct) how = 'This chapter has no structure. Choose Verses in the first menu, then tap verse buttons in the order you want them read.';
+      else if (hasVerseBtns) how = 'Tap letters (whole sections) or verse buttons, in the order you want them read.';
+      else how = 'Tap letters in the order you want them read. Verse buttons are on the Verses and Verse notes views.';
+      return { kind: N.voiceMissing || !vn ? 'todo' : 'info', html: '<b>Narrator.</b> ' + how + voiceBit };
+    }
+    return {
+      kind: 'todo',
+      html: '<b>' + N.queue.length + ' to read:</b> ' + itemsText() + '. Tap <b>Start</b>. Tap an item again to take it out.' + (N.voiceMissing || !vn ? voiceBit : ''),
+      actions: [undoAct, clearAct]
+    };
   };
 
-  let queue = [];
-  let playing = false;
-
-  function showMsg(key, extra) {
-    let text = '';
-    if (typeof MESSAGES[key] === 'function') text = MESSAGES[key](extra);
-    else text = MESSAGES[key] || '';
-    statusEl.textContent = text || 'Reader — letters jump to sections';
+  function playMsg() {
+    const it = N.queue[N.pos.qi];
+    const nums = it.type === 'verse' ? [it.n] : it.nums;
+    const k = nums.indexOf(N.pos.n);
+    const where = it.type === 'verse'
+      ? escapeHtml(bookName() + ' ' + chap() + ':' + it.n)
+      : escapeHtml(it.label + ', ' + bookName() + ' ' + chap() + ':' + N.pos.n) + (nums.length > 1 ? ' (verse ' + (k + 1) + ' of ' + nums.length + ')' : '');
+    return {
+      kind: 'play',
+      html: '<b>Reading ' + (N.pos.qi + 1) + ' of ' + N.queue.length + ':</b> ' + where + ' · ' + voiceName() + '. <b>Stop</b> ends reading.'
+    };
   }
 
-  function updateUI() {
-    const isNarr = modeSelect.value === 'narrator';
-    startBtn.style.display = isNarr ? '' : 'none';
-    stopBtn.style.display = isNarr ? '' : 'none';
-    if (!isNarr) {
-      speechSynthesis.cancel();
-      playing = false;
-      queue = [];
-      showMsg('reader');
-      return;
+  // ----- what a letter covers -----
+  function sectionNums(id) {
+    const s = overlay._csStruct;
+    if (!s || !Array.isArray(s.elements)) return [];
+    let els = [];
+    if (id.indexOf('el-') === 0) els = [s.elements[Number(id.slice(3))]];
+    else if (id.indexOf('grp-') === 0) {
+      const g = (s.groups || [])[Number(id.slice(4))];
+      if (g && Array.isArray(g.labels)) els = g.labels.map((l) => s.elements.find((e) => e.label === l));
     }
-    if (playing) showMsg('playing');
-    else if (!queue.length) showMsg('selectOrder');
-    else showMsg('queued', queue);
+    const have = chapterStudyVerses().map((v) => Number(v.number));
+    const max = have.length ? have[have.length - 1] : 0;
+    const out = [];
+    els.filter(Boolean).forEach((el) => {
+      const a = parseRangeStart(el.range);
+      let b = parseRangeEnd(el.range);
+      if (!a) return;
+      if (b < a) b = max; // range runs into the next chapter
+      for (let n = a; n <= b; n++) if (have.includes(n) && !out.includes(n)) out.push(n);
+    });
+    return out;
   }
 
-  // Voice — reliable loading
-  const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
-  function populateVoices() {
-    const voices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
-    const current = voiceSelect.value;
-    voiceSelect.innerHTML = '';
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Voice';
-    voiceSelect.appendChild(placeholder);
-    if (voices && voices.length) {
-      voices.forEach(v => {
-        const opt = document.createElement('option');
-        opt.value = v.name;
-        opt.textContent = v.name;
-        voiceSelect.appendChild(opt);
-      });
-      if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
-      else if (current && voices.some(v => v.name === current)) voiceSelect.value = current;
-      else voiceSelect.value = '';
+  // ----- choosing the order -----
+  N.toggleSection = (id, label) => {
+    if (!N.isOn() || id === 'clear') return false;
+    if (N.playing) { say('todo', '<b>Reading now.</b> Tap Stop before you change the order.'); return true; }
+    if (id === 'empty') {
+      say('error', '<b>' + escapeHtml(chapterStudyTitle().trim()) + ' has no literary structure yet,</b> so letters cannot be read. Tap verse buttons instead, or add a structure in Literary structure.');
+      return true;
+    }
+    const i = N.queue.findIndex((q) => q.type === 'sect' && q.id === id);
+    if (i >= 0) {
+      N.queue.splice(i, 1);
     } else {
-      voiceSelect.value = '';
+      const nums = sectionNums(id);
+      if (!nums.length) {
+        say('error', '<b>Section ' + escapeHtml(label) + ' has no verses in this chapter.</b> Check its range in Literary structure.');
+        return true;
+      }
+      N.queue.push({ type: 'sect', id, label, nums });
     }
-  }
-  // Warm-up + repeated attempts (required on Chrome and some others)
-  if (window.speechSynthesis) {
-    speechSynthesis.getVoices();
-    speechSynthesis.onvoiceschanged = populateVoices;
-    populateVoices();
-    let n = 0;
-    const iv = setInterval(() => {
-      speechSynthesis.getVoices();
-      populateVoices();
-      n++;
-      if (n > 30 || speechSynthesis.getVoices().length) clearInterval(iv);
-    }, 200);
-    // Also on any interaction with the control
-    ['focus', 'click', 'mousedown', 'touchstart'].forEach(ev => {
-      voiceSelect.addEventListener(ev, () => {
-        speechSynthesis.getVoices();
-        populateVoices();
+    N.lastDone = null;
+    paintBadges();
+    chapterStudyRefreshMsg(overlay);
+    return true;
+  };
+  N.toggleVerse = (n) => {
+    if (!N.isOn()) return false;
+    if (N.playing) { say('todo', '<b>Reading now.</b> Tap Stop before you change the order.'); return true; }
+    const i = N.queue.findIndex((q) => q.type === 'verse' && q.n === n);
+    if (i >= 0) N.queue.splice(i, 1);
+    else N.queue.push({ type: 'verse', n });
+    N.lastDone = null;
+    paintBadges();
+    chapterStudyRefreshMsg(overlay);
+    return true;
+  };
+
+  // Green order numbers on queued letters and verse buttons.
+  function paintBadges() {
+    const on = N.isOn();
+    overlay.querySelectorAll('.cs-ord').forEach((b) => b.remove());
+    overlay.querySelectorAll('.cs-queued').forEach((b) => b.classList.remove('cs-queued'));
+    if (!on) return;
+    N.queue.forEach((it, i) => {
+      const sel = it.type === 'verse'
+        ? '#cs-body .cs-pick[data-verse="' + it.n + '"]'
+        : '#cs-section-bar .cs-sect[data-sect="' + it.id + '"]';
+      overlay.querySelectorAll(sel).forEach((btn) => {
+        btn.classList.add('cs-queued');
+        const badge = document.createElement('span');
+        badge.className = 'cs-ord';
+        badge.setAttribute('aria-label', 'number ' + (i + 1) + ' in reading order');
+        badge.textContent = String(i + 1);
+        btn.appendChild(badge);
       });
     });
   }
-  voiceSelect.addEventListener('change', () => {
-    if (voiceSelect.value) {
-      localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
+  N.paintBadges = paintBadges;
+
+  function markReading(n, scroll) {
+    overlay.querySelectorAll('.cs-row.cs-reading').forEach((r) => r.classList.remove('cs-reading'));
+    if (!n) return;
+    const row = overlay.querySelector('.cs-row[data-verse="' + n + '"]');
+    if (!row) return;
+    row.classList.add('cs-reading');
+    const scroller = overlay.querySelector('.cs-scroll');
+    if (scroll && scroller) scroller.scrollTop = Math.max(0, row.offsetTop - scroller.offsetTop - 8);
+  }
+
+  // Repaint badges and the reading outline whenever the letters or verse list are redrawn.
+  if (window.MutationObserver) {
+    const mo = new MutationObserver(() => {
+      paintBadges();
+      if (N.playing && N.pos) markReading(N.pos.n, false);
+    });
+    if (bar) mo.observe(bar, { childList: true });
+    if (body) mo.observe(body, { childList: true });
+  }
+
+  // In Narrator mode a verse button adds or removes that verse instead of moving to it.
+  if (body) {
+    body.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest && e.target.closest('.cs-pick');
+      if (!btn || !N.isOn()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      N.toggleVerse(Number(btn.dataset.verse));
+    }, true);
+  }
+
+  // ----- voices -----
+  let lastVoiceCount = -1;
+  function populateVoices() {
+    const voices = allVoices();
+    if (voices.length === lastVoiceCount) return;
+    lastVoiceCount = voices.length;
+    const saved = narratorStoreGet(NARRATOR_VOICE_KEY);
+    const sorted = voices.slice().sort((a, b) => {
+      const ea = /^en/i.test(a.lang) ? 0 : 1;
+      const eb = /^en/i.test(b.lang) ? 0 : 1;
+      return ea - eb || a.name.localeCompare(b.name);
+    });
+    voiceSelect.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = voices.length ? 'Voice' : 'No voices';
+    voiceSelect.appendChild(ph);
+    sorted.forEach((v) => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = v.name + (v.lang ? ' (' + v.lang + ')' : '') + (v.name === saved ? ' ★' : '');
+      voiceSelect.appendChild(opt);
+    });
+    if (saved && voices.some((v) => v.name === saved)) {
+      voiceSelect.value = saved;
+      N.voiceMissing = '';
     } else {
-      localStorage.removeItem('kjv-narrator-voice');
+      voiceSelect.value = '';
+      N.voiceMissing = (saved && voices.length) ? saved : '';
     }
+    if (overlay._csMsgIsDefault !== false && N.isOn() && !N.playing) chapterStudyRefreshMsg(overlay);
+  }
+  if (synth) {
+    synth.getVoices();
+    if (typeof synth.addEventListener === 'function') synth.addEventListener('voiceschanged', populateVoices);
+    else synth.onvoiceschanged = populateVoices;
+    populateVoices();
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      populateVoices();
+      if (tries > 30 || allVoices().length || !document.body.contains(voiceSelect)) clearInterval(iv);
+    }, 200);
+    voiceSelect.addEventListener('focus', populateVoices);
+  } else {
+    populateVoices();
+  }
+  voiceSelect.addEventListener('change', () => {
+    const name = voiceSelect.value;
+    if (!name) {
+      const saved = narratorStoreGet(NARRATOR_VOICE_KEY);
+      if (saved && allVoices().some((v) => v.name === saved)) voiceSelect.value = saved;
+      say('info', saved ? 'Your default voice stays <b>' + escapeHtml(saved) + '</b>.' : '<b>No voice chosen.</b> Pick a voice from the list.');
+      return;
+    }
+    narratorStoreSet(NARRATOR_VOICE_KEY, name);
+    N.voiceMissing = '';
+    lastVoiceCount = -1;
+    populateVoices(); // moves the ★ to the new default
+    say('done', '<b>Voice set to ' + escapeHtml(name) + '.</b> It is now your default for every chapter until you change it.' +
+      (N.queue.length ? ' Tap <b>Start</b> to read your ' + N.queue.length + ' item' + (N.queue.length === 1 ? '' : 's') + '.' : ''));
   });
   if (volume) {
-    const sv = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+    const sv = parseFloat(narratorStoreGet(NARRATOR_VOLUME_KEY) || '1');
     volume.value = isNaN(sv) ? 1 : sv;
-    volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
+    volume.addEventListener('input', () => narratorStoreSet(NARRATOR_VOLUME_KEY, volume.value));
   }
 
-  function forceMessage() {
-    if (!statusEl || !modeSelect) return;
-    updateUI();
-    if (modeSelect.value === 'narrator') {
-      if (playing) showMsg('playing');
-      else if (!queue.length) showMsg('selectOrder');
-      else showMsg('queued', queue);
-    } else {
-      showMsg('reader');
-    }
-  }
-  modeSelect.addEventListener('change', forceMessage);
-  modeSelect.addEventListener('input', forceMessage);
-  modeSelect.addEventListener('click', () => setTimeout(forceMessage, 30));
-  // Watchdog — corrects the message if anything else overwrites it
-  const watchdog = setInterval(() => {
-    if (!document.body.contains(modeSelect)) { clearInterval(watchdog); return; }
-    const expected = modeSelect.value === 'narrator'
-      ? (playing ? 'Playing…' : (!queue.length ? 'Select order with the letters' : null))
-      : 'Reader — letters jump to sections';
-    if (expected && statusEl.textContent !== expected && !playing) {
-      forceMessage();
-    }
-  }, 400);
-  forceMessage();
-
-  // Expose queue adder for section bar
-  window._narratorAddSection = (label) => {
-    if (modeSelect.value !== 'narrator' || playing) return;
-    queue.push(label);
-    updateUI();
-  };
-
-  startBtn.onclick = async () => {
-    if (modeSelect.value !== 'narrator') return;
-    if (!queue.length) { showMsg('selectSection'); return; }
-    const vn = localStorage.getItem('kjv-narrator-voice');
-    if (!vn) { showMsg('chooseVoiceFirst'); return; }
-    playing = true;
-    updateUI();
-    try {
-      for (const label of queue) {
-        if (!playing) break;
-        const text = await resolveSectionKJVText(label);
-        if (!text) continue;
-        await new Promise((resolve, reject) => {
-          speechSynthesis.cancel(); // clear any prior
-          const u = new SpeechSynthesisUtterance(text);
-          const voices = speechSynthesis.getVoices() || [];
-          let voice = voices.find(v => v.name === vn);
-          if (!voice && voices.length) voice = voices[0]; // real fallback, never hardcoded
-          if (voice) u.voice = voice;
-          u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
-          u.rate = 1;
-          u.onend = resolve;
-          u.onerror = () => reject(new Error('speech'));
-          speechSynthesis.speak(u);
-        });
+  // ----- reading -----
+  function speakOne(text, voice) {
+    return new Promise((resolve) => {
+      let finished = false;
+      let keep = null;
+      const fin = (ok) => {
+        if (finished) return;
+        finished = true;
+        if (keep) clearInterval(keep);
+        resolve(ok);
+      };
+      const u = new SpeechSynthesisUtterance(String(text || '').replace(/[¶]/g, '').trim());
+      u.voice = voice;
+      if (voice.lang) u.lang = voice.lang;
+      const vol = parseFloat(volume ? volume.value : narratorStoreGet(NARRATOR_VOLUME_KEY) || '1');
+      u.volume = isNaN(vol) ? 1 : vol;
+      u.rate = 1;
+      u.onend = () => fin(true);
+      u.onerror = (e) => fin(!!(e && (e.error === 'interrupted' || e.error === 'canceled')));
+      synth.speak(u);
+      // Desktop Chrome goes silent on speech longer than about 15 seconds; a pause/resume keeps it going.
+      if (!/Android|iPhone|iPad/i.test(navigator.userAgent)) {
+        keep = setInterval(() => {
+          if (!synth.speaking) return;
+          synth.pause();
+          synth.resume();
+        }, 10000);
       }
-    } catch (e) {
-      showMsg('speechFailed');
+    });
+  }
+
+  async function run(voice) {
+    const id = ++N.runId;
+    synth.cancel();
+    N.playing = true;
+    N.lastDone = null;
+    let count = 0;
+    const verses = chapterStudyVerses();
+    for (let qi = 0; qi < N.queue.length; qi++) {
+      const it = N.queue[qi];
+      const nums = it.type === 'verse' ? [it.n] : it.nums;
+      for (const n of nums) {
+        if (id !== N.runId) return;
+        const v = verses.find((x) => Number(x.number) === n);
+        if (!v || !v.text) continue;
+        N.pos = { qi, n };
+        markReading(n, true);
+        const m = playMsg();
+        say(m.kind, m.html);
+        const ok = await speakOne(v.text, voice);
+        if (id !== N.runId) return;
+        if (!ok) {
+          N.playing = false;
+          N.pos = null;
+          markReading(0);
+          say('error', '<b>The voice stopped with an error at ' + escapeHtml(bookName() + ' ' + chap() + ':' + n) + '.</b> Tap Start to try again, or pick another voice.');
+          return;
+        }
+        count++;
+      }
     }
-    playing = false;
-    updateUI();
+    if (id !== N.runId) return;
+    N.playing = false;
+    N.pos = null;
+    markReading(0);
+    N.lastDone = { items: N.queue.length, verses: count };
+    chapterStudyRefreshMsg(overlay);
+  }
+
+  N.stop = (silent) => {
+    if (!N.playing) return false;
+    const where = N.pos ? bookName() + ' ' + chap() + ':' + N.pos.n : '';
+    N.runId++;
+    N.playing = false;
+    N.pos = null;
+    if (synth) synth.cancel();
+    markReading(0);
+    if (!silent) say('info', '<b>Stopped' + (where ? ' at ' + escapeHtml(where) : '') + '.</b> Start reads your order again from the beginning.', [clearAct]);
+    return true;
   };
 
+  startBtn.onclick = () => {
+    if (!N.isOn()) return;
+    if (!synth) { say('error', '<b>This device has no speech voices,</b> so the narrator cannot read.'); return; }
+    if (N.playing) { say('info', '<b>Already reading.</b> Tap Stop to end.'); return; }
+    if (!N.queue.length) {
+      say('error', '<b>Nothing to read yet.</b> Tap letters or verse buttons first, in the order you want them read.');
+      return;
+    }
+    const vn = voiceSelect.value || '';
+    const voice = vn ? allVoices().find((v) => v.name === vn) : null;
+    if (!voice) {
+      say('error', N.voiceMissing
+        ? '<b>Your default voice “' + escapeHtml(N.voiceMissing) + '” is not on this device.</b> Pick another voice to read with. The narrator never switches voices on its own.'
+        : '<b>No voice chosen.</b> Pick one in the Voice menu next to Stop. It becomes your default until you change it.');
+      return;
+    }
+    run(voice);
+  };
   stopBtn.onclick = () => {
-    speechSynthesis.cancel();
-    playing = false;
-    showMsg('stopped');
-    setTimeout(updateUI, 800);
-  };
-}
-
-function getSectionText(overlay, label) {
-  // Resolve label to verse range from current structure and return KJV text
-  // Simplified: for now use the verses currently associated; real impl needs structure lookup
-  // Placeholder that will be completed with actual range resolution
-  return '';
-}
-
-async function speakQueue(overlay) {
-  if (!narratorQueue.length) {
-    narratorState = 'idle';
-    const btn = overlay.querySelector('#cs-narrator-btn');
-    if (btn) btn.textContent = 'Narrator';
-    return;
-  }
-  const label = narratorQueue[0];
-  // TODO: resolve actual text; for locked target we speak the section verses
-  const text = await resolveSectionKJVText(label);
-  if (!text) {
-    narratorQueue.shift();
-    return speakQueue(overlay);
-  }
-  const u = new SpeechSynthesisUtterance(text);
-  const voices = speechSynthesis.getVoices();
-  const voiceName = localStorage.getItem('kjv-narrator-voice');
-  const voice = voices.find(v => v.name === voiceName) || voices[0];
-  if (voice) u.voice = voice;
-  u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
-  u.onend = () => {
-    narratorQueue.shift();
-    if (narratorQueue.length) speakQueue(overlay);
-    else {
-      narratorState = 'idle';
-      const btn = overlay.querySelector('#cs-narrator-btn');
-      const status = overlay.querySelector('#cs-mode-status');
-      if (btn) btn.textContent = 'Narrator';
-      if (status) status.textContent = 'Finished. Repeat / New selection available on next use.';
+    if (!N.stop(false)) {
+      say('info', '<b>Nothing is being read.</b>' + (N.queue.length ? ' Tap Start to read your order.' : ''));
     }
   };
-  speechSynthesis.speak(u);
-}
 
-async function resolveSectionKJVText(label) {
-  if (!chapterStudy) return '';
-  const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
-  let rec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
-  let s = rec && rec.structure;
-  // Fallback to static literary structure if user one is missing
-  if (!s || !Array.isArray(s.elements) || !s.elements.length) {
-    const book = chapterStudyBook();
-    const staticData = book ? getLiteraryStructure(book.name, chapterStudy.chapter) : null;
-    if (staticData && Array.isArray(staticData.outline)) {
-      const outlineText = staticData.outline.map(item =>
-        (item.label || '') + '  ' + (item.range || '') + (item.note ? '  —  ' + item.note : '')
-      ).join('\n');
-      s = parseStructureFromOutline(outlineText);
-    }
+  function updateButtons() {
+    const on = N.isOn();
+    startBtn.style.display = on ? '' : 'none';
+    stopBtn.style.display = on ? '' : 'none';
   }
-  if (!s || !Array.isArray(s.elements)) return '';
-  const el = s.elements.find(e => e.label === label);
-  if (!el || !el.range) return '';
-  // range is like "20:1-4" or similar; extract verse numbers for current chapter
-  const m = String(el.range).match(/(\d+):(\d+)(?:-(\d+))?/);
-  if (!m) return '';
-  const start = Number(m[2]);
-  const end = m[3] ? Number(m[3]) : start;
-  const verses = chapterStudyVerses();
-  const parts = [];
-  for (let n = start; n <= end; n++) {
-    const v = verses.find(vv => Number(vv.number) === n);
-    if (v && v.text) parts.push(v.text);
-  }
-  return parts.join(' ');
+  modeSelect.addEventListener('change', () => {
+    if (!N.isOn()) N.stop(true);
+    updateButtons();
+    paintBadges();
+    chapterStudyRefreshMsg(overlay);
+  });
+
+  // New chapter: stop reading and start a fresh order.
+  N.reset = () => {
+    N.stop(true);
+    N.queue = [];
+    N.lastDone = null;
+    paintBadges();
+    chapterStudyRefreshMsg(overlay);
+  };
+
+  updateButtons();
 }
 
 async function openChapterStudy(startKey, initialView) {
@@ -12777,8 +13069,7 @@ async function openChapterStudy(startKey, initialView) {
             '<option value="reader">Reader</option>' +
             '<option value="narrator">Narrator</option>' +
           '</select>' +
-          '<button type="button" id="cs-narrator-btn" style="min-height:36px;display:none;">Narrator</button>' +
-          '<button type="button" id="cs-start-btn" style="min-height:36px;">Start</button><button type="button" id="cs-stop-btn" style="min-height:36px;">Stop</button><select id="cs-voice-select" style="min-height:40px;min-width:140px;padding:0.35rem 2rem 0.35rem 0.6rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);font-size:0.95rem;appearance:auto;-webkit-appearance:menulist;" title="Choose narration voice"><option value="">Voice</option></select>' +
+                    '<button type="button" id="cs-start-btn" style="min-height:36px;">Start</button><button type="button" id="cs-stop-btn" style="min-height:36px;">Stop</button><select id="cs-voice-select" style="min-height:40px;min-width:140px;padding:0.35rem 2rem 0.35rem 0.6rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);font-size:0.95rem;appearance:auto;-webkit-appearance:menulist;" title="Choose narration voice"><option value="">Voice</option></select>' +
           '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:70px;"></label>' +
           
         '</div>' +
@@ -12794,7 +13085,7 @@ async function openChapterStudy(startKey, initialView) {
       '</div>' +
 
       '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
-      '<div id="cs-status-msg" style="padding:0.45rem 0.8rem;font-size:0.95rem;color:var(--text);background:var(--bg-alt);border-bottom:1px solid var(--border);min-height:2rem;">Reader — letters jump to sections</div>' +
+      '<div id="cs-status-msg" class="cs-msg cs-msg-info" role="status" aria-live="polite"><span class="cs-msg-icon" aria-hidden="true">i</span><span class="cs-msg-text">Opening Chapter study…</span></div>' +
       '<div class="cs-scroll">' +
         '<p id="cs-strip" class="cs-strip"></p>' +
         '<div id="cs-body"></div>' +
@@ -12857,6 +13148,19 @@ async function openChapterStudy(startKey, initialView) {
     const vs = chapterStudyVerses();
     if (vs.length) setChapterStudyVerse(overlay, Number(vs[vs.length - 1].number));
   };
+  setupChapterStudyNarrator(overlay);
+  let csTypeTimer = null;
+  overlay.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t || !t.closest || !t.closest('#cs-body')) return;
+    clearTimeout(csTypeTimer);
+    csTypeTimer = setTimeout(() => chapterStudyRefreshMsg(overlay), 350);
+  }, true); // capture: the note boxes stop input events from bubbling
+  overlay.addEventListener('focusout', (e) => {
+    const t = e.target;
+    if (!t || !t.closest || !t.closest('#cs-body')) return;
+    setTimeout(() => { if (overlay._csMsgIsDefault) chapterStudyRefreshMsg(overlay); }, 400);
+  }, true);
   await ensureChapterStudyHighlights(true);
   paintChapterStudyStrip(overlay);
   await paintChapterStudyBody(overlay);
@@ -12895,7 +13199,9 @@ function stepChapterStudyVerse(overlay, dir) {
   if (idx < 0) idx = 0;
   const next = idx + dir;
   if (next < 0 || next >= nums.length) {
-    showAppStatus(next < 0 ? 'First verse of this chapter.' : 'Last verse of this chapter.', 'ok');
+    showAppStatus(next < 0
+      ? 'Verse ' + nums[0] + ' is the first verse of ' + chapterStudyTitle().trim() + '. Use Switch Chapter to go to another chapter.'
+      : 'Verse ' + nums[nums.length - 1] + ' is the last verse of ' + chapterStudyTitle().trim() + '. Use Switch Chapter to go on.', 'info');
     return;
   }
   setChapterStudyVerse(overlay, nums[next]);
@@ -12927,7 +13233,7 @@ async function stepChapterStudyNote(overlay, dir) {
     }
   }
   if (found < 0) {
-    showAppStatus(dir < 0 ? 'No earlier note in this chapter.' : 'No later note in this chapter.', 'ok');
+    showAppStatus(dir < 0 ? 'No verse note before verse ' + chapterStudy.verse + ' in this chapter.' : 'No verse note after verse ' + chapterStudy.verse + ' in this chapter.', 'info');
     return;
   }
   setChapterStudyVerse(overlay, nums[found]);
