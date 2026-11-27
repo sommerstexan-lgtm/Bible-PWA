@@ -1,3 +1,12 @@
+## New in 7.0.40
+- Half verses work everywhere. A range can name part of a verse: 6a is the first part of verse 6 and 6b the second part (for example B 2–6a, C 6b–11, E′ 25a). Literary structure, the section letters, the Section buttons, verse note Range and the narrator all read them the same way.
+- Literary structure keeps the a or b on a range. Before, 2–6a became 2–6, 6b–11 became verse 6 only, and the letter landed at the start of the note.
+- Combined labels such as D′/G′ are read (before, the whole line was dropped). D′/G′ pairs with both D and G.
+- Heading lines that span several sections (for example I 1–17 and II 18–25) no longer hide the lettered sections inside them. Each verse now shows its most specific section.
+- Verse note Range accepts half verses: 25a, 1:25b, 2–6a, 6b–11. 25a and 25b do not count as overlapping; 25 overlaps both.
+- Narrator: a section that holds only part of a verse reads only that part. The verse is split at its main mid-verse ; or : (for Matthew 1:6, "…begat David the king" | "and David the king begat Solomon…"). If a verse has no clear break, the whole verse is read and the message line says so.
+- Structures saved by earlier versions are read again from their outline text the first time they open. Answers already typed are kept.
+
 ## New in 7.0.39
 - Chapter study message line: one line now reports where you are (chapter, view, verse), what is still to do (unsaved notes, missing structure, voice), mistakes with how to fix them, and what was done. Colored marks: blue information, gold still to do, red mistake, green done or reading. Chapter study messages no longer flash at the bottom of the screen; they stay on the line until something new happens.
 - Narrator works as soon as Chapter study opens (it used to start only after Switch Chapter).

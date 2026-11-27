@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.39
+/* app.js – Main application controller. KJV Study PWA v7.0.40
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.39';
+const APP_VERSION = '7.0.40';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3753,7 +3753,7 @@ async function openChapterStructure(book, chapterNum) {
   const bookName = book.name;
   const chapter = chapterNum;
   const userKey = book.id + '.' + chapter;
-  const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  const userRec = await getStructureRec(userKey).catch(() => null);
   const staticData = getLiteraryStructure(bookName, chapter);
 
   let displayText = '';
@@ -3870,39 +3870,177 @@ async function openChapterStructure(book, chapterNum) {
   }
 }
 
+// ---------- Half-verse ranges (v7.0.40) ----------
+// One reader for every range in the app: "6", "6a", "6b", "1:6b", "2-6a", "6b-11", "22:1-4".
+// A letter after a verse number is a part of that verse (a = first part, b = second part).
+const STRUCT_PARSE_VERSION = 2;
+const OUTLINE_LINE_RE = /^([A-Za-z][A-Za-z0-9′'’]*(?:\s*\/\s*[A-Za-z][A-Za-z0-9′'’]*)*)\s+(\d+(?:\s*:\s*\d+)?[a-d]?(?:\s*[-–—]\s*\d+(?:\s*:\s*\d+)?[a-d]?)?)(?=\s|$|—)\s*(.*)$/;
+const OUTLINE_LINE_RE_OLD = /^([A-Za-z][A-Za-z0-9′']*)\s+([\d:–\-]+)\s*(.*)$/;
+
+function normalizeRangeText(raw) {
+  return String(raw || '').replace(/\s+/g, '').replace(/[–—]/g, '-').toLowerCase();
+}
+function parseVersePoint(part) {
+  // "22:6b" -> { v: 6, part: 'b' }, "6" -> { v: 6, part: '' }
+  const s = String(part || '').trim();
+  const afterColon = s.includes(':') ? s.split(':').pop() : s;
+  const m = afterColon.match(/(\d+)\s*([a-d])?/i);
+  return m ? { v: Number(m[1]), part: (m[2] || '').toLowerCase() } : { v: 0, part: '' };
+}
+function parseVerseSpan(range) {
+  const parts = normalizeRangeText(range).split('-');
+  const start = parseVersePoint(parts[0]);
+  if (!start.v) return null;
+  const last = parseVersePoint(parts[parts.length - 1]);
+  return { start, end: last.v ? last : start };
+}
+function rangePartIndex(part) {
+  return part ? (part.charCodeAt(0) - 96) : 0; // a=1, b=2 …
+}
+// Position on a line where every verse has room for parts: verse 6 = 60…69, 6a = 61, 6b = 62.
+function verseOrd(point, isEnd) {
+  if (!point || !point.v) return 0;
+  return point.v * 10 + (point.part ? rangePartIndex(point.part) : (isEnd ? 9 : 0));
+}
+function spanOrds(range) {
+  const sp = parseVerseSpan(range);
+  if (!sp) return null;
+  const a = verseOrd(sp.start, false);
+  let b = verseOrd(sp.end, true);
+  if (b < a) b = 9999; // runs into the next chapter
+  return { a, b };
+}
+// Which part of verse n a range covers: '' whole verse, 'a' first part, 'b' second part,
+// '?' a part the narrator cannot split (c, d …), so it reads the whole verse.
+function verseSliceFor(range, n) {
+  const sp = parseVerseSpan(range);
+  if (!sp) return '';
+  const from = sp.start.v === n ? sp.start.part : '';
+  const to = sp.end.v === n ? sp.end.part : '';
+  if (/[c-d]/.test(from + to)) return '?';
+  if (from && to && from === to) return from;
+  if (!from && to === 'a') return 'a';
+  if (from === 'b' && !to) return 'b';
+  return '';
+}
+// Split KJV verse text into two parts at the main mid-verse ; or : (the one nearest the middle).
+// Returns [first, second] or null when there is no clear break.
+function splitVerseHalves(text) {
+  const t = String(text || '').replace(/[¶]/g, '').trim();
+  const body = t.replace(/[;:,.]\s*$/, '');
+  const mid = body.length / 2;
+  let best = -1;
+  let bestD = Infinity;
+  const re = /[;:]/g;
+  let m;
+  while ((m = re.exec(body))) {
+    const i = m.index;
+    if (body.slice(0, i).trim().length < 8 || body.slice(i + 1).trim().length < 8) continue;
+    const d = Math.abs(i - mid);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  if (best < 0) return null;
+  return [body.slice(0, best).trim(), body.slice(best + 1).trim()];
+}
+function labelParts(label) {
+  return String(label || '').split('/').map((p) => p.trim()).filter(Boolean);
+}
+function primeNorm(label) {
+  return String(label || '').replace(/['’]/g, '′');
+}
+// Find an element by its label, or by one part of a combined label (D′ finds "D′/G′").
+function findElByLabel(structure, label) {
+  const els = (structure && structure.elements) || [];
+  const exact = els.find((e) => e.label === label);
+  if (exact) return exact;
+  const want = primeNorm(label);
+  return els.find((e) => labelParts(e.label).some((p) => primeNorm(p) === want)) || null;
+}
+
 function parseStructureFromOutline(text) {
   const lines = String(text || '').split(/\n/).map(l => l.trim()).filter(Boolean);
   const elements = [];
   for (const line of lines) {
-    const m = line.match(/^([A-Za-z][A-Za-z0-9′']*)\s+([\d:–\-]+)\s*(.*)$/);
+    let m = line.match(OUTLINE_LINE_RE);
+    let label;
+    let range;
     if (m) {
-      elements.push({
-        label: m[1],
-        range: m[2].replace(/–/g, '-'),
-        note: (m[3] || '').replace(/^—\s*/, '').trim(),
-        answers: ['', '', '', '', '']
-      });
+      label = m[1].replace(/\s*\/\s*/g, '/');
+      range = normalizeRangeText(m[2]);
+    } else {
+      m = line.match(OUTLINE_LINE_RE_OLD);
+      if (!m) continue;
+      label = m[1];
+      range = m[2].replace(/–/g, '-');
     }
+    elements.push({
+      label,
+      range,
+      note: (m[3] || '').replace(/^—\s*/, '').trim(),
+      answers: ['', '', '', '', '']
+    });
   }
   const groups = [];
-  // Auto-detect simple pairs: A/A', B/B' etc.
+  // Auto-detect pairs: A/A′, B/B′ … A combined label such as D′/G′ pairs with both D and G.
   const labels = elements.map(e => e.label);
+  const seen = new Set();
   for (let i = 0; i < labels.length; i++) {
-    const lab = labels[i];
-    const pair = lab + '′';
-    const idx = labels.indexOf(pair);
-    if (idx > i) {
-      groups.push({
-        labels: [lab, pair],
-        answers: ['', '', '']
-      });
+    for (const lab of labelParts(labels[i])) {
+      const base = primeNorm(lab);
+      if (/′$/.test(base)) continue;
+      for (let j = i + 1; j < labels.length; j++) {
+        const hit = labelParts(labels[j]).find((p) => primeNorm(p) === base + '′');
+        if (!hit) continue;
+        const k = base + '|' + primeNorm(hit);
+        if (!seen.has(k)) {
+          seen.add(k);
+          groups.push({ labels: [lab, hit], answers: ['', '', ''] });
+        }
+        break;
+      }
     }
   }
-  return elements.length ? { type: groups.length ? 'concentric' : 'sequential', center: labels.find(l => l === 'X' || l === 'H') || '', elements, groups } : null;
+  return elements.length ? { type: groups.length ? 'concentric' : 'sequential', center: labels.find(l => l === 'X' || l === 'H') || '', elements, groups, v: STRUCT_PARSE_VERSION } : null;
+}
+
+// Structures saved by earlier versions were read without verse parts (2–6a became 2–6,
+// 6b–11 became 6, D′/G′ was dropped). Re-read them once from their outline text and keep
+// every answer already typed (matched by label).
+function upgradeStructure(oldS, outlineText) {
+  const fresh = parseStructureFromOutline(outlineText);
+  if (!fresh) return null;
+  const oldEls = (oldS && Array.isArray(oldS.elements)) ? oldS.elements.slice() : [];
+  fresh.elements.forEach((el) => {
+    const i = oldEls.findIndex((o) => o && o.label === el.label);
+    if (i >= 0) {
+      if (Array.isArray(oldEls[i].answers)) el.answers = oldEls[i].answers.slice();
+      oldEls.splice(i, 1);
+    }
+  });
+  const oldGroups = (oldS && Array.isArray(oldS.groups)) ? oldS.groups : [];
+  fresh.groups.forEach((g) => {
+    const key = g.labels.join('/');
+    const o = oldGroups.find((x) => x && Array.isArray(x.labels) && x.labels.join('/') === key);
+    if (o && Array.isArray(o.answers)) g.answers = o.answers.slice();
+  });
+  Object.keys(oldS || {}).forEach((k) => {
+    if (!(k in fresh)) fresh[k] = oldS[k];
+  });
+  fresh.v = STRUCT_PARSE_VERSION;
+  return fresh;
+}
+async function getStructureRec(key) {
+  const rec = await storage.getLiteraryStructureUser(key);
+  if (!rec || !rec.structure || !String(rec.outlineText || '').trim()) return rec;
+  if (Number(rec.structure.v || 0) >= STRUCT_PARSE_VERSION) return rec;
+  const up = upgradeStructure(rec.structure, rec.outlineText);
+  if (!up) return rec;
+  try { await storage.saveLiteraryStructure(key, rec.outlineText, up); } catch (_) {}
+  return Object.assign({}, rec, { structure: up });
 }
 
 function verseNumFromRangePart(part) {
-  // "22:1" -> 1, "1" -> 1, "22:10" -> 10
+  // "22:1" -> 1, "1" -> 1, "22:10" -> 10, "6b" -> 6
   const s = String(part || '').trim();
   const afterColon = s.includes(':') ? s.split(':').pop() : s;
   const m = afterColon.match(/(\d+)/);
@@ -3918,22 +4056,29 @@ function parseRangeEnd(range) {
   const n = verseNumFromRangePart(last);
   return n || parseRangeStart(range);
 }
+// The most specific section holding a verse wins: a lettered section (B 2–6a) beats a
+// heading that spans it (I 1–17). For a split verse the first part's section is shown.
 function sectionForVerse(structure, verseNum) {
   if (!structure || !Array.isArray(structure.elements)) return null;
   const n = Number(verseNum);
+  let best = null;
+  let bestW = Infinity;
   for (const el of structure.elements) {
     const start = parseRangeStart(el.range);
     const end = parseRangeEnd(el.range);
-    if (n >= start && n <= end) return el;
+    if (!(n >= start && n <= end)) continue;
+    const o = spanOrds(el.range);
+    const w = o ? (o.b - o.a) : (end - start) * 10;
+    if (w < bestW) { best = el; bestW = w; }
   }
-  return null;
+  return best;
 }
 
 async function resolveChapterStructure(bookId, chapterNum) {
   const book = books.find(b => b.id === bookId);
   if (!book) return null;
   const userKey = bookId + '.' + chapterNum;
-  const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  const userRec = await getStructureRec(userKey).catch(() => null);
   let structure = userRec && userRec.structure;
   if (!structure || !Array.isArray(structure.elements) || !structure.elements.length) {
     if (userRec && userRec.outlineText && String(userRec.outlineText).trim()) {
@@ -4205,7 +4350,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     }
   }
   const enableTap = true;
-  const structRec = await storage.getLiteraryStructureUser(bookId + '.' + chapterNum).catch(() => null);
+  const structRec = await getStructureRec(bookId + '.' + chapterNum).catch(() => null);
   const chapterStructure = structRec && structRec.structure;
   currentChapterStructure = await resolveChapterStructure(bookId, chapterNum);
   updateStructureSidebar();
@@ -6127,30 +6272,31 @@ function mountNoteImages(root, imageIds) {
 function extractLeadingRange(text, chapter) {
   const head = String(text || '').trim().slice(0, 160);
   if (!head) return null;
+  const mk = (a, ap, b, bp) => ({ start: a, end: b, startPart: (ap || '').toLowerCase(), endPart: (bp || (b === a ? ap : '') || '').toLowerCase() });
 
-  // Book or chapter:verse at the start (optional book name)
-  let m = head.match(/^(?:[1-3]?\s*[A-Za-z][A-Za-z\s]*\s+)?(\d+)\s*:\s*(\d+)(?:\s*-\s*(\d+))?/);
+  // Book or chapter:verse at the start (optional book name); verses may end in a or b
+  let m = head.match(/^(?:[1-3]?\s*[A-Za-z][A-Za-z\s]*\s+)?(\d+)\s*:\s*(\d+)([ab])?(?:\s*[-–]\s*(\d+)([ab])?)?(?![A-Za-z])/);
   if (m) {
     const ch = +m[1];
     const a = +m[2];
-    const b = m[3] ? +m[3] : a;
-    if (ch === chapter && a >= 1 && b >= a && b - a < 80) return { start: a, end: b };
+    const b = m[4] ? +m[4] : a;
+    if (ch === chapter && a >= 1 && b >= a && b - a < 80) return mk(a, m[3], b, m[4] ? m[5] : m[3]);
   }
 
   // v1-2 / v.1 / verses 1-3 / vv.1-2
-  m = head.match(/^(?:v(?:v|erses?)?\.?\s*)(\d+)(?:\s*-\s*(\d+))?/i);
+  m = head.match(/^(?:v(?:v|erses?)?\.?\s*)(\d+)([ab])?(?:\s*[-–]\s*(\d+)([ab])?)?(?![A-Za-z])/i);
   if (m) {
     const a = +m[1];
-    const b = m[2] ? +m[2] : a;
-    if (a >= 1 && b >= a && b - a < 80) return { start: a, end: b };
+    const b = m[3] ? +m[3] : a;
+    if (a >= 1 && b >= a && b - a < 80) return mk(a, m[2], b, m[3] ? m[4] : m[2]);
   }
 
-  // bare 1-2 or 1 at the very start
-  m = head.match(/^(\d+)(?:\s*-\s*(\d+))?(?:\s|$|[,.:;])/);
+  // bare 1-2, 1, 6b-11 or 25a at the very start
+  m = head.match(/^(\d+)([ab])?(?:\s*[-–]\s*(\d+)([ab])?)?(?:\s|$|[,.:;])/);
   if (m) {
     const a = +m[1];
-    const b = m[2] ? +m[2] : a;
-    if (a >= 1 && b >= a && b - a < 50) return { start: a, end: b };
+    const b = m[3] ? +m[3] : a;
+    if (a >= 1 && b >= a && b - a < 50) return mk(a, m[2], b, m[3] ? m[4] : m[2]);
   }
   return null;
 }
@@ -6209,42 +6355,60 @@ async function migrateExistingNoteRanges() {
   }
 }
 
+// Accepts 17:1, 17:1-2, 1-2, and half verses: 25a, 1:25b, 2-6a, 6b-11, 1:6b-1:11.
 function parseNoteRange(raw, chapter) {
-  const t = String(raw || '').trim().replace(/[–—]/g, '-');
+  const t = String(raw || '').trim().replace(/[–—]/g, '-').toLowerCase();
   if (!t) return null;
-  let m = t.match(/^(?:(\d+)\s*:\s*)?(\d+)\s*-\s*(\d+)$/);
+  const P = '(?:(\\d+)\\s*:\\s*)?(\\d+)\\s*([a-d])?';
+  let m = t.match(new RegExp('^' + P + '\\s*-\\s*' + P + '$'));
   if (m) {
     const ch = m[1] ? +m[1] : chapter;
-    if (ch !== chapter) return null;
-    const a = +m[2], b = +m[3];
+    const ch2 = m[4] ? +m[4] : ch;
+    if (ch !== chapter || ch2 !== chapter) return null;
+    const a = +m[2], b = +m[5];
+    const sp = m[3] || '', ep = m[6] || '';
     if (a < 1 || b < a) return null;
-    return { start: a, end: b };
+    if (a === b && sp && ep && ep < sp) return null;
+    return { start: a, end: b, startPart: sp, endPart: ep };
   }
-  m = t.match(/^(?:(\d+)\s*:\s*)?(\d+)$/);
+  m = t.match(new RegExp('^' + P + '$'));
   if (m) {
     const ch = m[1] ? +m[1] : chapter;
     if (ch !== chapter) return null;
     const v = +m[2];
     if (v < 1) return null;
-    return { start: v, end: v };
+    const part = m[3] || '';
+    return { start: v, end: v, startPart: part, endPart: part };
   }
   return null;
 }
 
 function formatNoteRange(chapter, span) {
   if (!span) return '';
-  if (span.start === span.end) return chapter + ':' + span.start;
-  return chapter + ':' + span.start + '-' + span.end;
+  const sp = span.startPart || '';
+  const ep = span.endPart || '';
+  if (span.start === span.end && sp === ep) return chapter + ':' + span.start + sp;
+  return chapter + ':' + span.start + sp + '-' + span.end + ep;
+}
+
+// Positions with room for parts, so 25a and 25b do not overlap but 25 overlaps both.
+function noteSpanOrds(span) {
+  return {
+    a: verseOrd({ v: span.start, part: span.startPart || '' }, false),
+    b: verseOrd({ v: span.end, part: span.endPart || '' }, true)
+  };
 }
 
 async function findRangeConflict(bookId, chapter, span, exclude) {
   const notes = await storage.getAllNotes().catch(() => []);
   const shared = await storage.getAllSharedNotes().catch(() => []);
+  const mine = noteSpanOrds(span);
   const check = (rangeStr, label, isSelf) => {
     if (isSelf || !rangeStr) return null;
     const other = parseNoteRange(rangeStr, chapter);
     if (!other) return null;
-    if (span.start <= other.end && other.start <= span.end) return { label };
+    const o = noteSpanOrds(other);
+    if (mine.a <= o.b && o.a <= mine.b) return { label };
     return null;
   };
   for (const n of notes) {
@@ -6364,7 +6528,7 @@ async function openNote(key, place) {
     if (rangeRaw) {
       span = parseNoteRange(rangeRaw, chapter);
       if (!span) {
-        alert('Could not read that range. Use 17:1 or 17:1-2 (or just 1-2).');
+        alert('Could not read that range. Use 17:1 or 17:1-2 (or just 1-2). For part of a verse add a or b: 17:1a, 17:1b-3.');
         return false;
       }
       const conflict = await findRangeConflict(bookId, chapter, span, { privateKey: shared ? null : key, sharedId: shared ? shared.id : null });
@@ -8119,7 +8283,7 @@ async function openNotesList(resume) {
       if (!key) return;
       const p = bible.parseKey(key);
       if (!p) return;
-      const rec = await storage.getLiteraryStructureUser(p.bookId + '.' + p.chapter).catch(() => null);
+      const rec = await getStructureRec(p.bookId + '.' + p.chapter).catch(() => null);
       const s = rec && rec.structure;
       const el = sectionForVerse(s, p.verse);
       if (el) {
@@ -10168,7 +10332,7 @@ function openGeneralNoteEditor(existing) {
       refData = null;
     }
     try {
-      refStructure = await storage.getLiteraryStructureUser(refBookId + '.' + refChapter).catch(() => null);
+      refStructure = await getStructureRec(refBookId + '.' + refChapter).catch(() => null);
     } catch (_) {
       refStructure = null;
     }
@@ -10488,7 +10652,7 @@ function openGeneralNoteEditor(existing) {
     }
     try {
       refStructure = (refBookId && refChapter != null)
-        ? await storage.getLiteraryStructureUser(refBookId + '.' + refChapter).catch(() => null)
+        ? await getStructureRec(refBookId + '.' + refChapter).catch(() => null)
         : null;
     } catch (_) {
       refStructure = null;
@@ -11578,7 +11742,7 @@ async function paintChapterStudyBody(overlay) {
     body.querySelectorAll('.cs-pick').forEach((btn) => {
       btn.onclick = () => setChapterStudyVerse(overlay, Number(btn.dataset.verse));
     });
-    storage.getLiteraryStructureUser(chapterStudy.bookId + '.' + chapterStudy.chapter).then((rec) => {
+    getStructureRec(chapterStudy.bookId + '.' + chapterStudy.chapter).then((rec) => {
       const s = rec && rec.structure;
       if (!s) return;
       body.querySelectorAll('.cs-sect-note').forEach((btn) => {
@@ -11646,7 +11810,7 @@ async function paintChapterStudyBody(overlay) {
     if (copyBtn) copyBtn.onclick = () => copyChapterStudyNotes(overlay);
   } else if (view === 'structure') {
     const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
-    const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+    const userRec = await getStructureRec(userKey).catch(() => null);
     let structure = userRec && userRec.structure;
     // Prefer a saved parsed structure. Fall back to parsing the outline text the user loaded/saved,
     // then to the built-in literaryStructures map.
@@ -12001,7 +12165,7 @@ function setChapterStudyVerse(overlay, verseNum, fromNoteFocus) {
 async function flushStructureAnalysis(overlay) {
   if (!chapterStudy || !chapterStudy.structDirty || !chapterStudy.structDraft) return;
   const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
-  const userRec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  const userRec = await getStructureRec(userKey).catch(() => null);
   try {
     await storage.saveLiteraryStructure(userKey, (userRec && userRec.outlineText) || '', chapterStudy.structDraft);
     chapterStudy.structDirty = false;
@@ -12027,7 +12191,7 @@ function firstVerseForSectId(structure, id) {
   if (id.indexOf('grp-') === 0) {
     const g = (structure.groups || [])[Number(id.slice(4))];
     if (!g || !g.labels || !g.labels.length) return 0;
-    const el = (structure.elements || []).find((e) => e.label === g.labels[0]);
+    const el = findElByLabel(structure, g.labels[0]);
     return firstVerseOfSection(el);
   }
   return 0;
@@ -12331,7 +12495,7 @@ function updateSectionBar(overlay) {
   const bar = overlay.querySelector('#cs-section-bar');
   if (!bar || !chapterStudy) return;
   const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
-  storage.getLiteraryStructureUser(userKey).then((rec) => {
+  getStructureRec(userKey).then((rec) => {
     const s = rec && rec.structure;
     const hasStructure = !!(s && Array.isArray(s.elements) && s.elements.length);
     const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
@@ -12631,7 +12795,12 @@ function setupChapterStudyNarrator(overlay) {
     return chap() + ':' + runs.map((r) => (r[0] === r[1] ? String(r[0]) : r[0] + '–' + r[1])).join(', ');
   }
   function itemText(it) {
-    return it.type === 'verse' ? chap() + ':' + it.n : it.label + ' (' + rangeText(it.nums) + ')';
+    if (it.type === 'verse') return chap() + ':' + it.n;
+    if (it.range) {
+      const r = String(it.range).replace(/-/g, '–');
+      return it.label + ' (' + (r.includes(':') ? r : chap() + ':' + r) + ')';
+    }
+    return it.label + ' (' + rangeText(it.nums) + ')';
   }
   function itemsText() {
     const shown = N.queue.slice(0, 6).map((it) => escapeHtml(itemText(it))).join(' → ');
@@ -12681,9 +12850,11 @@ function setupChapterStudyNarrator(overlay) {
     const it = N.queue[N.pos.qi];
     const nums = it.type === 'verse' ? [it.n] : it.nums;
     const k = nums.indexOf(N.pos.n);
+    const half = N.pos.half === 'a' || N.pos.half === 'b' ? N.pos.half : '';
     const where = it.type === 'verse'
       ? escapeHtml(bookName() + ' ' + chap() + ':' + it.n)
-      : escapeHtml(it.label + ', ' + bookName() + ' ' + chap() + ':' + N.pos.n) + (nums.length > 1 ? ' (verse ' + (k + 1) + ' of ' + nums.length + ')' : '');
+      : escapeHtml(it.label + ', ' + bookName() + ' ' + chap() + ':' + N.pos.n + half) + (nums.length > 1 ? ' (verse ' + (k + 1) + ' of ' + nums.length + ')' : '') +
+        (N.pos.half === 'whole' ? ' <b>No clear break in verse ' + N.pos.n + ', so the whole verse is read.</b>' : '');
     return {
       kind: 'play',
       html: '<b>Reading ' + (N.pos.qi + 1) + ' of ' + N.queue.length + ':</b> ' + where + ' · ' + voiceName() + '. <b>Stop</b> ends reading.'
@@ -12691,26 +12862,36 @@ function setupChapterStudyNarrator(overlay) {
   }
 
   // ----- what a letter covers -----
-  function sectionNums(id) {
+  // nums: verse numbers in reading order. parts: { verse: 'a' | 'b' | '?' } for a verse the
+  // section covers only part of (2–6a ends with 6a; 6b–11 starts with 6b).
+  function sectionInfo(id) {
     const s = overlay._csStruct;
-    if (!s || !Array.isArray(s.elements)) return [];
+    if (!s || !Array.isArray(s.elements)) return { nums: [], parts: {} };
     let els = [];
     if (id.indexOf('el-') === 0) els = [s.elements[Number(id.slice(3))]];
     else if (id.indexOf('grp-') === 0) {
       const g = (s.groups || [])[Number(id.slice(4))];
-      if (g && Array.isArray(g.labels)) els = g.labels.map((l) => s.elements.find((e) => e.label === l));
+      if (g && Array.isArray(g.labels)) els = g.labels.map((l) => findElByLabel(s, l));
     }
     const have = chapterStudyVerses().map((v) => Number(v.number));
     const max = have.length ? have[have.length - 1] : 0;
     const out = [];
+    const slices = {};
     els.filter(Boolean).forEach((el) => {
       const a = parseRangeStart(el.range);
       let b = parseRangeEnd(el.range);
       if (!a) return;
       if (b < a) b = max; // range runs into the next chapter
-      for (let n = a; n <= b; n++) if (have.includes(n) && !out.includes(n)) out.push(n);
+      for (let n = a; n <= b; n++) {
+        if (!have.includes(n)) continue;
+        const sl = verseSliceFor(el.range, n);
+        if (!out.includes(n)) { out.push(n); slices[n] = sl; }
+        else if (slices[n] !== sl) slices[n] = ''; // both parts in this pair: read the whole verse
+      }
     });
-    return out;
+    const parts = {};
+    Object.keys(slices).forEach((n) => { if (slices[n]) parts[n] = slices[n]; });
+    return { nums: out, parts };
   }
 
   // ----- choosing the order -----
@@ -12725,12 +12906,15 @@ function setupChapterStudyNarrator(overlay) {
     if (i >= 0) {
       N.queue.splice(i, 1);
     } else {
-      const nums = sectionNums(id);
+      const info = sectionInfo(id);
+      const nums = info.nums;
       if (!nums.length) {
         say('error', '<b>Section ' + escapeHtml(label) + ' has no verses in this chapter.</b> Check its range in Literary structure.');
         return true;
       }
-      N.queue.push({ type: 'sect', id, label, nums });
+      const s = overlay._csStruct;
+      const el = id.indexOf('el-') === 0 && s ? s.elements[Number(id.slice(3))] : null;
+      N.queue.push({ type: 'sect', id, label, nums, parts: info.parts, range: el ? el.range : '' });
     }
     N.lastDone = null;
     paintBadges();
@@ -12915,11 +13099,21 @@ function setupChapterStudyNarrator(overlay) {
         if (id !== N.runId) return;
         const v = verses.find((x) => Number(x.number) === n);
         if (!v || !v.text) continue;
-        N.pos = { qi, n };
+        let text = v.text;
+        let half = '';
+        const slice = it.parts ? it.parts[n] : '';
+        if (slice === 'a' || slice === 'b') {
+          const halves = splitVerseHalves(v.text);
+          if (halves) { text = halves[slice === 'a' ? 0 : 1]; half = slice; }
+          else half = 'whole';
+        } else if (slice === '?') {
+          half = 'whole';
+        }
+        N.pos = { qi, n, half };
         markReading(n, true);
         const m = playMsg();
         say(m.kind, m.html);
-        const ok = await speakOne(v.text, voice);
+        const ok = await speakOne(text, voice);
         if (id !== N.runId) return;
         if (!ok) {
           N.playing = false;
