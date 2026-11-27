@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.23
+/* app.js – Main application controller. KJV Study PWA v7.0.25
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.23';
+const APP_VERSION = '7.0.25';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12458,10 +12458,14 @@ let narratorUtterance = null;
 
 function setupChapterStudyNarrator(overlay) {
   const btn = overlay.querySelector('#cs-narrator-btn');
-  const status = overlay.querySelector('#cs-mode-status');
+  const modeSelect = overlay.querySelector('#cs-mode-select');
   const voiceSelect = overlay.querySelector('#cs-voice-select');
   const volume = overlay.querySelector('#cs-volume');
-  if (!btn || !status || !voiceSelect || !volume) return;
+  if (!btn) return;
+  if (!modeSelect || !voiceSelect || !volume) {
+    btn.onclick = () => showAppStatus('Narrator controls not fully loaded.', 'fail');
+    return;
+  }
 
   // Load saved prefs
   const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
@@ -12485,44 +12489,48 @@ function setupChapterStudyNarrator(overlay) {
   voiceSelect.onchange = () => localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
   volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
 
-  function updateStatus() {
-    if (!status) return;
-    if (narratorState === 'select' || narratorState === 'playing') {
-      status.textContent = 'Narrator';
+  function updateModeUI() {
+    if (modeSelect.value === 'narrator') {
+      btn.style.display = '';
+      if (narratorState === 'idle') narratorState = 'select';
+      setButtonLabel();
     } else {
-      status.textContent = 'Reader';
+      btn.style.display = 'none';
+      speechSynthesis.cancel();
+      narratorState = 'idle';
+      narratorQueue = [];
     }
   }
 
   function setButtonLabel() {
-    if (narratorState === 'idle') btn.textContent = 'Narrator';
-    else if (narratorState === 'select') btn.textContent = 'Select order';
-    else btn.textContent = 'Playing';
+    if (narratorState === 'select') btn.textContent = 'Select order';
+    else if (narratorState === 'playing') btn.textContent = 'Playing';
+    else btn.textContent = 'Narrator';
   }
+
+  modeSelect.onchange = () => {
+    updateModeUI();
+    if (modeSelect.value === 'narrator') {
+      showAppStatus('Narrator mode: tap letters to queue, then tap Select order to play.', 'ok');
+    }
+  };
+  updateModeUI();
 
   btn.onclick = (e) => {
     e.stopPropagation();
-    if (narratorState === 'idle') {
-      narratorState = 'select';
-      narratorQueue = [];
-      setButtonLabel();
-      updateStatus();
-      showAppStatus('Select sections (A B C…) then tap again to play.', 'ok');
-    } else if (narratorState === 'select') {
+    if (narratorState === 'select') {
       if (!narratorQueue.length) {
         showAppStatus('Select at least one section first.', 'fail');
         return;
       }
       narratorState = 'playing';
       setButtonLabel();
-      updateStatus();
       speakQueue(overlay);
     } else {
       // playing: stop
       speechSynthesis.cancel();
       narratorState = 'idle';
       setButtonLabel();
-      updateStatus();
     }
   };
 
@@ -12644,6 +12652,7 @@ async function openChapterStudy(startKey, initialView) {
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
           '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+          '<button type="button" id="cs-save-btn" class="cs-save-tab" style="min-height:36px;margin-right:0.4rem;">Save</button>' +
           '<button type="button" class="close search-close" id="cs-min" aria-label="Minimize" title="Minimize">–</button>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
@@ -12655,13 +12664,15 @@ async function openChapterStudy(startKey, initialView) {
             '<option value="summary">Key verse</option>' +
             '<option value="images">Images</option>' +
           '</select>' +
-          '<span id="cs-mode-status" style="font-size:0.85rem;color:var(--text-dim);min-width:4.5rem;">Reader</span>' +
-          '<button type="button" id="cs-narrator-btn">Narrator</button>' +
-          '<select id="cs-voice-select" style="min-height:36px;padding:0.2rem 0.4rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);max-width:140px;" title="Choose narration voice"></select>' +
+          '<select id="cs-mode-select" style="min-height:36px;padding:0.2rem 0.5rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);">' +
+            '<option value="reader">Reader</option>' +
+            '<option value="narrator">Narrator</option>' +
+          '</select>' +
+          '<button type="button" id="cs-narrator-btn" style="min-height:36px;display:none;">Narrator</button>' +
+          '<select id="cs-voice-select" style="min-height:36px;padding:0.2rem 0.4rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);max-width:160px;" title="Choose narration voice"></select>' +
           '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:70px;"></label>' +
           '<button type="button" id="cs-show-map" style="min-height:36px;">Open map</button>' +
           '<button type="button" id="cs-switch-chapter" style="min-height:36px;">Switch Chapter</button>' +
-          '<button type="button" id="cs-save-btn" class="cs-save-tab" style="min-height:36px;">Save</button>' +
         '</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
