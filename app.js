@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.26
+/* app.js – Main application controller. KJV Study PWA v7.0.28
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.26';
+const APP_VERSION = '7.0.28';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12469,6 +12469,10 @@ function setupChapterStudyNarrator(overlay) {
     playing: 'Playing…',
     stopped: 'Stopped',
     chooseVoice: 'Choose a voice',
+    chooseVoiceFirst: 'Choose a voice first',
+    selectSection: 'Select at least one section',
+    speechFailed: 'Could not start speech',
+    noVoices: 'No voices available on this device',
     noStructure: 'No literary structure for this chapter'
   };
 
@@ -12500,6 +12504,11 @@ function setupChapterStudyNarrator(overlay) {
   const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
   function populateVoices() {
     const voices = speechSynthesis.getVoices() || [];
+    if (!voices.length) {
+      voiceSelect.innerHTML = '<option value="">Voice</option>';
+      if (modeSelect.value === 'narrator') showMsg('noVoices');
+      return;
+    }
     voiceSelect.innerHTML = '<option value="">Voice</option>' +
       voices.map(v => `<option value="${v.name}">${v.name}</option>`).join('');
     if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
@@ -12529,24 +12538,30 @@ function setupChapterStudyNarrator(overlay) {
   };
 
   startBtn.onclick = async () => {
-    if (modeSelect.value !== 'narrator' || !queue.length || playing) return;
+    if (modeSelect.value !== 'narrator') return;
+    if (!queue.length) { showMsg('selectSection'); return; }
+    const vn = localStorage.getItem('kjv-narrator-voice');
+    if (!vn) { showMsg('chooseVoiceFirst'); return; }
     playing = true;
     updateUI();
-    for (const label of queue) {
-      if (!playing) break;
-      const text = await resolveSectionKJVText(label);
-      if (!text) continue;
-      await new Promise((resolve) => {
-        const u = new SpeechSynthesisUtterance(text);
-        const voices = speechSynthesis.getVoices();
-        const vn = localStorage.getItem('kjv-narrator-voice');
-        const voice = voices.find(v => v.name === vn);
-        if (voice) u.voice = voice;
-        u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
-        u.onend = resolve;
-        u.onerror = resolve;
-        speechSynthesis.speak(u);
-      });
+    try {
+      for (const label of queue) {
+        if (!playing) break;
+        const text = await resolveSectionKJVText(label);
+        if (!text) continue;
+        await new Promise((resolve, reject) => {
+          const u = new SpeechSynthesisUtterance(text);
+          const voices = speechSynthesis.getVoices();
+          const voice = voices.find(v => v.name === vn);
+          if (voice) u.voice = voice;
+          u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+          u.onend = resolve;
+          u.onerror = () => reject(new Error('speech'));
+          speechSynthesis.speak(u);
+        });
+      }
+    } catch (e) {
+      showMsg('speechFailed');
     }
     playing = false;
     updateUI();
@@ -12675,6 +12690,8 @@ async function openChapterStudy(startKey, initialView) {
       '<div class="cs-float">' +
         '<div class="search-header-top">' +
           '<h2 class="search-title" style="margin:0">Chapter study · ' + escapeHtml(book.name + ' ' + currentChapter) + '</h2>' +
+          '<button type="button" id="cs-show-map" style="min-height:36px;margin-right:0.3rem;">Open map</button>' +
+          '<button type="button" id="cs-switch-chapter" style="min-height:36px;margin-right:0.3rem;">Switch Chapter</button>' +
           '<button type="button" id="cs-save-btn" class="cs-save-tab" style="min-height:36px;margin-right:0.4rem;">Save</button>' +
           '<button type="button" class="close search-close" id="cs-min" aria-label="Minimize" title="Minimize">–</button>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
@@ -12694,8 +12711,7 @@ async function openChapterStudy(startKey, initialView) {
           '<button type="button" id="cs-narrator-btn" style="min-height:36px;display:none;">Narrator</button>' +
           '<button type="button" id="cs-start-btn" style="min-height:36px;">Start</button><button type="button" id="cs-stop-btn" style="min-height:36px;">Stop</button><select id="cs-voice-select" style="min-height:36px;padding:0.2rem 0.4rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);max-width:160px;" title="Choose narration voice"></select>' +
           '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:70px;"></label>' +
-          '<button type="button" id="cs-show-map" style="min-height:36px;">Open map</button>' +
-          '<button type="button" id="cs-switch-chapter" style="min-height:36px;">Switch Chapter</button>' +
+          
         '</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
@@ -12709,7 +12725,7 @@ async function openChapterStudy(startKey, initialView) {
       '</div>' +
 
       '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
-      '<div id="cs-status-msg" style="padding:0.3rem 0.7rem;font-size:0.9rem;color:var(--text-dim);min-height:1.4rem;"></div>' +
+      '<div id="cs-status-msg" style="padding:0.45rem 0.8rem;font-size:0.95rem;color:var(--text);background:var(--bg-alt);border-bottom:1px solid var(--border);min-height:2rem;"></div>' +
       '<div class="cs-scroll">' +
         '<p id="cs-strip" class="cs-strip"></p>' +
         '<div id="cs-body"></div>' +
