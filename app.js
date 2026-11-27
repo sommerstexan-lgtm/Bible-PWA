@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.25
+/* app.js – Main application controller. KJV Study PWA v7.0.26
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.25';
+const APP_VERSION = '7.0.26';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12354,13 +12354,10 @@ function updateSectionBar(overlay) {
       btn.onclick = () => {
         const id = btn.dataset.sect;
         const label = btn.textContent.trim();
-        if (narratorState === 'select' && id !== 'clear' && id !== 'empty') {
-          narratorQueue.push(label);
+        if (window._narratorAddSection && id !== 'clear' && id !== 'empty') {
+          window._narratorAddSection(label);
           btn.style.background = 'var(--accent)';
           btn.style.color = '#111';
-          const status = overlay.querySelector('#cs-mode-status');
-          if (status) status.textContent = 'Narrator';
-          showAppStatus('Queued: ' + narratorQueue.join(' → '), 'ok');
           return;
         }
         if (id === 'clear') {
@@ -12457,84 +12454,110 @@ let narratorQueue = [];
 let narratorUtterance = null;
 
 function setupChapterStudyNarrator(overlay) {
-  const btn = overlay.querySelector('#cs-narrator-btn');
   const modeSelect = overlay.querySelector('#cs-mode-select');
   const voiceSelect = overlay.querySelector('#cs-voice-select');
   const volume = overlay.querySelector('#cs-volume');
-  if (!btn) return;
-  if (!modeSelect || !voiceSelect || !volume) {
-    btn.onclick = () => showAppStatus('Narrator controls not fully loaded.', 'fail');
-    return;
+  const startBtn = overlay.querySelector('#cs-start-btn');
+  const stopBtn = overlay.querySelector('#cs-stop-btn');
+  const statusEl = overlay.querySelector('#cs-status-msg');
+  if (!modeSelect || !voiceSelect || !startBtn || !stopBtn || !statusEl) return;
+
+  const MESSAGES = {
+    reader: 'Reader — letters jump to sections',
+    selectOrder: 'Select order with the letters',
+    queued: (q) => 'Queued: ' + q.join(' → ') + ' — tap Start',
+    playing: 'Playing…',
+    stopped: 'Stopped',
+    chooseVoice: 'Choose a voice',
+    noStructure: 'No literary structure for this chapter'
+  };
+
+  let queue = [];
+  let playing = false;
+
+  function showMsg(key, extra) {
+    if (typeof MESSAGES[key] === 'function') statusEl.textContent = MESSAGES[key](extra);
+    else statusEl.textContent = MESSAGES[key] || '';
   }
 
-  // Load saved prefs
-  const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
-  const savedVol = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
-  volume.value = isNaN(savedVol) ? 1 : savedVol;
-
-  function populateVoices() {
-    const voices = speechSynthesis.getVoices() || [];
-    if (!voices.length) {
-      voiceSelect.innerHTML = '<option value="">Loading voices…</option>';
+  function updateUI() {
+    const isNarr = modeSelect.value === 'narrator';
+    startBtn.style.display = isNarr ? '' : 'none';
+    stopBtn.style.display = isNarr ? '' : 'none';
+    if (!isNarr) {
+      speechSynthesis.cancel();
+      playing = false;
+      queue = [];
+      showMsg('reader');
       return;
     }
-    voiceSelect.innerHTML = voices.map(v => `<option value="${v.name}">${v.name}</option>`).join('');
+    if (playing) showMsg('playing');
+    else if (!queue.length) showMsg('selectOrder');
+    else showMsg('queued', queue);
+  }
+
+  // Voice
+  const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
+  function populateVoices() {
+    const voices = speechSynthesis.getVoices() || [];
+    voiceSelect.innerHTML = '<option value="">Voice</option>' +
+      voices.map(v => `<option value="${v.name}">${v.name}</option>`).join('');
     if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
-    else voiceSelect.value = voices[0].name;
+    else voiceSelect.value = '';
   }
   populateVoices();
   speechSynthesis.onvoiceschanged = populateVoices;
-  setTimeout(populateVoices, 500);
-
-  voiceSelect.onchange = () => localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
-  volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
-
-  function updateModeUI() {
-    if (modeSelect.value === 'narrator') {
-      btn.style.display = '';
-      if (narratorState === 'idle') narratorState = 'select';
-      setButtonLabel();
-    } else {
-      btn.style.display = 'none';
-      speechSynthesis.cancel();
-      narratorState = 'idle';
-      narratorQueue = [];
-    }
+  setTimeout(populateVoices, 300);
+  voiceSelect.onchange = () => {
+    if (voiceSelect.value) localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
+    else localStorage.removeItem('kjv-narrator-voice');
+  };
+  if (volume) {
+    const sv = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+    volume.value = isNaN(sv) ? 1 : sv;
+    volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
   }
 
-  function setButtonLabel() {
-    if (narratorState === 'select') btn.textContent = 'Select order';
-    else if (narratorState === 'playing') btn.textContent = 'Playing';
-    else btn.textContent = 'Narrator';
-  }
+  modeSelect.onchange = updateUI;
+  updateUI();
 
-  modeSelect.onchange = () => {
-    updateModeUI();
-    if (modeSelect.value === 'narrator') {
-      showAppStatus('Narrator mode: tap letters to queue, then tap Select order to play.', 'ok');
-    }
-  };
-  updateModeUI();
-
-  btn.onclick = (e) => {
-    e.stopPropagation();
-    if (narratorState === 'select') {
-      if (!narratorQueue.length) {
-        showAppStatus('Select at least one section first.', 'fail');
-        return;
-      }
-      narratorState = 'playing';
-      setButtonLabel();
-      speakQueue(overlay);
-    } else {
-      // playing: stop
-      speechSynthesis.cancel();
-      narratorState = 'idle';
-      setButtonLabel();
-    }
+  // Expose queue adder for section bar
+  window._narratorAddSection = (label) => {
+    if (modeSelect.value !== 'narrator' || playing) return;
+    queue.push(label);
+    updateUI();
   };
 
-  // After playback ends options are handled in speakQueue onend
+  startBtn.onclick = async () => {
+    if (modeSelect.value !== 'narrator' || !queue.length || playing) return;
+    playing = true;
+    updateUI();
+    for (const label of queue) {
+      if (!playing) break;
+      const text = await resolveSectionKJVText(label);
+      if (!text) continue;
+      await new Promise((resolve) => {
+        const u = new SpeechSynthesisUtterance(text);
+        const voices = speechSynthesis.getVoices();
+        const vn = localStorage.getItem('kjv-narrator-voice');
+        const voice = voices.find(v => v.name === vn);
+        if (voice) u.voice = voice;
+        u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+        u.onend = resolve;
+        u.onerror = resolve;
+        speechSynthesis.speak(u);
+      });
+    }
+    playing = false;
+    updateUI();
+  };
+
+  stopBtn.onclick = () => {
+    speechSynthesis.cancel();
+    playing = false;
+    showMsg('stopped');
+    setTimeout(updateUI, 800);
+  };
 }
 
 function getSectionText(overlay, label) {
@@ -12669,7 +12692,7 @@ async function openChapterStudy(startKey, initialView) {
             '<option value="narrator">Narrator</option>' +
           '</select>' +
           '<button type="button" id="cs-narrator-btn" style="min-height:36px;display:none;">Narrator</button>' +
-          '<select id="cs-voice-select" style="min-height:36px;padding:0.2rem 0.4rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);max-width:160px;" title="Choose narration voice"></select>' +
+          '<button type="button" id="cs-start-btn" style="min-height:36px;">Start</button><button type="button" id="cs-stop-btn" style="min-height:36px;">Stop</button><select id="cs-voice-select" style="min-height:36px;padding:0.2rem 0.4rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);max-width:160px;" title="Choose narration voice"></select>' +
           '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:70px;"></label>' +
           '<button type="button" id="cs-show-map" style="min-height:36px;">Open map</button>' +
           '<button type="button" id="cs-switch-chapter" style="min-height:36px;">Switch Chapter</button>' +
@@ -12686,6 +12709,7 @@ async function openChapterStudy(startKey, initialView) {
       '</div>' +
 
       '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
+      '<div id="cs-status-msg" style="padding:0.3rem 0.7rem;font-size:0.9rem;color:var(--text-dim);min-height:1.4rem;"></div>' +
       '<div class="cs-scroll">' +
         '<p id="cs-strip" class="cs-strip"></p>' +
         '<div id="cs-body"></div>' +
