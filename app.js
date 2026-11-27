@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.32
+/* app.js – Main application controller. KJV Study PWA v7.0.33
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.32';
+const APP_VERSION = '7.0.33';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12516,12 +12516,19 @@ function setupChapterStudyNarrator(overlay) {
     if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
     else voiceSelect.value = '';
   }
+  // Kick the browser (Chrome often needs this before voices appear)
+  speechSynthesis.getVoices();
   populateVoices();
   speechSynthesis.onvoiceschanged = populateVoices;
-  // Aggressive retries — Chrome and others often return [] on first call
-  [100, 300, 600, 1200, 2500].forEach(ms => setTimeout(populateVoices, ms));
-  // Also refresh when the dropdown is opened
+  // Keep trying for several seconds
+  let attempts = 0;
+  const timer = setInterval(() => {
+    populateVoices();
+    attempts++;
+    if (attempts > 20 || (speechSynthesis.getVoices() || []).length) clearInterval(timer);
+  }, 250);
   voiceSelect.addEventListener('focus', populateVoices);
+  voiceSelect.addEventListener('click', populateVoices);
   voiceSelect.addEventListener('mousedown', populateVoices);
   voiceSelect.onchange = () => {
     if (voiceSelect.value) localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
@@ -12533,8 +12540,20 @@ function setupChapterStudyNarrator(overlay) {
     volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
   }
 
-  modeSelect.onchange = updateUI;
+  modeSelect.onchange = () => {
+    updateUI();
+    // Guarantee message matches mode immediately
+    if (modeSelect.value === 'narrator') {
+      if (!queue.length) showMsg('selectOrder');
+      else showMsg('queued', queue);
+    } else {
+      showMsg('reader');
+    }
+  };
   updateUI();
+  // Set correct initial message
+  if (modeSelect.value === 'narrator') showMsg('selectOrder');
+  else showMsg('reader');
 
   // Expose queue adder for section bar
   window._narratorAddSection = (label) => {
