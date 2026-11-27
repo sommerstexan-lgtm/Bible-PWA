@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.2
+/* app.js – Main application controller. KJV Study PWA v7.0.21
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.18';
+const APP_VERSION = '7.0.21';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12358,7 +12358,7 @@ function updateSectionBar(overlay) {
           narratorQueue.push(label);
           btn.style.background = 'var(--accent)';
           btn.style.color = '#111';
-          const status = overlay.querySelector('#cs-narrator-status');
+          const status = overlay.querySelector('#cs-mode-status');
           if (status) status.textContent = 'Select order: ' + narratorQueue.join(' → ');
           return;
         }
@@ -12457,7 +12457,7 @@ let narratorUtterance = null;
 
 function setupChapterStudyNarrator(overlay) {
   const btn = overlay.querySelector('#cs-narrator-btn');
-  const status = overlay.querySelector('#cs-narrator-status');
+  const status = overlay.querySelector('#cs-mode-status');
   const voiceSelect = overlay.querySelector('#cs-voice-select');
   const volume = overlay.querySelector('#cs-volume');
   if (!btn || !status || !voiceSelect || !volume) return;
@@ -12480,12 +12480,11 @@ function setupChapterStudyNarrator(overlay) {
   volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
 
   function updateStatus() {
-    if (narratorState === 'select') {
-      status.textContent = narratorQueue.length ? 'Select order: ' + narratorQueue.join(' → ') : 'Select sections…';
-    } else if (narratorState === 'playing') {
-      status.textContent = 'Playing…';
+    if (!status) return;
+    if (narratorState === 'select' || narratorState === 'playing') {
+      status.textContent = 'Narrator';
     } else {
-      status.textContent = '';
+      status.textContent = 'Reader';
     }
   }
 
@@ -12555,7 +12554,7 @@ async function speakQueue(overlay) {
     else {
       narratorState = 'idle';
       const btn = overlay.querySelector('#cs-narrator-btn');
-      const status = overlay.querySelector('#cs-narrator-status');
+      const status = overlay.querySelector('#cs-mode-status');
       if (btn) btn.textContent = 'Narrator';
       if (status) status.textContent = 'Finished. Repeat / New selection available on next use.';
     }
@@ -12640,19 +12639,16 @@ async function openChapterStudy(startKey, initialView) {
           '<button type="button" class="close search-close" id="cs-min" aria-label="Minimize" title="Minimize">–</button>' +
           '<button type="button" class="close search-close" id="cs-close" aria-label="Close">×</button>' +
         '</div>' +
-        '<div class="cs-map-row">' +
-          '<button type="button" id="cs-show-map">Open map</button>' +
-          '<button type="button" id="cs-switch-chapter">Switch Chapter</button>' +
+        '<div class="cs-top-controls" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin:0.3rem 0;">' +
+          '<button type="button" id="cs-view-pill" class="cs-view-label" style="background:var(--accent);color:#111;font-weight:700;border:none;border-radius:999px;padding:0.3rem 0.8rem;min-height:36px;">Verses</button>' +
+          '<span id="cs-mode-status" style="font-size:0.85rem;color:var(--text-dim);min-width:4.5rem;">Reader</span>' +
+          '<button type="button" id="cs-narrator-btn">Narrator</button>' +
+          '<label style="font-size:0.85rem;color:var(--text-dim)">Voice <select id="cs-voice-select" style="margin-left:0.2rem;"></select></label>' +
+          '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:70px;"></label>' +
+          '<button type="button" id="cs-show-map" style="min-height:36px;">Open map</button>' +
+          '<button type="button" id="cs-switch-chapter" style="min-height:36px;">Switch Chapter</button>' +
+          '<button type="button" id="cs-save-btn" class="cs-save-tab" style="min-height:36px;">Save</button>' +
         '</div>' +
-        '<div class="cs-tabs">' +
-          '<button type="button" class="cs-tab" data-view="verses">Verses</button>' +
-          '<button type="button" class="cs-tab" data-view="notes">Verse notes</button>' +
-          '<button type="button" class="cs-tab" data-view="structure">Literary structure</button>' +
-          '<button type="button" class="cs-tab" data-view="summary">Key verse</button>' +
-          '<button type="button" class="cs-tab" data-view="images">Images</button>' +
-          '<button type="button" id="cs-save-btn" class="cs-save-tab">Save</button>' +
-        '</div>' +
-        '<div id="cs-view-label" class="cs-view-label">Verses</div>' +
         '<div class="cs-step">' +
           '<button type="button" id="cs-prev">Prev verse</button>' +
           '<button type="button" id="cs-first" title="Jump to first verse">First</button>' +
@@ -12663,12 +12659,7 @@ async function openChapterStudy(startKey, initialView) {
           '<button type="button" id="cs-next-note" title="Next verse with a note">▼</button>' +
         '</div>' +
       '</div>' +
-      '<div id="cs-narrator-controls" class="cs-narrator-controls" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;padding:0.3rem 0;margin:0.2rem 0;">' +
-        '<button type="button" id="cs-narrator-btn">Narrator</button>' +
-        '<label style="font-size:0.85rem;color:var(--text-dim)">Voice <select id="cs-voice-select" style="margin-left:0.2rem;"></select></label>' +
-        '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:80px;"></label>' +
-        '<span id="cs-narrator-status" style="font-size:0.85rem;color:var(--text-dim)"></span>' +
-      '</div>' +
+
       '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
       '<div class="cs-scroll">' +
         '<p id="cs-strip" class="cs-strip"></p>' +
@@ -12694,6 +12685,24 @@ async function openChapterStudy(startKey, initialView) {
   });
   const saveBtn = $('#cs-save-btn', overlay);
   if (saveBtn) saveBtn.onclick = () => saveChapterStudyCurrent(overlay);
+  const viewPill = overlay.querySelector('#cs-view-pill');
+  if (viewPill) {
+    const views = [
+      { id: 'verses', label: 'Verses' },
+      { id: 'notes', label: 'Verse notes' },
+      { id: 'structure', label: 'Literary structure' },
+      { id: 'summary', label: 'Key verse' },
+      { id: 'images', label: 'Images' }
+    ];
+    viewPill.onclick = () => {
+      const current = chapterStudy ? chapterStudy.view : 'verses';
+      const idx = views.findIndex(v => v.id === current);
+      const next = views[(idx + 1) % views.length];
+      switchChapterStudyView(overlay, next.id);
+      viewPill.textContent = next.label;
+    };
+  }
+
   $('#cs-prev', overlay).onclick = () => stepChapterStudyVerse(overlay, -1);
   $('#cs-next', overlay).onclick = () => stepChapterStudyVerse(overlay, 1);
   const prevNoteBtn = $('#cs-prev-note', overlay);
