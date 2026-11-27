@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.28
+/* app.js – Main application controller. KJV Study PWA v7.0.32
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.28';
+const APP_VERSION = '7.0.32';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12480,8 +12480,10 @@ function setupChapterStudyNarrator(overlay) {
   let playing = false;
 
   function showMsg(key, extra) {
-    if (typeof MESSAGES[key] === 'function') statusEl.textContent = MESSAGES[key](extra);
-    else statusEl.textContent = MESSAGES[key] || '';
+    let text = '';
+    if (typeof MESSAGES[key] === 'function') text = MESSAGES[key](extra);
+    else text = MESSAGES[key] || '';
+    statusEl.textContent = text || 'Reader — letters jump to sections';
   }
 
   function updateUI() {
@@ -12516,7 +12518,11 @@ function setupChapterStudyNarrator(overlay) {
   }
   populateVoices();
   speechSynthesis.onvoiceschanged = populateVoices;
-  setTimeout(populateVoices, 300);
+  // Aggressive retries — Chrome and others often return [] on first call
+  [100, 300, 600, 1200, 2500].forEach(ms => setTimeout(populateVoices, ms));
+  // Also refresh when the dropdown is opened
+  voiceSelect.addEventListener('focus', populateVoices);
+  voiceSelect.addEventListener('mousedown', populateVoices);
   voiceSelect.onchange = () => {
     if (voiceSelect.value) localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
     else localStorage.removeItem('kjv-narrator-voice');
@@ -12619,8 +12625,19 @@ async function speakQueue(overlay) {
 async function resolveSectionKJVText(label) {
   if (!chapterStudy) return '';
   const userKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
-  const rec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
-  const s = rec && rec.structure;
+  let rec = await storage.getLiteraryStructureUser(userKey).catch(() => null);
+  let s = rec && rec.structure;
+  // Fallback to static literary structure if user one is missing
+  if (!s || !Array.isArray(s.elements) || !s.elements.length) {
+    const book = chapterStudyBook();
+    const staticData = book ? getLiteraryStructure(book.name, chapterStudy.chapter) : null;
+    if (staticData && Array.isArray(staticData.outline)) {
+      const outlineText = staticData.outline.map(item =>
+        (item.label || '') + '  ' + (item.range || '') + (item.note ? '  —  ' + item.note : '')
+      ).join('\n');
+      s = parseStructureFromOutline(outlineText);
+    }
+  }
   if (!s || !Array.isArray(s.elements)) return '';
   const el = s.elements.find(e => e.label === label);
   if (!el || !el.range) return '';
@@ -12709,7 +12726,7 @@ async function openChapterStudy(startKey, initialView) {
             '<option value="narrator">Narrator</option>' +
           '</select>' +
           '<button type="button" id="cs-narrator-btn" style="min-height:36px;display:none;">Narrator</button>' +
-          '<button type="button" id="cs-start-btn" style="min-height:36px;">Start</button><button type="button" id="cs-stop-btn" style="min-height:36px;">Stop</button><select id="cs-voice-select" style="min-height:36px;padding:0.2rem 0.4rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);max-width:160px;" title="Choose narration voice"></select>' +
+          '<button type="button" id="cs-start-btn" style="min-height:36px;">Start</button><button type="button" id="cs-stop-btn" style="min-height:36px;">Stop</button><select id="cs-voice-select" style="min-height:40px;min-width:140px;padding:0.35rem 2rem 0.35rem 0.6rem;border-radius:8px;background:var(--bg-alt);color:var(--text);border:1px solid var(--border);font-size:0.95rem;appearance:auto;-webkit-appearance:menulist;" title="Choose narration voice"><option value="">Voice</option></select>' +
           '<label style="font-size:0.85rem;color:var(--text-dim)">Volume <input type="range" id="cs-volume" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:70px;"></label>' +
           
         '</div>' +
@@ -12725,7 +12742,7 @@ async function openChapterStudy(startKey, initialView) {
       '</div>' +
 
       '<div id="cs-section-bar" class="cs-section-bar" hidden></div>' +
-      '<div id="cs-status-msg" style="padding:0.45rem 0.8rem;font-size:0.95rem;color:var(--text);background:var(--bg-alt);border-bottom:1px solid var(--border);min-height:2rem;"></div>' +
+      '<div id="cs-status-msg" style="padding:0.45rem 0.8rem;font-size:0.95rem;color:var(--text);background:var(--bg-alt);border-bottom:1px solid var(--border);min-height:2rem;">Reader — letters jump to sections</div>' +
       '<div class="cs-scroll">' +
         '<p id="cs-strip" class="cs-strip"></p>' +
         '<div id="cs-body"></div>' +
