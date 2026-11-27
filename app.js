@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.33
+/* app.js – Main application controller. KJV Study PWA v7.0.38
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.33';
+const APP_VERSION = '7.0.38';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -12502,58 +12502,88 @@ function setupChapterStudyNarrator(overlay) {
     else showMsg('queued', queue);
   }
 
-  // Voice
+  // Voice — reliable loading
   const savedVoice = localStorage.getItem('kjv-narrator-voice') || '';
   function populateVoices() {
-    const voices = speechSynthesis.getVoices() || [];
-    if (!voices.length) {
-      voiceSelect.innerHTML = '<option value="">Voice</option>';
-      if (modeSelect.value === 'narrator') showMsg('noVoices');
-      return;
+    const voices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    const current = voiceSelect.value;
+    voiceSelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Voice';
+    voiceSelect.appendChild(placeholder);
+    if (voices && voices.length) {
+      voices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.name;
+        opt.textContent = v.name;
+        voiceSelect.appendChild(opt);
+      });
+      if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
+      else if (current && voices.some(v => v.name === current)) voiceSelect.value = current;
+      else voiceSelect.value = '';
+    } else {
+      voiceSelect.value = '';
     }
-    voiceSelect.innerHTML = '<option value="">Voice</option>' +
-      voices.map(v => `<option value="${v.name}">${v.name}</option>`).join('');
-    if (savedVoice && voices.some(v => v.name === savedVoice)) voiceSelect.value = savedVoice;
-    else voiceSelect.value = '';
   }
-  // Kick the browser (Chrome often needs this before voices appear)
-  speechSynthesis.getVoices();
-  populateVoices();
-  speechSynthesis.onvoiceschanged = populateVoices;
-  // Keep trying for several seconds
-  let attempts = 0;
-  const timer = setInterval(() => {
+  // Warm-up + repeated attempts (required on Chrome and some others)
+  if (window.speechSynthesis) {
+    speechSynthesis.getVoices();
+    speechSynthesis.onvoiceschanged = populateVoices;
     populateVoices();
-    attempts++;
-    if (attempts > 20 || (speechSynthesis.getVoices() || []).length) clearInterval(timer);
-  }, 250);
-  voiceSelect.addEventListener('focus', populateVoices);
-  voiceSelect.addEventListener('click', populateVoices);
-  voiceSelect.addEventListener('mousedown', populateVoices);
-  voiceSelect.onchange = () => {
-    if (voiceSelect.value) localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
-    else localStorage.removeItem('kjv-narrator-voice');
-  };
+    let n = 0;
+    const iv = setInterval(() => {
+      speechSynthesis.getVoices();
+      populateVoices();
+      n++;
+      if (n > 30 || speechSynthesis.getVoices().length) clearInterval(iv);
+    }, 200);
+    // Also on any interaction with the control
+    ['focus', 'click', 'mousedown', 'touchstart'].forEach(ev => {
+      voiceSelect.addEventListener(ev, () => {
+        speechSynthesis.getVoices();
+        populateVoices();
+      });
+    });
+  }
+  voiceSelect.addEventListener('change', () => {
+    if (voiceSelect.value) {
+      localStorage.setItem('kjv-narrator-voice', voiceSelect.value);
+    } else {
+      localStorage.removeItem('kjv-narrator-voice');
+    }
+  });
   if (volume) {
     const sv = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
     volume.value = isNaN(sv) ? 1 : sv;
     volume.oninput = () => localStorage.setItem('kjv-narrator-volume', volume.value);
   }
 
-  modeSelect.onchange = () => {
+  function forceMessage() {
+    if (!statusEl || !modeSelect) return;
     updateUI();
-    // Guarantee message matches mode immediately
     if (modeSelect.value === 'narrator') {
-      if (!queue.length) showMsg('selectOrder');
+      if (playing) showMsg('playing');
+      else if (!queue.length) showMsg('selectOrder');
       else showMsg('queued', queue);
     } else {
       showMsg('reader');
     }
-  };
-  updateUI();
-  // Set correct initial message
-  if (modeSelect.value === 'narrator') showMsg('selectOrder');
-  else showMsg('reader');
+  }
+  modeSelect.addEventListener('change', forceMessage);
+  modeSelect.addEventListener('input', forceMessage);
+  modeSelect.addEventListener('click', () => setTimeout(forceMessage, 30));
+  // Watchdog — corrects the message if anything else overwrites it
+  const watchdog = setInterval(() => {
+    if (!document.body.contains(modeSelect)) { clearInterval(watchdog); return; }
+    const expected = modeSelect.value === 'narrator'
+      ? (playing ? 'Playing…' : (!queue.length ? 'Select order with the letters' : null))
+      : 'Reader — letters jump to sections';
+    if (expected && statusEl.textContent !== expected && !playing) {
+      forceMessage();
+    }
+  }, 400);
+  forceMessage();
 
   // Expose queue adder for section bar
   window._narratorAddSection = (label) => {
@@ -12575,11 +12605,14 @@ function setupChapterStudyNarrator(overlay) {
         const text = await resolveSectionKJVText(label);
         if (!text) continue;
         await new Promise((resolve, reject) => {
+          speechSynthesis.cancel(); // clear any prior
           const u = new SpeechSynthesisUtterance(text);
-          const voices = speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === vn);
+          const voices = speechSynthesis.getVoices() || [];
+          let voice = voices.find(v => v.name === vn);
+          if (!voice && voices.length) voice = voices[0]; // real fallback, never hardcoded
           if (voice) u.voice = voice;
           u.volume = parseFloat(localStorage.getItem('kjv-narrator-volume') || '1');
+          u.rate = 1;
           u.onend = resolve;
           u.onerror = () => reject(new Error('speech'));
           speechSynthesis.speak(u);
