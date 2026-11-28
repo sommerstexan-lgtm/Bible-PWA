@@ -88,7 +88,9 @@ header .title {
   min-width: 120px;
 }
 
-header button, .toolbar button, .verse-actions button, .modal button, .panel button {
+/* Reading-area banners (.xref-load-bar, .load-kjv-actions) share the app button look (v7.0.42). */
+header button, .toolbar button, .verse-actions button, .modal button, .panel button,
+.xref-load-bar button, .load-kjv-actions button {
   min-height: 48px;
   min-width: 48px;
   padding: 0.5rem 0.85rem;
@@ -101,7 +103,8 @@ header button, .toolbar button, .verse-actions button, .modal button, .panel but
   touch-action: manipulation;
 }
 
-header button:hover, .toolbar button:hover, .verse-actions button:hover {
+header button:hover, .toolbar button:hover, .verse-actions button:hover,
+.xref-load-bar button:hover, .load-kjv-actions button:hover {
   background: var(--btn-hover);
 }
 
@@ -3541,7 +3544,12 @@ textarea.cs-answer {
   gap: 0.3rem;
   padding: 0.2rem 0.5rem 0.5rem;
 }
-.sb-struct-btns button {
+/* Scoped under .study-sidebar so the general sidebar button rule (full-width rows) does not override the chips. */
+.study-sidebar .sb-struct-btns button {
+  display: inline-block;
+  width: auto;
+  margin: 0;
+  text-align: center;
   min-width: 2.2rem;
   padding: 0.35rem 0.45rem;
   font-size: 0.9rem;
@@ -3550,7 +3558,7 @@ textarea.cs-answer {
   border: 1px solid var(--border, #333);
   color: inherit;
 }
-.sb-struct-btns button.sb-struct-on {
+.study-sidebar .sb-struct-btns button.sb-struct-on {
   background: var(--accent, #4fc3f7);
   color: #111;
   font-weight: 700;
@@ -3951,3 +3959,31 @@ textarea.cs-answer {
   padding: 0.55rem;
   background: rgba(129, 199, 132, 0.07);
 }
+
+
+/* ===== v7.0.41 Chapter title bar: Structure chip (replaces the unstyled Structure button) ===== */
+.chapter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.chapter-bar-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chapter-struct-chip {
+  flex-shrink: 0;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: #f4c430;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  min-height: 0;
+}
+.chapter-struct-chip:hover { filter: brightness(1.08); }

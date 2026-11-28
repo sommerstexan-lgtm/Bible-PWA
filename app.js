@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.40
+/* app.js – Main application controller. KJV Study PWA v7.0.42
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.40';
+const APP_VERSION = '7.0.42';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -1405,6 +1405,169 @@ async function init() {
   }
 }
 
+// ---------- Shared shell actions (v7.0.41) ----------
+// One place for every action the toolbar, the Study sidebar and the Menu offer.
+// Each button names an action; a fix here reaches every place that offers it.
+let sidebarSection = null; // { key: 'bookId.chapter', label } last section letter tapped in the sidebar
+
+const SHELL_ACTIONS = {
+  'chapter-study': () => { if (minimizedChapterStudyOverlay) restoreChapterStudy(); else openChapterStudy(); },
+  'listen': () => openChapterStudyNarrator(),
+  'notes': () => { if (minimizedSummary) reopenMinimizedSummary(); else openChapterStudy(undefined, 'summary'); },
+  'verse-notes': () => openNotesList(),
+  'summary-notes': () => openSummaryNotesList(),
+  'book-summary': () => openBookSummary(),
+  'context': () => openContext(),
+  'research': () => openResearch(),
+  'crossrefs': () => {
+    const key = studyVerseKey();
+    if (key) openCrossRefs(key);
+    else openSearch();
+  },
+  'anchor': () => {
+    if (readingAnchor && readingAnchor.bookId) goAnchor();
+    else showAppStatus('No Anchor yet. Go to a verse and tap Set Anchor here.', 'info');
+  },
+  'set-anchor': () => {
+    const seat = currentSeatForAnchor();
+    if (!seat) { showAppStatus('Open a chapter first.', 'fail'); return; }
+    setAnchorHere();
+    showAppStatus('Anchor set to ' + seat.label + '.', 'ok');
+  },
+  'edit-structure': () => {
+    const book = books.find((b) => b.id === currentBookId);
+    if (book && currentChapter) openChapterStructure(book, currentChapter);
+    else showAppStatus('Open a chapter first.', 'fail');
+  },
+  'places': () => restoreActiveMap(),
+  'new-route': () => openBlankMap(),
+  'measures': () => openBiblicalMeasures(),
+  'dict': () => {
+    let q = '';
+    if (pendingSelection && pendingSelection.text) {
+      q = pendingSelection.text.trim();
+    } else {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) q = sel.toString().trim();
+    }
+    if (q) q = q.split(/\s+/)[0].replace(/[^a-zA-Z'-]/g, '');
+    openDictionary(q || lastDictTerm || '');
+  },
+  'colors': () => openColorIndex(),
+  'review': () => openReviewByColor(),
+  'trail': () => {
+    if (studyTrail.nodes.length) openStudyTrail();
+    else showAppStatus('No study trail yet. Places you open are added to it as you study.', 'info');
+  },
+  'chains': () => openSavedChainsList(),
+  'search': () => openSearch(),
+  'focused': async () => {
+    if (!(await requireAnchorLeaveOk())) return;
+    if (focusedSearchSession && focusedSearchSession.overlay && focusedSearchSession.overlay.parentNode) focusedSearchSession.restore();
+    else openFocusedSearch();
+  },
+  'cs-search': () => {
+    if (csSearchSession && csSearchSession.overlay && csSearchSession.overlay.parentNode) {
+      csSearchSession.overlay.style.display = '';
+      csSearchSession.overlay.classList.remove('is-minimized');
+    } else openChapterStudySearch();
+  },
+  'general-notes': () => openGeneralNotesList(),
+  'back': () => goNavBack(),
+  'books': () => openBookNav(),
+  'switch-chapter': () => openSwitchChapterFromShell(),
+  'prev': () => changeChapter(-1),
+  'next': () => changeChapter(1),
+  'font-down': () => changeFont(-0.1),
+  'font-up': () => changeFont(0.1),
+  'clear-markers': () => clearSidebarMarkers(),
+  'print-copy': () => openPrintCopyMenu(),
+  'export': () => doExportData(),
+  'show-controls': () => showChrome(),
+  'help': () => openHelp(),
+  'menu': () => openMenu()
+};
+
+function runShellAction(name) {
+  const fn = SHELL_ACTIONS[name];
+  if (!fn) return;
+  try {
+    const r = fn();
+    if (r && typeof r.catch === 'function') r.catch(() => showAppStatus('Could not open that.', 'fail'));
+  } catch (_) {
+    showAppStatus('Could not open that.', 'fail');
+  }
+}
+
+// The sidebar slides over the text only on narrow screens (see styles.css, max-width 520px).
+function sidebarIsOverlay() {
+  return !!(window.matchMedia && window.matchMedia('(max-width: 520px)').matches);
+}
+function closeSidebarOnPhone() {
+  if (!sidebarIsOverlay()) return;
+  const sb = document.getElementById('study-sidebar');
+  if (sb) sb.classList.remove('open');
+}
+
+// The verse being studied: the newest open Tools verse in this chapter, else the verse nearest the top.
+function studyVerseKey() {
+  const open = Array.from(openVerseToolKeys || []);
+  for (let i = open.length - 1; i >= 0; i--) {
+    const p = bible.parseKey(open[i]);
+    if (p && p.bookId === currentBookId && Number(p.chapter) === Number(currentChapter)) return open[i];
+  }
+  const near = getNearestVerseKey();
+  if (near) return near;
+  return currentBookId && currentChapter ? `${currentBookId}.${currentChapter}.1` : null;
+}
+
+function waitForChapterStudyOverlay(tries) {
+  return new Promise((resolve) => {
+    let n = 0;
+    const tick = () => {
+      const ov = chapterStudyOverlayEl();
+      if (ov && chapterStudy) return resolve(ov);
+      if (++n > (tries || 40)) return resolve(null);
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+async function openChapterStudyForShell() {
+  if (minimizedChapterStudyOverlay) restoreChapterStudy();
+  else if (!chapterStudyOverlayEl()) await openChapterStudy();
+  return waitForChapterStudyOverlay();
+}
+async function openChapterStudyNarrator() {
+  const ov = await openChapterStudyForShell();
+  const sel = ov && ov.querySelector('#cs-mode-select');
+  if (!sel) return;
+  if (sel.value !== 'narrator') {
+    sel.value = 'narrator';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+async function openSwitchChapterFromShell() {
+  const ov = await openChapterStudyForShell();
+  if (ov) openSwitchChapter(ov);
+}
+
+function paintSidebarSection() {
+  const here = currentBookId + '.' + currentChapter;
+  const on = sidebarSection && sidebarSection.key === here ? sidebarSection.label : '';
+  document.querySelectorAll('#sb-structure-btns [data-struct-label]').forEach((b) => {
+    b.classList.toggle('sb-struct-on', !!on && b.getAttribute('data-struct-label') === on);
+  });
+}
+
+function updateChapterStructChip() {
+  const chip = document.getElementById('btn-chapter-structure');
+  if (!chip) return;
+  const n = currentChapterStructure && currentChapterStructure.elements ? currentChapterStructure.elements.length : 0;
+  chip.textContent = n ? ('Structure · ' + n + ' section' + (n === 1 ? '' : 's')) : 'Add structure';
+  chip.title = n ? 'Open the literary structure for this chapter' : 'This chapter has no literary structure yet. Tap to add one.';
+}
+
 function renderShell() {
   installTypingScrollGuard();
   const app = $('#app');
@@ -1438,20 +1601,27 @@ function renderShell() {
       <details open>
         <summary>Chapter Tools</summary>
         <button type="button" data-sb="chapter-study">Chapter study</button>
+        <button type="button" data-sb="listen" title="Open Chapter study with the Narrator on">Listen (Narrator)</button>
+        <button type="button" data-sb="notes" title="Chapter study, Key verse and summary">Chapter summary</button>
+        <button type="button" data-sb="verse-notes">Verse notes</button>
+        <button type="button" data-sb="summary-notes">Summary notes</button>
+        <button type="button" data-sb="book-summary">Book summary</button>
         <button type="button" data-sb="context">Context</button>
         <button type="button" data-sb="research">Research</button>
-        <button type="button" data-sb="crossrefs">Cross-references</button>
-        <button type="button" data-sb="notes">Chapter notes</button>
+        <button type="button" data-sb="crossrefs" title="Cross-references for the verse you are on">Cross-references</button>
         <button type="button" data-sb="anchor">Anchor</button>
-        <button type="button" data-sb="trail" title="Study trail">Study trail</button>
-        <div id="sb-structure-wrap" hidden>
+        <button type="button" data-sb="set-anchor" title="Set the Anchor to the verse you are on">Set Anchor here</button>
+        <div id="sb-structure-wrap">
           <div class="sb-struct-label">Structure</div>
           <div id="sb-structure-btns" class="sb-struct-btns"></div>
+          <button type="button" data-sb="edit-structure" id="sb-edit-structure">Add structure</button>
         </div>
       </details>
       <details>
         <summary>Geography</summary>
         <button type="button" data-sb="places">Places / Map</button>
+        <button type="button" data-sb="new-route">New route map</button>
+        <button type="button" data-sb="measures">Biblical measures</button>
       </details>
       <details>
         <summary>Word Study</summary>
@@ -1465,6 +1635,7 @@ function renderShell() {
       <details>
         <summary>Path</summary>
         <button type="button" data-sb="trail">Study trail</button>
+        <button type="button" data-sb="chains">Chains</button>
         <button type="button" data-sb="search">Search</button>
         <button type="button" data-sb="focused">Focused Search</button>
         <button type="button" data-sb="cs-search">Chapter study search</button>
@@ -1472,7 +1643,9 @@ function renderShell() {
       </details>
       <details>
         <summary>Navigation</summary>
+        <button type="button" data-sb="back" id="sb-back" hidden>← Back</button>
         <button type="button" data-sb="books">Books</button>
+        <button type="button" data-sb="switch-chapter" title="Chapter study, Switch Chapter">Switch chapter</button>
         <button type="button" data-sb="prev">◀ Previous</button>
         <button type="button" data-sb="next">▶ Next</button>
       </details>
@@ -1482,6 +1655,8 @@ function renderShell() {
         <button type="button" data-sb="font-up">A+ Larger</button>
       </details>
       <button type="button" data-sb="clear-markers" class="sb-standalone" title="Clear minimized markers, then optionally clear the trail">Clear markers</button>
+      <button type="button" data-sb="print-copy" class="sb-standalone">Print or copy</button>
+      <button type="button" data-sb="export" class="sb-standalone" title="Save a backup file of your notes, colors and studies">Export study data</button>
       <button type="button" data-sb="show-controls" class="sb-standalone">Show controls</button>
       <button type="button" data-sb="help" class="sb-standalone">Help</button>
       <button type="button" data-sb="menu" class="sb-standalone">Menu</button>
@@ -1510,7 +1685,7 @@ function renderShell() {
     <main id="main"></main>
   `;
 
-  $('#btn-nav').onclick = openBookNav;
+  // Toolbar, sidebar and Menu all run the same named actions (see SHELL_ACTIONS).
   const sbToggle = $('#btn-sidebar-toggle');
   if (sbToggle) {
     sbToggle.onclick = () => {
@@ -1518,94 +1693,45 @@ function renderShell() {
       if (sb) sb.classList.toggle('open');
     };
   }
-
-  $('#btn-search').onclick = openSearch;
-  $('#btn-menu').onclick = openMenu;
-  $('#btn-font-down').onclick = () => changeFont(-0.1);
-  $('#btn-font-up').onclick = () => changeFont(0.1);
-  $('#btn-colors').onclick = openColorIndex;
-  $('#btn-review').onclick = openReviewByColor;
-  $('#btn-help').onclick = openHelp;
-  $('#btn-dict').onclick = () => {
-    let q = '';
-    if (pendingSelection && pendingSelection.text) {
-      q = pendingSelection.text.trim();
-    } else {
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) q = sel.toString().trim();
-    }
-    if (q) q = q.split(/\s+/)[0].replace(/[^a-zA-Z'-]/g, '');
-    openDictionary(q);
-  };
-  $('#btn-research').onclick = () => openResearch();
-  $('#btn-context').onclick = () => openContext();
-  $('#btn-prev-ch').onclick = () => changeChapter(-1);
-  $('#btn-next-ch').onclick = () => changeChapter(1);
+  [
+    ['btn-nav', 'books'], ['btn-search', 'search'], ['btn-menu', 'menu'],
+    ['btn-font-down', 'font-down'], ['btn-font-up', 'font-up'],
+    ['btn-colors', 'colors'], ['btn-review', 'review'], ['btn-help', 'help'],
+    ['btn-summary', 'chapter-study'], ['btn-dict', 'dict'],
+    ['btn-research', 'research'], ['btn-context', 'context'],
+    ['btn-prev-ch', 'prev'], ['btn-next-ch', 'next']
+  ].forEach(([id, act]) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.onclick = () => runShellAction(act);
+  });
 
   // Study sidebar actions
   const sb = document.getElementById('study-sidebar');
   if (sb) {
     sb.addEventListener('click', (e) => {
+      const letter = e.target.closest('[data-struct-label]');
+      if (letter) {
+        // Jump to the first verse of that section only.
+        // Search scope is controlled separately by the Section row inside verse Tools.
+        const label = letter.getAttribute('data-struct-label');
+        if (!label) return;
+        sidebarSection = { key: currentBookId + '.' + currentChapter, label };
+        paintSidebarSection();
+        highlightFirstVerseOfSection(label);
+        closeSidebarOnPhone();
+        return;
+      }
       const btn = e.target.closest('[data-sb]');
       if (!btn) return;
-      const act = btn.getAttribute('data-sb');
-      switch (act) {
-        case 'chapter-study': if (minimizedChapterStudyOverlay) restoreChapterStudy(); else openChapterStudy(); break;
-        case 'context': openContext(); break;
-        case 'research': openResearch(); break;
-        case 'places': restoreActiveMap(); break;
-        case 'crossrefs': {
-          // Open cross-refs for the first verse of the current chapter if possible
-          const firstKey = currentBookId && currentChapter ? `${currentBookId}.${currentChapter}.1` : null;
-          if (firstKey) openCrossRefs(firstKey);
-          else openSearch();
-          break;
-        }
-        case 'notes': if (minimizedSummary) reopenMinimizedSummary(); else openChapterStudy(); break;
-        case 'dict': openDictionary(); break;
-        case 'colors': openColorIndex(); break;
-        case 'review': openReviewByColor(); break;
-        case 'trail': if (studyTrail.nodes.length) openStudyTrail(); else alert('No study trail yet.'); break;
-        case 'anchor': {
-          const chip = document.getElementById('anchor-chip');
-          if (chip) chip.click();
-          break;
-        }
-        case 'search': openSearch(); break;
-        case 'general-notes': openGeneralNotesList(); break;
-        case 'cs-search':
-          if (csSearchSession && csSearchSession.overlay && csSearchSession.overlay.parentNode) {
-            csSearchSession.overlay.style.display = '';
-            csSearchSession.overlay.classList.remove('is-minimized');
-          } else openChapterStudySearch();
-          break;
-        case 'focused':
-          (async () => {
-            if (!(await requireAnchorLeaveOk())) return;
-            if (focusedSearchSession && focusedSearchSession.overlay && focusedSearchSession.overlay.parentNode) focusedSearchSession.restore();
-            else openFocusedSearch();
-          })();
-          break;
-        case 'books': openBookNav(); break;
-        case 'prev': changeChapter(-1); break;
-        case 'next': changeChapter(1); break;
-        case 'font-down': changeFont(-0.1); break;
-        case 'font-up': changeFont(0.1); break;
-        case 'show-controls': showChrome(); break;
-        case 'help': openHelp(); break;
-        case 'menu': openMenu(); break;
-        case 'clear-markers': clearSidebarMarkers(); break;
-      }
+      runShellAction(btn.getAttribute('data-sb'));
+      closeSidebarOnPhone();
     });
-    // Sidebar Structure buttons: jump to the first verse of that section only.
-    // Search scope is controlled separately by the Section row inside verse Tools.
-    sb.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-struct-label]');
-      if (!btn) return;
-      const label = btn.getAttribute('data-struct-label');
-      if (!label) return;
-      highlightFirstVerseOfSection(label);
-    });
+    // Phone: a tap on the reading area closes the open sidebar.
+    document.addEventListener('pointerdown', (e) => {
+      if (!sb.classList.contains('open') || !sidebarIsOverlay()) return;
+      if (e.target.closest('#study-sidebar') || e.target.closest('#btn-sidebar-toggle')) return;
+      if (e.target.closest('#main')) sb.classList.remove('open');
+    }, true);
   }
   bindChromeReveal();
   $('#nav-back').onclick = () => goNavBack();
@@ -1629,8 +1755,6 @@ function renderShell() {
   if (notesBack) notesBack.onclick = () => returnToVerseNotes();
   if (notesBackX) notesBackX.onclick = () => dismissVerseNotesReturn();
   updateNotesReturnBar();
-  const sumBtn = document.getElementById('btn-summary');
-  if (sumBtn) sumBtn.onclick = () => { if (minimizedChapterStudyOverlay) restoreChapterStudy(); else openChapterStudy(); };
   updateAnchorUI();
   const listBtn = document.getElementById('chain-bar-list');
   const nextBtn = document.getElementById('chain-bar-next');
@@ -1723,8 +1847,7 @@ async function goNavBack() {
 }
 
 function updateNavBackButton() {
-  const btn = document.getElementById('nav-back');
-  if (!btn) return;
+  const btn = document.getElementById('nav-back') || { hidden: true, textContent: '' };
   if (navStack.length) {
     btn.hidden = false;
     const top = navStack[navStack.length - 1];
@@ -1733,7 +1856,11 @@ function updateNavBackButton() {
   } else {
     btn.hidden = true;
   }
-  updateLeftPills();
+  const sbBack = document.getElementById('sb-back');
+  if (sbBack) {
+    sbBack.hidden = !navStack.length;
+    sbBack.textContent = btn.hidden ? '← Back' : btn.textContent;
+  }
 }
 
 function persistAnchor() {
@@ -1849,6 +1976,10 @@ function updateSidebarActive() {
 }
 
 function updateLeftPills() {
+  // The floating pills are retired (styles.css hides .left-pills for good); the Study sidebar
+  // carries Back, Search, Dict and Trail. Nothing to update.
+  return;
+  // eslint-disable-next-line no-unreachable
   const left = document.getElementById('left-pills');
   if (!left) return;
   left.hidden = !chromeHidden;
@@ -3340,20 +3471,36 @@ async function changeFont(delta) {
   await storage.saveSettings(settings);
 }
 
+// Previous / Next move through the Bible in canonical order. At the first or last chapter of a
+// book they cross into the neighbouring book and say so on the message line (v7.0.42).
 async function changeChapter(dir) {
   const book = books.find(b => b.id === currentBookId);
   if (!book) {
     alert('No book loaded.');
     return;
   }
-  const total = book.chapters.length;
+  const lastOf = (bk) => Math.max(0, ...(bk.chapters || []).map((c) => Number(c.number) || 0)) || (bk.chapters || []).length;
+  let targetBook = book;
   let ch = currentChapter + dir;
-  if (ch < 1) {
-    // optional: soft feedback
-    return;
-  }
-  if (ch > total) {
-    return;
+  let crossNote = '';
+  if (ch < 1 || ch > lastOf(book)) {
+    const canon = bible.CANONICAL_BOOKS;
+    const at = canon.findIndex((b) => b.id === currentBookId);
+    const nb = at >= 0 ? canon[at + dir] : null;
+    if (!nb) {
+      showAppStatus(dir < 0
+        ? book.name + ' ' + currentChapter + ' is the first chapter of the Bible.'
+        : book.name + ' ' + currentChapter + ' is the last chapter of the Bible.', 'info');
+      return;
+    }
+    const loaded = books.find((b) => b.id === nb.id);
+    if (!loaded || !(loaded.chapters || []).length) {
+      showAppStatus(nb.name + ' is not loaded on this device. Load it from Books.', 'info');
+      return;
+    }
+    targetBook = loaded;
+    ch = dir < 0 ? lastOf(loaded) : 1;
+    crossNote = 'Now in ' + loaded.name + ' ' + ch + ' (' + (dir < 0 ? 'previous' : 'next') + ' book).';
   }
   if (!(await requireAnchorLeaveOk())) return;
   skipAnchorLeaveCheck = true;
@@ -3361,11 +3508,12 @@ async function changeChapter(dir) {
   // can be used on the new chapter without reopening Controls.
   pauseChromeHide(600);
   currentChapter = ch;
-  await renderChapter(currentBookId, currentChapter);
-  await storage.saveLastPosition({ bookId: currentBookId, chapter: currentChapter });
+  await renderChapter(targetBook.id, currentChapter);
+  await storage.saveLastPosition({ bookId: targetBook.id, chapter: currentChapter });
   updateChapterButtons();
   showChrome();
   pauseChromeHide(600);
+  if (crossNote) showAppStatus(crossNote, 'info');
 }
 
 function updateChapterButtons() {
@@ -3378,8 +3526,9 @@ function updateChapterButtons() {
     next.disabled = true;
     return;
   }
-  prev.disabled = currentChapter <= 1;
-  next.disabled = currentChapter >= book.chapters.length;
+  // Arrows stay on at a book's edge: they cross into the neighbouring book (or say why they cannot).
+  prev.disabled = false;
+  next.disabled = false;
 }
 
 // ---------- Chapter rendering ----------
@@ -4135,16 +4284,22 @@ function highlightFirstVerseOfSection(label) {
 function updateStructureSidebar() {
   const wrap = document.getElementById('sb-structure-wrap');
   const box = document.getElementById('sb-structure-btns');
+  const editBtn = document.getElementById('sb-edit-structure');
+  updateChapterStructChip();
   if (!wrap || !box) return;
-  if (!currentChapterStructure || !currentChapterStructure.elements.length) {
-    wrap.hidden = true;
+  wrap.hidden = !currentBookId;
+  const has = !!(currentChapterStructure && currentChapterStructure.elements.length);
+  if (editBtn) editBtn.textContent = has ? 'Edit structure' : 'Add structure';
+  box.hidden = !has;
+  if (!has) {
     box.innerHTML = '';
+    refreshVerseStructureScopes();
     return;
   }
-  wrap.hidden = false;
   box.innerHTML = currentChapterStructure.elements.map(el => {
     return '<button type="button" class="sb-struct-btn" data-struct-label="' + escapeHtml(el.label) + '" title="Go to ' + escapeHtml(el.range || el.label) + '">' + escapeHtml(el.label) + '</button>';
   }).join('');
+  paintSidebarSection();
   // Also refresh any open verse-tools scope rows
   refreshVerseStructureScopes();
 }
@@ -4276,9 +4431,11 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     ? `${book.name} ${chapterNum} (KJV sample)`
     : `${book.name} ${chapterNum}`;
   const chapterBar = document.getElementById('chapter-bar');
-  if (chapterBar) chapterBar.textContent = isSample
-    ? `${book.name} ${chapterNum} (KJV sample)`
-    : `${book.name} ${chapterNum}`;
+  if (chapterBar) {
+    const barTitle = isSample ? `${book.name} ${chapterNum} (KJV sample)` : `${book.name} ${chapterNum}`;
+    chapterBar.innerHTML = '<span class="chapter-bar-title">' + escapeHtml(barTitle) + '</span>' +
+      '<button type="button" id="btn-chapter-structure" class="chapter-struct-chip">Structure</button>';
+  }
 
   const main = $('#main');
   const missingBooks = missingBundledBooks();
@@ -4300,7 +4457,6 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       </div>`
     : '';
   main.innerHTML = `
-    <div style="margin:0.4rem 0 0.6rem"><button type="button" id="btn-chapter-structure" class="quiet">Structure</button></div>
     ${kjvBanner}
     ${loadBanner}
     <div id="xref-load-bar" class="xref-load-bar">
@@ -4350,9 +4506,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
     }
   }
   const enableTap = true;
-  const structRec = await getStructureRec(bookId + '.' + chapterNum).catch(() => null);
-  const chapterStructure = structRec && structRec.structure;
-  currentChapterStructure = await resolveChapterStructure(bookId, chapterNum);
+  currentChapterStructure = await resolveChapterStructure(bookId, chapterNum).catch(() => null);
   updateStructureSidebar();
 
   const bracketByVerse = new Map();
@@ -4414,7 +4568,7 @@ async function renderChapter(bookId, chapterNum, opts = {}) {
       chainCountMap[key] ? `<button type="button" class="verse-dot chain" data-act="chains" data-key="${key}" title="Chains">Chain</button>` : ''
     ].join('');
 
-    const sect = sectionForVerse(chapterStructure, v.number);
+    const sect = sectionForVerse(currentChapterStructure, v.number);
     const sectLabel = sect ? `<button type="button" class="sect-jump" data-act="sect-jump" data-key="${key}" data-sect-label="${escapeHtml(sect.label)}" title="Open Chapter study at this section">${escapeHtml(sect.label)} ${escapeHtml(sect.range)}</button>` : '';
     verseEl.innerHTML = `
       <span class="verse-num" data-act-verse="${key}" title="Word-level color suggestions">${v.number}</span>
@@ -4727,6 +4881,8 @@ function escapeHtml(str) {
 function showEmptyState() {
   const chapterBar = document.getElementById('chapter-bar');
   if (chapterBar) chapterBar.textContent = '';
+  const structWrap = document.getElementById('sb-structure-wrap');
+  if (structWrap) structWrap.hidden = true;
   $('#main').innerHTML = `
     <div class="empty-state">
       <p><strong>No books loaded yet.</strong></p>
@@ -13466,16 +13622,16 @@ function openMenu() {
     </div>
   `);
   $('.close', overlay).onclick = () => closeOverlay(overlay);
-  $('#menu-notes', overlay).onclick = () => { closeOverlay(overlay); openNotesList(); };
-  $('#menu-chapter-study', overlay).onclick = () => { closeOverlay(overlay); openChapterStudy(); };
-  $('#menu-general-notes', overlay).onclick = () => { closeOverlay(overlay); openGeneralNotesList(); };
-  $('#menu-measures', overlay).onclick = () => { closeOverlay(overlay); openBiblicalMeasures(); };
-  $('#menu-summary-notes', overlay).onclick = () => { closeOverlay(overlay); openSummaryNotesList(); };
-  $('#menu-book-summary', overlay).onclick = () => { closeOverlay(overlay); openBookSummary(); };
-  $('#menu-print-copy', overlay).onclick = () => { closeOverlay(overlay); openPrintCopyMenu(); };
-  $('#menu-chains', overlay).onclick = () => { closeOverlay(overlay); openSavedChainsList(); };
-  $('#menu-help', overlay).onclick = () => { closeOverlay(overlay); openHelp(); };
-  $('#menu-export', overlay).onclick = () => { closeOverlay(overlay); doExportData(); };
+  [
+    ['menu-notes', 'verse-notes'], ['menu-chapter-study', 'chapter-study'],
+    ['menu-general-notes', 'general-notes'], ['menu-measures', 'measures'],
+    ['menu-summary-notes', 'summary-notes'], ['menu-book-summary', 'book-summary'],
+    ['menu-print-copy', 'print-copy'], ['menu-chains', 'chains'],
+    ['menu-help', 'help'], ['menu-export', 'export']
+  ].forEach(([id, act]) => {
+    const btn = $('#' + id, overlay);
+    if (btn) btn.onclick = () => { closeOverlay(overlay); runShellAction(act); };
+  });
   $('#menu-import-data', overlay).onclick = () => { closeOverlay(overlay); openImportData(); };
   $('#menu-import-lex', overlay).onclick = () => { closeOverlay(overlay); openImportLexicon(); };
   $('#menu-import-tsk', overlay).onclick = () => { closeOverlay(overlay); openImportTsk(); };

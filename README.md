@@ -1,3 +1,26 @@
+## New in 7.0.42
+- Previous / Next move through the whole Bible. On the first chapter of a book, ◀ goes to the last chapter of the previous book (Matthew 1 → Malachi 4); on the last chapter, ▶ goes to the next book (Matthew 28 → Mark 1). The message line says "Now in Malachi 4 (previous book)" so a book change is never missed. At Genesis 1 and Revelation 22 the message line says it is the first or last chapter of the Bible. If the neighbouring book is not on this device, the message line says to load it from Books. The Anchor reminder still appears before you leave the chapter.
+- Toolbar arrows no longer turn grey at a book's first or last chapter, because they now lead to the neighbouring book.
+- Buttons in the reading-area banners (Load Cross-References, Load remaining books, Load missing books, Not now) now have the app's button style instead of the browser's plain white box.
+
+## New in 7.0.41
+- Study sidebar Structure letters are compact chips again (a style conflict made each letter a full-width row; Matthew 1 took 784px, now 369px). The letter you tap is highlighted.
+- The Structure button in the reading area is now a gold chip in the chapter title bar. It says how many sections the chapter has, or "Add structure".
+- Sidebar Structure always offers Add structure or Edit structure.
+- Verse section tags and the sidebar letters now use the same structure, including built-in ones (for example 1 Kings 22). The structure is read once per chapter instead of twice.
+- New in the sidebar:
+  - Chapter Tools: Listen (Narrator), Chapter summary (was "Chapter notes"; opens the summary), Verse notes, Summary notes, Book summary, Set Anchor here.
+  - Geography: New route map and Biblical measures.
+  - Path: Chains.
+  - Navigation: ← Back to the place you came from (shown after a jump from Search, Cross-references and the like), and Switch chapter.
+  - Bottom: Print or copy, Export study data.
+- Cross-references opens on the verse you are on (open Tools verse, otherwise the verse at the top), not always verse 1.
+- Dictionary reopens your last word.
+- Anchor with no Anchor set, and Study trail when empty, now show a message on the message line instead of doing nothing or a pop-up.
+- Phone: the sidebar closes after you choose something, or when you tap the text.
+- The duplicate Study trail button in Chapter Tools is removed (it stays in Path).
+- Toolbar, sidebar and Menu now run the same shared actions, so a fix to one reaches all three.
+
 ## New in 7.0.40
 - Half verses work everywhere. A range can name part of a verse: 6a is the first part of verse 6 and 6b the second part (for example B 2–6a, C 6b–11, E′ 25a). Literary structure, the section letters, the Section buttons, verse note Range and the narrator all read them the same way.
 - Literary structure keeps the a or b on a range. Before, 2–6a became 2–6, 6b–11 became verse 6 only, and the letter landed at the start of the note.
