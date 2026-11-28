@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.42
+/* app.js – Main application controller. KJV Study PWA v7.0.43
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.42';
+const APP_VERSION = '7.0.43';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3982,11 +3982,12 @@ async function openChapterStructure(book, chapterNum) {
     if (saveBtn && input) {
       wireStructDraftAutosave(input, userKey, overlay);
       saveBtn.onclick = async () => {
-        const text = (input.value || '').trim();
+        let text = (input.value || '').trim();
         if (!text) {
           showAppStatus('Nothing to save.', 'fail');
           return;
         }
+        text = normalizeOutlineLabels(text);
         await storage.saveLiteraryStructure(userKey, text, parseStructureFromOutline(text));
         clearStructDraft(userKey);
         showAppStatus('Structure saved.', 'ok');
@@ -4009,7 +4010,8 @@ async function openChapterStructure(book, chapterNum) {
           'X  verses  center note\n' +
           'B′ verses  short note\n' +
           'A′ verses  short note\n\n' +
-          'If the structure is not concentric, use whatever labels best fit (A, B, C… or sections). Keep notes short.\n\n' +
+          'If the structure is not concentric, use whatever labels best fit (A, B, C… or sections). Keep notes short.\n' +
+          'Label rules: mark a matching section with a single prime ′ (B pairs with B′). Every primed label must have an unprimed partner. Use a double prime ″ only for a third matching section (B, B′, B″). Never use quote marks (\' or ") in labels.\n\n' +
           'Chapter: ' + bookName + ' ' + chapter + '\n\n' +
           chapterText;
         await copyOutline(prompt);
@@ -4022,9 +4024,9 @@ async function openChapterStructure(book, chapterNum) {
 // ---------- Half-verse ranges (v7.0.40) ----------
 // One reader for every range in the app: "6", "6a", "6b", "1:6b", "2-6a", "6b-11", "22:1-4".
 // A letter after a verse number is a part of that verse (a = first part, b = second part).
-const STRUCT_PARSE_VERSION = 2;
-const OUTLINE_LINE_RE = /^([A-Za-z][A-Za-z0-9′'’]*(?:\s*\/\s*[A-Za-z][A-Za-z0-9′'’]*)*)\s+(\d+(?:\s*:\s*\d+)?[a-d]?(?:\s*[-–—]\s*\d+(?:\s*:\s*\d+)?[a-d]?)?)(?=\s|$|—)\s*(.*)$/;
-const OUTLINE_LINE_RE_OLD = /^([A-Za-z][A-Za-z0-9′']*)\s+([\d:–\-]+)\s*(.*)$/;
+const STRUCT_PARSE_VERSION = 3;
+const OUTLINE_LINE_RE = /^([A-Za-z][A-Za-z0-9′″'’‘\x22“”ʹʺ˝´`]*(?:\s*\/\s*[A-Za-z][A-Za-z0-9′″'’‘\x22“”ʹʺ˝´`]*)*)\s+(\d+(?:\s*:\s*\d+)?[a-d]?(?:\s*[-–—]\s*\d+(?:\s*:\s*\d+)?[a-d]?)?)(?=\s|$|—)\s*(.*)$/;
+const OUTLINE_LINE_RE_OLD = /^([A-Za-z][A-Za-z0-9′″'’‘\x22“”ʹʺ˝´`]*)\s+([\d:–\-]+)\s*(.*)$/;
 
 function normalizeRangeText(raw) {
   return String(raw || '').replace(/\s+/g, '').replace(/[–—]/g, '-').toLowerCase();
@@ -4094,8 +4096,38 @@ function splitVerseHalves(text) {
 function labelParts(label) {
   return String(label || '').split('/').map((p) => p.trim()).filter(Boolean);
 }
+// Prime marks in labels (v7.0.43). AI answers and typing produce look-alikes: ' ’ ‘ ´ ` ʹ for ′,
+// and " “ ” ʺ ˝ '' ’’ ′′ for ″. All are turned into the true ′ and ″.
+function fixPrimeChars(label) {
+  return String(label || '')
+    .replace(/(?:′′|''|’’|‘‘|[\x22“”ʺ˝])/g, '″')
+    .replace(/['’‘´`ʹ]/g, '′');
+}
 function primeNorm(label) {
-  return String(label || '').replace(/['’]/g, '′');
+  return fixPrimeChars(label);
+}
+function labelBase(part) {
+  return String(part || '').replace(/[′″]+$/, '');
+}
+// Clean the labels at the start of each outline line. Notes are left alone.
+// A ″ label with no ′ partner (B and B″ but no B′) is a mistake for ′ and becomes B′.
+// A real third section (B, B′, B″) keeps its ″.
+function normalizeOutlineLabels(text) {
+  const lines = String(text || '').split(/\n/);
+  const found = lines.map((line) => {
+    const lead = line.match(/^\s*/)[0];
+    const m = line.slice(lead.length).match(OUTLINE_LINE_RE) || line.slice(lead.length).match(OUTLINE_LINE_RE_OLD);
+    if (!m) return null;
+    return { lead, raw: m[1], fixed: labelParts(fixPrimeChars(m[1].replace(/\s*\/\s*/g, '/'))) };
+  });
+  const singles = new Set();
+  found.forEach((f) => f && f.fixed.forEach((p) => { if (/[^′]′$/.test(p)) singles.add(labelBase(p)); }));
+  return lines.map((line, i) => {
+    const f = found[i];
+    if (!f) return line;
+    const parts = f.fixed.map((p) => (/[^″]″$/.test(p) && !singles.has(labelBase(p))) ? labelBase(p) + '′' : p);
+    return f.lead + parts.join('/') + line.slice(f.lead.length + f.raw.length);
+  }).join('\n');
 }
 // Find an element by its label, or by one part of a combined label (D′ finds "D′/G′").
 function findElByLabel(structure, label) {
@@ -4107,7 +4139,7 @@ function findElByLabel(structure, label) {
 }
 
 function parseStructureFromOutline(text) {
-  const lines = String(text || '').split(/\n/).map(l => l.trim()).filter(Boolean);
+  const lines = normalizeOutlineLabels(text).split(/\n/).map(l => l.trim()).filter(Boolean);
   const elements = [];
   for (const line of lines) {
     let m = line.match(OUTLINE_LINE_RE);
@@ -4182,10 +4214,11 @@ async function getStructureRec(key) {
   const rec = await storage.getLiteraryStructureUser(key);
   if (!rec || !rec.structure || !String(rec.outlineText || '').trim()) return rec;
   if (Number(rec.structure.v || 0) >= STRUCT_PARSE_VERSION) return rec;
-  const up = upgradeStructure(rec.structure, rec.outlineText);
+  const cleanText = normalizeOutlineLabels(rec.outlineText);
+  const up = upgradeStructure(rec.structure, cleanText);
   if (!up) return rec;
-  try { await storage.saveLiteraryStructure(key, rec.outlineText, up); } catch (_) {}
-  return Object.assign({}, rec, { structure: up });
+  try { await storage.saveLiteraryStructure(key, cleanText, up); } catch (_) {}
+  return Object.assign({}, rec, { structure: up, outlineText: cleanText });
 }
 
 function verseNumFromRangePart(part) {
@@ -4394,12 +4427,13 @@ function openChapterStructureEditor(book, chapterNum, initialText) {
   const editInput = $('#struct-edit-input', overlay);
   wireStructDraftAutosave(editInput, userKey, overlay);
   $('#struct-edit-save', overlay).onclick = async () => {
-    const text = (editInput.value || '').trim();
+    let text = (editInput.value || '').trim();
     if (!text) {
       showAppStatus('Nothing to save.', 'fail');
       return;
     }
-    await storage.saveLiteraryStructure(userKey, text, parseStructureFromOutline(text));
+    text = normalizeOutlineLabels(text);
+        await storage.saveLiteraryStructure(userKey, text, parseStructureFromOutline(text));
     clearStructDraft(userKey);
     showAppStatus('Structure saved.', 'ok');
     closeOverlay(overlay);

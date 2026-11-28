@@ -1,3 +1,10 @@
+## New in 7.0.43
+- Literary structure: a line whose label used a double prime (for example B″) or a quote mark (B' or A") was silently dropped. Every prime or quote look-alike in a label is now read: ' ’ ‘ ´ ` become ′, and " “ ” '' become ″.
+- A ″ label with no ′ partner (B and B″ but no B′) is treated as the mistake it is and becomes B′, so it pairs with B. A real third section (B, B′, B″) keeps its ″.
+- Saving an outline stores the cleaned labels, so the editor shows B′. Outlines saved earlier are re-read once when opened, so a line that was dropped comes back and pairs correctly. Answers already typed are kept.
+- The Copy AI prompt now tells the AI the label rules: ′ for a pair, ″ only for a third section, no quote marks.
+- Notes are never changed (apostrophes such as Micaiah’s stay as written).
+
 ## New in 7.0.42
 - Previous / Next move through the whole Bible. On the first chapter of a book, ◀ goes to the last chapter of the previous book (Matthew 1 → Malachi 4); on the last chapter, ▶ goes to the next book (Matthew 28 → Mark 1). The message line says "Now in Malachi 4 (previous book)" so a book change is never missed. At Genesis 1 and Revelation 22 the message line says it is the first or last chapter of the Bible. If the neighbouring book is not on this device, the message line says to load it from Books. The Anchor reminder still appears before you leave the chapter.
 - Toolbar arrows no longer turn grey at a book's first or last chapter, because they now lead to the neighbouring book.
