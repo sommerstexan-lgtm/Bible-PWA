@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.43
+/* app.js – Main application controller. KJV Study PWA v7.0.44
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.43';
+const APP_VERSION = '7.0.44';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -3869,6 +3869,24 @@ function saveStructDraft(userKey, text) {
 function clearStructDraft(userKey) {
   try { localStorage.removeItem(structDraftKey(userKey)); } catch (_) {}
 }
+// v7.0.44: an outline typed in the Structure box but never saved lives only as a draft.
+// The chapter study, the letter bar and the narrator read SAVED structures only, so a draft
+// looked like "no literary structure". This saves the draft for real.
+async function saveStructDraftAsStructure(userKey, rawText) {
+  let text = String(rawText == null ? loadStructDraft(userKey) : rawText).trim();
+  if (!text) return false;
+  text = normalizeOutlineLabels(text);
+  const parsed = parseStructureFromOutline(text);
+  if (!parsed || !Array.isArray(parsed.elements) || !parsed.elements.length) {
+    showAppStatus('That outline has no lines the app can read. Each line needs a letter, then verses, then a note, like: A  1-4  note', 'fail');
+    return false;
+  }
+  await storage.saveLiteraryStructure(userKey, text, parsed);
+  clearStructDraft(userKey);
+  showAppStatus('Structure saved.', 'ok');
+  refreshOpenChapterStudyBar();
+  return true;
+}
 function wireStructDraftAutosave(textarea, userKey, overlay) {
   if (!textarea) return;
   let timer = null;
@@ -3930,7 +3948,7 @@ async function openChapterStructure(book, chapterNum) {
       '</div>';
   } else {
     body = '<p class="theme-note">No structure note for this chapter yet.</p>' +
-      (hasDraft ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved outline.</p>' : '') +
+      (hasDraft ? '<p class="theme-note" style="margin:0 0 0.4rem;color:var(--warn,#f2c94c)"><b>This outline is not saved yet.</b> Tap Save outline below so Chapter study and the letter buttons can use it.</p>' : '') +
       '<textarea id="struct-input" style="width:100%;min-height:160px;margin:0.5rem 0;font-family:inherit;font-size:1rem;padding:0.4rem" placeholder="Paste or type an outline here…\n\nA  1:1-4  note\nB  1:5-8  note\nX  1:9-12  center\nB′ 1:13-16 note\nA′ 1:17-18 note">' + escapeHtml(hasDraft ? draft : '') + '</textarea>' +
       '<div style="display:flex;gap:0.4rem;flex-wrap:wrap">' +
         '<button type="button" id="struct-save" style="flex:1;min-height:48px">Save outline</button>' +
@@ -3982,17 +4000,12 @@ async function openChapterStructure(book, chapterNum) {
     if (saveBtn && input) {
       wireStructDraftAutosave(input, userKey, overlay);
       saveBtn.onclick = async () => {
-        let text = (input.value || '').trim();
+        const text = (input.value || '').trim();
         if (!text) {
           showAppStatus('Nothing to save.', 'fail');
           return;
         }
-        text = normalizeOutlineLabels(text);
-        await storage.saveLiteraryStructure(userKey, text, parseStructureFromOutline(text));
-        clearStructDraft(userKey);
-        showAppStatus('Structure saved.', 'ok');
-        closeOverlay(overlay);
-        refreshOpenChapterStudyBar();
+        if (await saveStructDraftAsStructure(userKey, text)) closeOverlay(overlay);
       };
     }
     const promptBtn = $('#struct-prompt', overlay);
@@ -12100,8 +12113,22 @@ async function paintChapterStudyBody(overlay) {
       const last = recallLastSection(chapterStudy.bookId, chapterStudy.chapter);
       if (last) setTimeout(() => scrollToStructSection(overlay, last), 80);
     } else {
-      body.innerHTML = '<p class="cs-meta">No literary structure is defined for this chapter yet.</p>' +
-        '<button type="button" id="cs-define-struct" style="width:100%;margin-top:0.6rem;min-height:52px">Define literary structure</button>';
+      const pendingDraft = loadStructDraft(userKey).trim();
+      body.innerHTML = pendingDraft
+        ? '<p class="cs-meta"><b>You typed an outline for this chapter, but it was never saved.</b> Until it is saved, Chapter study and the letter buttons cannot use it.</p>' +
+          '<pre style="white-space:pre-wrap;font-family:inherit;margin:0.4rem 0;padding:0.5rem;border:1px solid var(--border);border-radius:8px;line-height:1.4">' + escapeHtml(pendingDraft) + '</pre>' +
+          '<button type="button" id="cs-save-draft-struct" style="width:100%;margin-top:0.6rem;min-height:52px">Save this outline</button>' +
+          '<button type="button" id="cs-define-struct" class="quiet" style="width:100%;margin-top:0.4rem;min-height:48px">Edit it first</button>'
+        : '<p class="cs-meta">No literary structure is defined for this chapter yet.</p>' +
+          '<button type="button" id="cs-define-struct" style="width:100%;margin-top:0.6rem;min-height:52px">Define literary structure</button>';
+      const saveDraftBtn = body.querySelector('#cs-save-draft-struct');
+      if (saveDraftBtn) {
+        saveDraftBtn.onclick = async () => {
+          try { await saveStructDraftAsStructure(userKey); } catch (_) {
+            showAppStatus('Could not save the outline.', 'fail');
+          }
+        };
+      }
       const defineBtn = body.querySelector('#cs-define-struct');
       if (defineBtn) {
         defineBtn.onclick = () => {
@@ -12727,7 +12754,11 @@ function updateSectionBar(overlay) {
           return;
         }
         if (!hasStructure || id === 'empty') {
-          showAppStatus(chapterStudyTitle().trim() + ' has no literary structure yet, so letter ' + label + ' has nowhere to go. Choose Literary structure in the first menu to add one.', 'todo');
+          if (loadStructDraft(userKey).trim()) {
+            showAppStatus('Your outline for ' + chapterStudyTitle().trim() + ' is not saved yet, so letter ' + label + ' has nowhere to go. Open Literary structure in the first menu and tap Save this outline.', 'todo');
+          } else {
+            showAppStatus(chapterStudyTitle().trim() + ' has no literary structure yet, so letter ' + label + ' has nowhere to go. Open Literary structure in the first menu and tap Define literary structure.', 'todo');
+          }
           return;
         }
         rememberLastSection(chapterStudy.bookId, chapterStudy.chapter, id);
@@ -12787,7 +12818,12 @@ function refreshOpenChapterStudyBar() {
   const panel = document.querySelector('.overlay .cs-panel');
   if (!panel || !chapterStudy) return;
   const overlay = panel.closest('.overlay') || panel.parentElement;
-  if (overlay) updateSectionBar(overlay);
+  if (!overlay) return;
+  updateSectionBar(overlay);
+  if ((chapterStudy.view || 'verses') === 'structure' && !chapterStudy.structDirty) {
+    chapterStudy.structDraft = null;
+    paintChapterStudyBody(overlay);
+  }
 }
 function minimizeChapterStudy(overlay) {
   if (!overlay) return;
@@ -12909,7 +12945,9 @@ function chapterStudyDefaultMessage(overlay) {
   if (count === 0) {
     return {
       kind: 'todo',
-      html: head + 'No literary structure yet, so the letters are only placeholders. Choose <b>Literary structure</b> in the first menu to add one.'
+      html: loadStructDraft(chapterStudy.bookId + '.' + chapterStudy.chapter).trim()
+        ? head + '<b>Your outline for this chapter is not saved yet,</b> so the letters are only placeholders. Choose <b>Literary structure</b> in the first menu and tap <b>Save this outline</b>.'
+        : head + 'No literary structure yet, so the letters are only placeholders. Choose <b>Literary structure</b> in the first menu, then tap <b>Define literary structure</b>.'
     };
   }
   const tips = {
@@ -13089,7 +13127,12 @@ function setupChapterStudyNarrator(overlay) {
     if (!N.isOn() || id === 'clear') return false;
     if (N.playing) { say('todo', '<b>Reading now.</b> Tap Stop before you change the order.'); return true; }
     if (id === 'empty') {
-      say('error', '<b>' + escapeHtml(chapterStudyTitle().trim()) + ' has no literary structure yet,</b> so letters cannot be read. Tap verse buttons instead, or add a structure in Literary structure.');
+      const draftKey = chapterStudy.bookId + '.' + chapterStudy.chapter;
+      if (loadStructDraft(draftKey).trim()) {
+        say('error', '<b>Your outline for ' + escapeHtml(chapterStudyTitle().trim()) + ' is not saved yet,</b> so letters cannot be read. Open Literary structure in the first menu and tap Save this outline.');
+      } else {
+        say('error', '<b>' + escapeHtml(chapterStudyTitle().trim()) + ' has no literary structure yet,</b> so letters cannot be read. Tap verse buttons instead, or add a structure in Literary structure.');
+      }
       return true;
     }
     const i = N.queue.findIndex((q) => q.type === 'sect' && q.id === id);
