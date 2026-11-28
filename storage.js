@@ -401,6 +401,17 @@ export async function deleteSharedNote(id) {
 }
 
 /* ----- General notes (titled, not tied to a verse) ----- */
+// Custom categories live in localStorage under this key (app.js reads/writes it);
+// they ride along in Export / Import study data.
+const CUSTOM_CATEGORIES_KEY = 'kjv-custom-categories';
+function readCustomCategories() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_CATEGORIES_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    return (map && typeof map === 'object') ? map : {};
+  } catch (_) { return {}; }
+}
+
 function newGeneralNoteId() {
   return 'gn_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
@@ -423,12 +434,14 @@ export async function getAllGeneralNotes() {
   });
 }
 
-export async function saveGeneralNote(note) {
+// opts.touch === false keeps the note's "last edited" time. Used for category
+// rename/delete and for import, so those never reshuffle the Last edited order.
+export async function saveGeneralNote(note, opts = {}) {
   await openDB();
   const now = new Date().toISOString();
   if (!note.id) note.id = newGeneralNoteId();
   if (!note.createdAt) note.createdAt = now;
-  note.updatedAt = now;
+  if (opts.touch !== false || !note.updatedAt) note.updatedAt = now;
   note.title = (note.title || '').trim();
   note.text = note.text || '';
   return new Promise((res, rej) => {
@@ -737,6 +750,7 @@ export async function exportAllData() {
     wordMarks,
     chains,
     generalNotes,
+    generalNoteCategories: readCustomCategories(),
     summaryNotes: summaryNotesClean,
     noteImages: imagesOut
   };
@@ -820,8 +834,15 @@ export async function importAllData(data, { replace = true } = {}) {
 
   if (Array.isArray(data.generalNotes)) {
     for (const note of data.generalNotes) {
-      if (note && note.id) await saveGeneralNote(note);
+      if (note && note.id) await saveGeneralNote(note, { touch: false });
     }
+  }
+
+  // Custom General-note categories (name -> definition). Merged: a category
+  // already on this device keeps its definition.
+  if (data.generalNoteCategories && typeof data.generalNoteCategories === 'object') {
+    const merged = Object.assign({}, data.generalNoteCategories, readCustomCategories());
+    try { localStorage.setItem(CUSTOM_CATEGORIES_KEY, JSON.stringify(merged)); } catch (_) {}
   }
 
   if (Array.isArray(data.summaryNotes)) {

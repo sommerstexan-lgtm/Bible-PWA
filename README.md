@@ -1,3 +1,25 @@
+## New in 7.0.45
+**General notes: sort, search, coverage grid**
+- **Sort:** Last edited, Date created, Title A–Z, Canon order (English Bible), or Canon order (Hebrew Bible: Torah, Prophets, Writings, with Chronicles last). Canon order reads the book and chapter from the start of the title ("1 Chronicles 25 …") and puts a heading over each book. Notes whose title has no passage go last, under "No passage in title".
+- **Filter:** by category (with counts, including Uncategorized) and by book or group (Law, History, Poetry & Wisdom, Major and Minor Prophets, Gospels & Acts, Paul's letters, Hebrews–Revelation, OT, NT).
+- **Search in:** Title + note, Title only, or Note only. Several words match in any order, and "quotes" match an exact phrase. Matches are highlighted, and the preview shows the text around the match.
+- **Reopens where you left off:** the same filters, sort, search and scroll position, with the last note you opened outlined.
+- **Coverage grid:** pick a book and see every chapter as a tile. A filled tile has a note, an empty one has none, and ×2 means a duplicate. The grid shows "8 of 29 chapters · 21 missing". Tap an empty chapter to start a note with its title and category filled in.
+- **Previous / Next** in the note editor follow the list order. If there are unsaved edits, the app asks before moving on.
+- **Print / copy list:** every note in the current list, in order, as one document.
+- **Open in reader** on each row whose title names a passage.
+- Each row shows its passage and its Last edited date. A Chapter overview or Verse note whose title has no passage is flagged with a ⚠ in the list and in the editor.
+
+**Fixes**
+- A note's category was lost after going to Chapter study or Research and back, and then pressing Save.
+- Renaming a built-in category left the renamed name out of the editor's list, so the next Save removed it from the note. The new name now keeps the definition.
+- Custom categories were not in Export study data. They are now, and Import merges them.
+- Renaming or deleting a category, and importing a backup, no longer reset the notes' Last edited dates.
+- The Delete category message now shows the category name.
+- Manage categories no longer leaves a second General notes window open underneath.
+- Deleting a note removes its images only after the note itself is deleted.
+- Help described General notes features that did not exist. It now describes the real screen.
+
 ## New in 7.0.43
 - Literary structure: a line whose label used a double prime (for example B″) or a quote mark (B' or A") was silently dropped. Every prime or quote look-alike in a label is now read: ' ’ ‘ ´ ` become ′, and " “ ” '' become ″.
 - A ″ label with no ′ partner (B and B″ but no B′) is treated as the mistake it is and becomes B′, so it pairs with B. A real third section (B, B′, B″) keeps its ″.

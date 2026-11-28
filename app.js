@@ -1,4 +1,4 @@
-/* app.js – Main application controller. KJV Study PWA v7.0.44
+/* app.js – Main application controller. KJV Study PWA v7.0.45
 Client-side only. Personal data never leaves the device.
 Highlight system: solid background fills + mandatory pure black/white contrast text.
 */
@@ -17,7 +17,7 @@ import { getLiteraryStructure } from './literary-structures.js';
 import { createFocusedSearch } from './focused-search.js';
 
 // ---------- App version (keep in lockstep with sw.js CACHE_NAME and version.json) ----------
-const APP_VERSION = '7.0.44';
+const APP_VERSION = '7.0.45';
 const THEO_API = 'https://bible.helloao.org/api/d/theographic';
 let theoPlacesIndex = null;
 let theoPlacesIndexPromise = null;
@@ -10309,7 +10309,10 @@ async function loadCurrentChapterSummary() {
   return loadChapterSummaryFor(currentBookId, currentChapter);
 }
 
-function openGeneralNoteEditor(existing) {
+function openGeneralNoteEditor(existing, opts = {}) {
+  // opts.preset {title, category}: a fresh note started from the coverage grid.
+  const preset = opts && opts.preset ? opts.preset : null;
+  if (preset) existing = null;
   const isNew = !existing || !existing.id;
   const isResume = !!(existing && !existing.id);
   const gnId = existing && existing.id ? existing.id : null;
@@ -10320,7 +10323,15 @@ function openGeneralNoteEditor(existing) {
   // still carries the note the user was writing.
   if (isNew && !isResume && storedHasText) clearGnDraft(null);
   const gnDraft = (isNew && !isResume) ? null : storedDraft;
-  const gnTitle = (gnDraft && gnDraft.title) ? gnDraft.title : (existing && existing.title ? existing.title : '');
+  const gnTitle = (gnDraft && gnDraft.title) ? gnDraft.title : (existing && existing.title ? existing.title : (preset && preset.title ? preset.title : ''));
+  const navIdx = gnId ? gnNavIds.indexOf(gnId) : -1;
+  const gnNavRow = navIdx >= 0 && gnNavIds.length > 1
+    ? `<div class="gn-nav-row">
+        <button type="button" id="gn-prev"${navIdx === 0 ? ' disabled' : ''}>‹ Previous</button>
+        <span class="gn-nav-pos">${navIdx + 1} of ${gnNavIds.length} in list</span>
+        <button type="button" id="gn-next"${navIdx === gnNavIds.length - 1 ? ' disabled' : ''}>Next ›</button>
+      </div>`
+    : '';
   const gnText = (gnDraft && typeof gnDraft.text === 'string') ? gnDraft.text : (existing && existing.text ? existing.text : '');
   const gnDraftNote = (!isNew && gnDraft && (String(gnDraft.title || '').trim() || String(gnDraft.text || '').trim()))
     ? '<p class="theme-note" style="margin:0 0 0.4rem">Restored unsaved edits for this note.</p>'
@@ -10331,6 +10342,7 @@ function openGeneralNoteEditor(existing) {
         <h2 style="margin:0;border:none;padding:0">${isNew ? 'New general note' : 'Edit general note'}</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
+      ${gnNavRow}
       <div class="gn-body">
         <div class="gn-ref" id="gn-ref">
           <button type="button" id="gn-toggle-ref" class="gn-toggle-ref">Show reference</button>
@@ -10352,7 +10364,9 @@ function openGeneralNoteEditor(existing) {
         <div class="gn-editor">
           ${gnDraftNote}
           <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Title</label>
-          <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(gnTitle)}" autocomplete="off" style="margin-bottom:0.7rem">
+          <input type="text" id="gn-title" class="search-box" placeholder="Name this note" value="${escapeHtml(gnTitle)}" autocomplete="off" style="margin-bottom:0.3rem">
+          <p id="gn-title-warn" class="gn-title-warn" hidden>⚠ This title does not start with a book and chapter (for example “1 Chronicles 25 …”), so the note will not sort in canon order or show in the coverage grid.</p>
+          <div style="height:0.4rem"></div>
           <div style="margin-bottom:0.7rem">
             <label style="display:block;font-size:0.9em;color:var(--text-dim);margin-bottom:0.3rem">Category</label>
             <select id="gn-category" style="width:100%;min-height:44px;padding:0.4rem;border-radius:8px">
@@ -10379,15 +10393,27 @@ function openGeneralNoteEditor(existing) {
   // Category select + new-category flow (definition first, similarity check)
   const catSelect = $('#gn-category', overlay);
   const newCatBtn = $('#gn-new-cat', overlay);
+  const startCategory = (existing && existing.category) || (preset && preset.category) || '';
   function fillCategorySelect(selected) {
     const defs = getAllCategoryDefs();
-    const names = Object.keys(defs).sort();
+    // A note's own category is always offered, even with no definition on this
+    // device, so Save can never silently drop it.
+    const names = Array.from(new Set([...Object.keys(defs), ...(startCategory ? [startCategory] : [])])).sort();
     catSelect.innerHTML = '<option value="">Uncategorized</option>' +
       names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-    if (selected && defs[selected]) catSelect.value = selected;
-    else if (existing && existing.category && defs[existing.category]) catSelect.value = existing.category;
+    catSelect.value = selected || startCategory || '';
   }
   fillCategorySelect();
+
+  const titleWarn = $('#gn-title-warn', overlay);
+  function updateTitleWarn() {
+    if (!titleWarn) return;
+    const t = ($('#gn-title', overlay).value || '').trim();
+    titleWarn.hidden = !(GN_PASSAGE_CATS.includes(catSelect.value) && t && !gnPassage(t));
+  }
+  $('#gn-title', overlay).addEventListener('input', updateTitleWarn);
+  catSelect.addEventListener('change', updateTitleWarn);
+  updateTitleWarn();
 
   if (newCatBtn) {
     newCatBtn.onclick = () => {
@@ -10415,6 +10441,7 @@ function openGeneralNoteEditor(existing) {
         const reuse = confirm(`This definition looks close to “${closest}”.\n\nSimilarity score: ${Math.round(best*100)}%\n\nUse the existing category “${closest}” instead of creating a new one?\n\nOK = use existing\nCancel = keep the new category`);
         if (reuse) {
           catSelect.value = closest;
+          updateTitleWarn();
           return;
         }
       }
@@ -10423,6 +10450,7 @@ function openGeneralNoteEditor(existing) {
       custom[name] = def;
       saveCustomCategories(custom);
       fillCategorySelect(name);
+      updateTitleWarn();
       alert(`Category “${name}” created.`);
     };
   }
@@ -10447,6 +10475,7 @@ function openGeneralNoteEditor(existing) {
         title: ($('#gn-title', overlay).value || '').trim(),
         text: $('#gn-text', overlay).value || '',
         imageIds: gnImgs.getIds(),
+        category: ($('#gn-category', overlay).value || '').trim() || undefined,
         createdAt: existing && existing.createdAt
       };
     }
@@ -10893,37 +10922,77 @@ function openGeneralNoteEditor(existing) {
     disposeGnDraft();
     if (clearDraft) clearGnDraft(gnId);
   };
-  $('#gn-save', overlay).onclick = async () => {
+  // What is saved now, to tell whether Previous / Next would lose edits.
+  const savedState = JSON.stringify([
+    (existing && existing.title) || '', (existing && existing.text) || '',
+    (existing && existing.category) || '', (existing && existing.imageIds) || []
+  ]);
+  function currentState() {
+    return JSON.stringify([
+      ($('#gn-title', overlay).value || '').trim(), $('#gn-text', overlay).value || '',
+      ($('#gn-category', overlay).value || '').trim(), gnImgs.getIds() || []
+    ]);
+  }
+  async function doSave() {
     const title = ($('#gn-title', overlay).value || '').trim() || 'Untitled note';
     const text = $('#gn-text', overlay).value || '';
+    const category = ($('#gn-category', overlay).value || '').trim();
+    const saved = await storage.saveGeneralNote({
+      id: existing && existing.id,
+      title,
+      text,
+      category: category || undefined,
+      imageIds: gnImgs.getIds(),
+      createdAt: existing && existing.createdAt
+    });
+    sealGeneralNoteDraft(true);
+    if (saved && saved.id) gnSetLastId(saved.id);
+    return saved;
+  }
+  $('#gn-save', overlay).onclick = async () => {
     try {
-      const category = ($('#gn-category', overlay).value || '').trim();
-      await storage.saveGeneralNote({
-        id: existing && existing.id,
-        title,
-        text,
-        category: category || undefined,
-        imageIds: gnImgs.getIds(),
-        createdAt: existing && existing.createdAt
-      });
-      sealGeneralNoteDraft(true);
+      await doSave();
       close();
       openGeneralNotesList();
     } catch (_) {
       alert('Could not save the note.');
     }
   };
+  async function goNeighbour(step) {
+    const i = gnNavIds.indexOf(gnId);
+    const targetId = i >= 0 ? gnNavIds[i + step] : null;
+    if (!targetId) return;
+    if (currentState() !== savedState) {
+      if (!confirm('Save changes to this note before moving on?\n\nOK = save and move\nCancel = stay on this note')) return;
+      try { await doSave(); } catch (_) { alert('Could not save the note.'); return; }
+    } else {
+      sealGeneralNoteDraft(true);
+    }
+    let rec = null;
+    try { rec = await storage.getGeneralNote(targetId); } catch (_) {}
+    if (!rec) { showAppStatus('That note is no longer here.', 'fail'); return; }
+    gnSetLastId(targetId);
+    close();
+    openGeneralNoteEditor(rec);
+  }
+  const prevBtn = $('#gn-prev', overlay);
+  const nextBtn = $('#gn-next', overlay);
+  if (prevBtn) prevBtn.onclick = () => goNeighbour(-1);
+  if (nextBtn) nextBtn.onclick = () => goNeighbour(1);
   const del = $('#gn-delete', overlay);
   if (del) {
     del.onclick = async () => {
       if (!confirm('Delete this general note?')) return;
       try {
-        try { await storage.deleteNoteImages(existing.imageIds || []); } catch (_) {}
         await storage.deleteGeneralNote(existing.id);
-        sealGeneralNoteDraft(true);
       } catch (_) {
-        sealGeneralNoteDraft(true);
+        alert('Could not delete the note.');
+        return;
       }
+      // Images go only after the note itself is gone.
+      try { await storage.deleteNoteImages(existing.imageIds || []); } catch (_) {}
+      sealGeneralNoteDraft(true);
+      gnNavIds = gnNavIds.filter(x => x !== existing.id);
       close();
       openGeneralNotesList();
     };
@@ -10945,7 +11014,8 @@ async function openManageCategories(currentList, onChanged) {
   (currentList || []).forEach(n => {
     if (n.category) used[n.category] = (used[n.category] || 0) + 1;
   });
-  const names = Object.keys(defs).sort();
+  // Include names that notes use even if no definition exists (e.g. from an old backup).
+  const names = Array.from(new Set([...Object.keys(defs), ...Object.keys(used)])).sort();
 
   const rows = names.map(name => {
     const count = used[name] || 0;
@@ -10953,7 +11023,7 @@ async function openManageCategories(currentList, onChanged) {
     return `
       <div class="xref-item" style="margin-bottom:0.5rem;padding:0.6rem;display:flex;flex-direction:column;gap:0.4rem">
         <div><strong>${escapeHtml(name)}</strong> <span style="color:var(--text-dim);font-size:0.85em">(${count} note${count===1?'':'s'})</span></div>
-        <div style="color:var(--text-dim);font-size:0.9em">${escapeHtml(defs[name] || '')}</div>
+        <div style="color:var(--text-dim);font-size:0.9em">${escapeHtml(defs[name] || 'No definition on this device.')}</div>
         <div style="display:flex;gap:0.4rem">
           <button type="button" class="gn-rename" data-name="${escapeHtml(name)}" style="flex:1;min-height:40px">Rename</button>
           <button type="button" class="gn-delete" data-name="${escapeHtml(name)}" style="flex:1;min-height:40px"${isBuiltin ? ' disabled title="Built-in categories can be cleared from notes but not removed"' : ''}>Delete</button>
@@ -10967,7 +11037,7 @@ async function openManageCategories(currentList, onChanged) {
         <h2 style="margin:0;border:none;padding:0">Manage categories</h2>
         <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
       </div>
-      <p style="color:var(--text-dim);font-size:0.9em;margin-bottom:0.7rem">Rename updates every note that uses the old name. Delete clears the category from notes (built-in definitions stay available).</p>
+      <p style="color:var(--text-dim);font-size:0.9em;margin-bottom:0.7rem">Rename updates every note that uses the old name and keeps its definition. Delete clears the category from notes (built-in definitions stay available). Neither changes a note’s Last edited date.</p>
       <div style="max-height:65vh;overflow:auto">${rows || '<p>No categories yet.</p>'}</div>
     </div>
   `);
@@ -10982,23 +11052,23 @@ async function openManageCategories(currentList, onChanged) {
         alert('A category with that name already exists.');
         return;
       }
-      // Update notes
       let notes = [];
       try { notes = await storage.getAllGeneralNotes(); } catch (_) {}
       for (const n of notes) {
         if (n.category === oldName) {
           n.category = newName;
-          await storage.saveGeneralNote(n);
+          await storage.saveGeneralNote(n, { touch: false });
         }
       }
-      // Update custom defs if present
+      // The new name always gets the old definition, so it shows in the editor's
+      // Category list (a built-in keeps its own entry too).
       const custom = loadCustomCategories();
-      if (custom[oldName]) {
-        custom[newName] = custom[oldName];
-        delete custom[oldName];
-        saveCustomCategories(custom);
-      }
-      // If it was builtin, the definition stays under old name; user may want to re-add, but for simplicity we leave it
+      custom[newName] = defs[oldName] || custom[oldName] || 'Renamed from “' + oldName + '”.';
+      if (custom[oldName]) delete custom[oldName];
+      saveCustomCategories(custom);
+      const view = loadGnView();
+      if (view.cat === oldName) { view.cat = newName; saveGnView(view); }
+      if (view.gridCat === oldName) { view.gridCat = newName; saveGnView(view); }
       closeOverlay(overlay);
       if (onChanged) onChanged();
     };
@@ -11008,63 +11078,431 @@ async function openManageCategories(currentList, onChanged) {
     btn.onclick = async () => {
       const name = btn.dataset.name;
       const count = used[name] || 0;
-      if (!confirm('Remove “‘ + name + ’” from ' + count + ' note' + (count===1?'':'s') + '?\n\nThe notes will become Uncategorized.')) return;
+      if (!confirm('Remove “' + name + '” from ' + count + ' note' + (count===1?'':'s') + '?\n\nThe notes will become Uncategorized.')) return;
       let notes = [];
       try { notes = await storage.getAllGeneralNotes(); } catch (_) {}
       for (const n of notes) {
         if (n.category === name) {
           delete n.category;
-          await storage.saveGeneralNote(n);
+          await storage.saveGeneralNote(n, { touch: false });
         }
       }
-      // Remove from custom if present
       const custom = loadCustomCategories();
       if (custom[name]) {
         delete custom[name];
         saveCustomCategories(custom);
       }
+      const view = loadGnView();
+      if (view.cat === name) { view.cat = ''; saveGnView(view); }
       closeOverlay(overlay);
       if (onChanged) onChanged();
     };
   });
 }
 
+/* ----- General notes list: sort, scope, book filter, coverage grid ----- */
+const GN_VIEW_KEY = 'kjv-gn-view';
+const GN_PASSAGE_CATS = ['Chapter overviews', 'Verse notes'];
+const GN_SORTS = {
+  edited: 'Last edited',
+  created: 'Date created (newest)',
+  canon: 'Canon order (English Bible)',
+  hebrew: 'Canon order (Hebrew Bible)',
+  title: 'Title A–Z'
+};
+const GN_SCOPES = { both: 'Title + note', title: 'Title only', body: 'Note only' };
+// Tanakh: Torah, Nevi'im, Ketuvim (Chronicles last). NT follows in its usual order.
+const GN_HEBREW_OT = ['gen','exo','lev','num','deu','jos','jdg','1sa','2sa','1ki','2ki','isa','jer','eze','hos','joe','amo','oba','jon','mic','nah','hab','zep','hag','zec','mal','psa','pro','job','sng','rut','lam','ecc','est','dan','ezr','neh','1ch','2ch'];
+const GN_CHAPTER_COUNTS = {
+  gen:50, exo:40, lev:27, num:36, deu:34, jos:24, jdg:21, rut:4, '1sa':31, '2sa':24, '1ki':22, '2ki':25,
+  '1ch':29, '2ch':36, ezr:10, neh:13, est:10, job:42, psa:150, pro:31, ecc:12, sng:8, isa:66, jer:52,
+  lam:5, eze:48, dan:12, hos:14, joe:3, amo:9, oba:1, jon:4, mic:7, nah:3, hab:3, zep:3, hag:2, zec:14,
+  mal:4, mat:28, mrk:16, luk:24, jhn:21, act:28, rom:16, '1co':16, '2co':13, gal:6, eph:6, php:4, col:4,
+  '1th':5, '2th':3, '1ti':6, '2ti':4, tit:3, phm:1, heb:13, jas:5, '1pe':5, '2pe':3, '1jn':5, '2jn':1,
+  '3jn':1, jud:1, rev:22
+};
+const GN_BOOK_GROUPS = [
+  ['grp:ot', 'Old Testament', 'gen', 'mal'],
+  ['grp:nt', 'New Testament', 'mat', 'rev'],
+  ['grp:law', 'Law (Genesis–Deuteronomy)', 'gen', 'deu'],
+  ['grp:history', 'History (Joshua–Esther)', 'jos', 'est'],
+  ['grp:poetry', 'Poetry & Wisdom (Job–Song)', 'job', 'sng'],
+  ['grp:major', 'Major Prophets (Isaiah–Daniel)', 'isa', 'dan'],
+  ['grp:minor', 'Minor Prophets (Hosea–Malachi)', 'hos', 'mal'],
+  ['grp:gospels', 'Gospels & Acts', 'mat', 'act'],
+  ['grp:paul', 'Paul’s letters (Romans–Philemon)', 'rom', 'phm'],
+  ['grp:general', 'Hebrews–Revelation', 'heb', 'rev']
+];
+let gnNavIds = []; // ids in the order the list last showed them (editor Previous / Next)
+
+function loadGnView() {
+  const base = { cat: '', book: '', sort: 'edited', scope: 'both', q: '', scroll: 0, lastId: '', gridBook: '', gridCat: 'Chapter overviews' };
+  try {
+    const raw = JSON.parse(localStorage.getItem(GN_VIEW_KEY) || '{}');
+    const v = Object.assign(base, raw && typeof raw === 'object' ? raw : {});
+    if (!GN_SORTS[v.sort]) v.sort = 'edited';
+    if (!GN_SCOPES[v.scope]) v.scope = 'both';
+    return v;
+  } catch (_) { return base; }
+}
+
+function saveGnView(view) {
+  try { localStorage.setItem(GN_VIEW_KEY, JSON.stringify(view)); } catch (_) {}
+}
+
+function gnSetLastId(id) {
+  const v = loadGnView();
+  v.lastId = id || '';
+  saveGnView(v);
+}
+
+function gnBookName(bookId) {
+  const meta = (bible.CANONICAL_BOOKS || []).find(b => b.id === bookId);
+  return meta ? meta.name : String(bookId || '');
+}
+
+/** Book + chapter (+ verse) read from the start of a note title, or null. */
+function gnPassage(title) {
+  const p = parseChapterFromTitle(title);
+  if (!p) return null;
+  let verse = null;
+  const m = new RegExp('(^|\\D)' + p.chapter + '\\s*[:.]\\s*(\\d+)').exec(String(title || ''));
+  if (m) verse = Number(m[2]);
+  return { bookId: p.bookId, chapter: p.chapter, verse, label: gnBookName(p.bookId) + ' ' + p.chapter + (verse ? ':' + verse : '') };
+}
+
+function gnCanonIndex(bookId, hebrew) {
+  const canon = bible.CANONICAL_BOOKS || [];
+  const i = canon.findIndex(b => b.id === bookId);
+  if (!hebrew) return i < 0 ? 999 : i;
+  const h = GN_HEBREW_OT.indexOf(bookId);
+  if (h >= 0) return h;
+  return i < 0 ? 999 : i; // NT keeps its index (39+)
+}
+
+/** Set of book ids for the Book filter value, or null for all books. */
+function gnBookSet(value) {
+  if (!value) return null;
+  const canon = (bible.CANONICAL_BOOKS || []).map(b => b.id);
+  const grp = GN_BOOK_GROUPS.find(g => g[0] === value);
+  if (grp) {
+    const a = canon.indexOf(grp[2]), b = canon.indexOf(grp[3]);
+    return new Set(canon.slice(a, b + 1));
+  }
+  return new Set([value]);
+}
+
+/** Search terms: words match in any order; "quoted text" must match exactly. */
+function gnParseQuery(q) {
+  const terms = [];
+  String(q || '').replace(/[“”]/g, '"').toLowerCase().replace(/"([^"]+)"|(\S+)/g, (m, ph, w) => {
+    const t = String(ph || w || '').trim();
+    if (t && t !== '"') terms.push(t);
+    return '';
+  });
+  return terms;
+}
+
+function gnMark(text, terms) {
+  const s = String(text || '');
+  if (!terms || !terms.length) return escapeHtml(s);
+  const re = new RegExp(terms.slice().sort((a, b) => b.length - a.length)
+    .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+  let out = '', last = 0, m;
+  while ((m = re.exec(s))) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    out += escapeHtml(s.slice(last, m.index)) + '<mark class="gn-hit">' + escapeHtml(m[0]) + '</mark>';
+    last = m.index + m[0].length;
+  }
+  return out + escapeHtml(s.slice(last));
+}
+
+/** Preview text: around the first match in the note body, else its opening. */
+function gnSnippet(text, terms) {
+  const one = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!one) return '';
+  let idx = -1;
+  const lower = one.toLowerCase();
+  for (const t of (terms || [])) {
+    const i = lower.indexOf(t);
+    if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+  }
+  if (idx < 0) return one.length <= 140 ? one : one.slice(0, 137) + '…';
+  const start = Math.max(0, idx - 50);
+  const end = Math.min(one.length, idx + 120);
+  return (start > 0 ? '…' : '') + one.slice(start, end) + (end < one.length ? '…' : '');
+}
+
+function gnShortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function gnCategoryMatches(note, cat) {
+  if (!cat) return true;
+  if (cat === '__none__') return !note.category;
+  return note.category === cat;
+}
+
+/** Open a chapter in the reader from a notes screen (Back returns to where you were). */
+async function gnOpenInReader(bookId, chapter, overlays) {
+  if (!books.find(b => b.id === bookId)) {
+    showAppStatus(gnBookName(bookId) + ' is not on this device. Load it from Books first.', 'fail');
+    return;
+  }
+  if (currentBookId) {
+    const main = document.getElementById('main');
+    const book = books.find(b => b.id === currentBookId);
+    navStack.push({
+      bookId: currentBookId,
+      chapter: currentChapter,
+      verseKey: (typeof getNearestVerseKey === 'function' ? getNearestVerseKey() : null) || null,
+      scrollTop: main ? main.scrollTop : 0,
+      label: book ? (book.name + ' ' + currentChapter) : (currentBookId + ' ' + currentChapter)
+    });
+    updateNavBackButton();
+  }
+  (overlays || []).forEach(o => closeOverlay(o));
+  await renderChapter(bookId, Number(chapter));
+}
+
 async function openGeneralNotesList() {
   let list = [];
   try { list = await storage.getAllGeneralNotes(); } catch (_) { list = []; }
-  list.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  const view = loadGnView();
+  const passageOf = new Map(list.map(n => [n.id, gnPassage(n.title)]));
 
   const overlay = showOverlay(`
-    <div class="panel trail-panel">
+    <div class="panel trail-panel gn-list-panel">
       <div class="search-header-top">
         <h2 class="search-title" style="margin:0">General notes</h2>
         <button type="button" class="close search-close" aria-label="Close">×</button>
       </div>
-      <div style="display:flex;gap:0.4rem;align-items:center;margin:0.5rem 0 0.4rem;flex-wrap:wrap">
-        <select id="gn-cat-filter" style="min-height:40px;padding:0.3rem 0.5rem;border-radius:8px">
-          <option value="">All categories</option>
-        </select>
-        <input id="gn-filter" class="search-box" type="search" placeholder="Filter title or note" autocomplete="off" style="flex:1;min-width:140px">
+      <div class="gn-controls">
+        <label class="gn-ctl"><span>Category</span><select id="gn-cat-filter"></select></label>
+        <label class="gn-ctl"><span>Book</span><select id="gn-book-filter"></select></label>
+        <label class="gn-ctl"><span>Sort</span><select id="gn-sort"></select></label>
+        <label class="gn-ctl"><span>Search in</span><select id="gn-scope"></select></label>
       </div>
-      <p style="color:var(--text-dim);font-size:0.92em;margin:0.2rem 0 0.5rem">
-        Title plus body are searched. These notes are not tied to a verse.
-      </p>
-      <div style="display:flex;gap:0.5rem;margin-bottom:0.7rem">
-        <button type="button" id="gn-new" style="flex:1;min-height:52px;background:var(--accent);color:#111;font-weight:600">New note</button>
-        <button type="button" id="gn-defs" style="flex:1;min-height:52px">What do these mean?</button>
-        <button type="button" id="gn-manage" style="flex:1;min-height:52px">Manage categories</button>
+      <input id="gn-filter" class="search-box" type="search" placeholder='Search: words in any order, "quotes" for a phrase' autocomplete="off" style="width:100%;margin:0.2rem 0 0.5rem">
+      <div class="gn-actions">
+        <button type="button" id="gn-new" class="gn-act-main">New note</button>
+        <button type="button" id="gn-grid">Coverage grid</button>
+        <button type="button" id="gn-print-list" title="Print or copy every note in the list, in this order">Print / copy list</button>
+        <button type="button" id="gn-defs" title="What do these categories mean?">Definitions</button>
+        <button type="button" id="gn-manage">Categories…</button>
       </div>
+      <div class="gn-count-row"><span id="gn-count"></span><button type="button" id="gn-reset" hidden>Clear filters</button></div>
       <div id="gn-list"></div>
     </div>
   `);
+  const panel = $('.panel', overlay);
+  const el = $('#gn-list', overlay);
+  const filterBox = $('#gn-filter', overlay);
+  const catFilter = $('#gn-cat-filter', overlay);
+  const bookFilter = $('#gn-book-filter', overlay);
+  const sortSel = $('#gn-sort', overlay);
+  const scopeSel = $('#gn-scope', overlay);
+  const countEl = $('#gn-count', overlay);
+  const resetBtn = $('#gn-reset', overlay);
+  let shown = [];
+
   $('.search-close', overlay).onclick = () => closeOverlay(overlay);
+
+  function persist() {
+    view.cat = catFilter.value;
+    view.book = bookFilter.value;
+    view.sort = sortSel.value;
+    view.scope = scopeSel.value;
+    view.q = filterBox.value;
+    view.scroll = panel ? panel.scrollTop : 0;
+    saveGnView(view);
+  }
+
+  function openNote(id) {
+    const rec = list.find(x => x.id === id);
+    persist();
+    gnSetLastId(id);
+    closeOverlay(overlay);
+    openGeneralNoteEditor(rec || { id });
+  }
+
+  // ----- control contents -----
+  function populateCatFilter() {
+    const defs = getAllCategoryDefs();
+    const counts = {};
+    let none = 0;
+    list.forEach(n => { if (n.category) counts[n.category] = (counts[n.category] || 0) + 1; else none++; });
+    const names = Array.from(new Set([...Object.keys(defs), ...Object.keys(counts)])).sort();
+    catFilter.innerHTML = `<option value="">All categories (${list.length})</option>` +
+      names.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)} (${counts[c] || 0})</option>`).join('') +
+      `<option value="__none__">Uncategorized (${none})</option>`;
+    catFilter.value = (view.cat === '__none__' || names.includes(view.cat)) ? view.cat : '';
+  }
+
+  function populateBookFilter() {
+    const counts = {};
+    passageOf.forEach(p => { if (p) counts[p.bookId] = (counts[p.bookId] || 0) + 1; });
+    const canon = bible.CANONICAL_BOOKS || [];
+    const bookOpts = (t) => canon.filter(b => b.testament === t)
+      .map(b => `<option value="${b.id}">${escapeHtml(b.name)}${counts[b.id] ? ' (' + counts[b.id] + ')' : ''}</option>`).join('');
+    bookFilter.innerHTML = '<option value="">All books</option>' +
+      '<optgroup label="Groups">' + GN_BOOK_GROUPS.map(g => `<option value="${g[0]}">${escapeHtml(g[1])}</option>`).join('') + '</optgroup>' +
+      '<optgroup label="Old Testament">' + bookOpts('OT') + '</optgroup>' +
+      '<optgroup label="New Testament">' + bookOpts('NT') + '</optgroup>';
+    bookFilter.value = view.book || '';
+    if (bookFilter.value !== (view.book || '')) bookFilter.value = '';
+  }
+
+  sortSel.innerHTML = Object.entries(GN_SORTS).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('');
+  sortSel.value = view.sort;
+  scopeSel.innerHTML = Object.entries(GN_SCOPES).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('');
+  scopeSel.value = view.scope;
+  filterBox.value = view.q || '';
+  populateCatFilter();
+  populateBookFilter();
+
+  // ----- filtering + sorting -----
+  function computeShown() {
+    const terms = gnParseQuery(filterBox.value);
+    const scope = scopeSel.value;
+    const cat = catFilter.value;
+    const bookSet = gnBookSet(bookFilter.value);
+    const out = list.filter(n => {
+      if (!gnCategoryMatches(n, cat)) return false;
+      if (bookSet) {
+        const p = passageOf.get(n.id);
+        if (!p || !bookSet.has(p.bookId)) return false;
+      }
+      if (!terms.length) return true;
+      const hay = (scope === 'title' ? (n.title || '')
+        : scope === 'body' ? (n.text || '')
+        : (n.title || '') + '\n' + (n.text || '')).toLowerCase();
+      return terms.every(t => hay.includes(t));
+    });
+    const sort = sortSel.value;
+    const byTitle = (a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' });
+    if (sort === 'canon' || sort === 'hebrew') {
+      const heb = sort === 'hebrew';
+      out.sort((a, b) => {
+        const pa = passageOf.get(a.id), pb = passageOf.get(b.id);
+        if (!pa || !pb) return pa ? -1 : pb ? 1 : byTitle(a, b);
+        return (gnCanonIndex(pa.bookId, heb) - gnCanonIndex(pb.bookId, heb)) ||
+          (pa.chapter - pb.chapter) || ((pa.verse || 0) - (pb.verse || 0)) || byTitle(a, b);
+      });
+    } else if (sort === 'title') {
+      out.sort(byTitle);
+    } else if (sort === 'created') {
+      out.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    } else {
+      out.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    }
+    return { out, terms };
+  }
+
+  function rowHtml(n, terms) {
+    const scope = scopeSel.value;
+    const p = passageOf.get(n.id);
+    const titleTerms = scope === 'body' ? [] : terms;
+    const bodyTerms = scope === 'title' ? [] : terms;
+    const snip = gnSnippet(n.text, bodyTerms);
+    const meta = [];
+    if (p) meta.push(`<span class="gn-badge">${escapeHtml(p.label)}</span>`);
+    else if (GN_PASSAGE_CATS.includes(n.category)) meta.push('<span class="gn-badge gn-badge-warn" title="The title does not start with a book and chapter, so this note cannot sort in canon order or show in the coverage grid">⚠ No passage in title</span>');
+    meta.push(escapeHtml(n.category || 'Uncategorized'));
+    const ed = gnShortDate(n.updatedAt);
+    if (ed) meta.push('Edited ' + escapeHtml(ed));
+    return `
+      <div class="gn-row-wrap${n.id === view.lastId ? ' gn-row-last' : ''}" data-id="${escapeHtml(n.id)}">
+        <button type="button" class="xref-item gn-row" data-id="${escapeHtml(n.id)}">
+          <strong>${gnMark(n.title || 'Untitled note', titleTerms)}</strong>
+          <div class="gn-row-meta">${meta.join(' · ')}</div>
+          ${snip ? `<div class="trail-src">${gnMark(snip, bodyTerms)}</div>` : ''}
+        </button>
+        ${p ? `<button type="button" class="gn-open-reader" data-id="${escapeHtml(n.id)}" title="Open ${escapeHtml(p.label)} in the reader">Open in reader</button>` : ''}
+      </div>`;
+  }
+
+  function renderList() {
+    const { out, terms } = computeShown();
+    shown = out;
+    gnNavIds = out.map(n => n.id);
+    const filtered = !!(catFilter.value || bookFilter.value || terms.length);
+    countEl.textContent = filtered
+      ? `${out.length} of ${list.length} note${list.length === 1 ? '' : 's'}`
+      : `${list.length} note${list.length === 1 ? '' : 's'}`;
+    resetBtn.hidden = !filtered;
+    if (!list.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">None yet. Tap New note and give it a title.</p>';
+      return;
+    }
+    if (!out.length) {
+      el.innerHTML = '<p style="color:var(--text-dim)">No note matches.</p>';
+      return;
+    }
+    const grouped = sortSel.value === 'canon' || sortSel.value === 'hebrew';
+    let html = '';
+    let lastGroup = null;
+    out.forEach(n => {
+      if (grouped) {
+        const p = passageOf.get(n.id);
+        const g = p ? gnBookName(p.bookId) : 'No passage in title';
+        if (g !== lastGroup) {
+          html += `<h3 class="gn-group-head">${escapeHtml(g)}</h3>`;
+          lastGroup = g;
+        }
+      }
+      html += rowHtml(n, terms);
+    });
+    el.innerHTML = html;
+    $$('.gn-row', overlay).forEach(btn => { btn.onclick = () => openNote(btn.dataset.id); });
+    $$('.gn-open-reader', overlay).forEach(btn => {
+      btn.onclick = () => {
+        const p = passageOf.get(btn.dataset.id);
+        if (!p) return;
+        persist();
+        gnSetLastId(btn.dataset.id);
+        gnOpenInReader(p.bookId, p.chapter, [overlay]);
+      };
+    });
+  }
+
+  function onFilterChange() {
+    renderList();
+    if (panel) panel.scrollTop = 0;
+    persist();
+  }
+
+  filterBox.oninput = onFilterChange;
+  catFilter.onchange = onFilterChange;
+  bookFilter.onchange = onFilterChange;
+  sortSel.onchange = onFilterChange;
+  scopeSel.onchange = onFilterChange;
+  resetBtn.onclick = () => {
+    filterBox.value = '';
+    catFilter.value = '';
+    bookFilter.value = '';
+    onFilterChange();
+  };
+  if (panel) {
+    let t = null;
+    panel.addEventListener('scroll', () => {
+      clearTimeout(t);
+      t = setTimeout(persist, 150);
+    });
+  }
+
+  // ----- buttons -----
   $('#gn-new', overlay).onclick = () => {
+    persist();
     closeOverlay(overlay);
     openGeneralNoteEditor(null);
   };
   $('#gn-defs', overlay).onclick = () => {
     const defs = getAllCategoryDefs();
-    const html = Object.keys(defs).sort().map(name => 
+    const html = Object.keys(defs).sort().map(name =>
       `<p style="margin:0.6rem 0"><strong>${escapeHtml(name)}</strong><br><span style="color:var(--text-dim)">${escapeHtml(defs[name])}</span></p>`
     ).join('');
     const dOverlay = showOverlay(`
@@ -11078,75 +11516,202 @@ async function openGeneralNotesList() {
     `);
     $('.close', dOverlay).onclick = () => closeOverlay(dOverlay);
   };
-
-  $('#gn-manage', overlay).onclick = () => openManageCategories(list, () => {
-    // refresh the list after changes
-    openGeneralNotesList();
-  });
-
-  const el = $('#gn-list', overlay);
-  const filterBox = $('#gn-filter', overlay);
-  const catFilter = $('#gn-cat-filter', overlay);
-
-  function snippet(text) {
-    const one = String(text || '').replace(/\s+/g, ' ').trim();
-    if (!one) return '';
-    if (one.length <= 140) return one;
-    return one.slice(0, 137) + '…';
-  }
-
-  function matches(note, q) {
-    if (!q) return true;
-    const hay = ((note.title || '') + ' ' + (note.text || '')).toLowerCase();
-    return hay.includes(q);
-  }
-
-  function populateCatFilter() {
-    const cats = new Set();
-    list.forEach(n => { if (n.category) cats.add(n.category); });
-    const current = catFilter.value;
-    catFilter.innerHTML = '<option value="">All categories</option>' +
-      Array.from(cats).sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-    if (current && cats.has(current)) catFilter.value = current;
-  }
-
-  function renderList() {
-    const q = ((filterBox && filterBox.value || '')).trim().toLowerCase();
-    const cat = catFilter.value;
-    const shown = list.filter(n => matches(n, q) && (!cat || n.category === cat));
-    if (!list.length) {
-      el.innerHTML = '<p style="color:var(--text-dim)">None yet. Tap New note and give it a title.</p>';
-      return;
-    }
-    if (!shown.length) {
-      el.innerHTML = '<p style="color:var(--text-dim)">No note matches</p><button type="button" id="gn-filter-clear">Clear</button>';
-      const clr = $('#gn-filter-clear', overlay);
-      if (clr) clr.onclick = () => { filterBox.value = ''; catFilter.value = ''; renderList(); };
-      return;
-    }
-    el.innerHTML = shown.map(n => `
-      <button type="button" class="xref-item gn-row" data-id="${escapeHtml(n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px">
-        <strong>${escapeHtml(n.title || 'Untitled note')}</strong>
-        ${n.category ? `<div style="font-size:0.85em;color:var(--text-dim);margin-top:0.15rem">${escapeHtml(n.category)}</div>` : ''}
-        ${snippet(n.text) ? `<div class="trail-src">${escapeHtml(snippet(n.text))}</div>` : ''}
-      </button>
-    `).join('');
-    $$('.gn-row', overlay).forEach(btn => {
-      btn.onclick = () => {
-        const rec = list.find(x => x.id === btn.dataset.id);
-        closeOverlay(overlay);
-        openGeneralNoteEditor(rec || { id: btn.dataset.id });
-      };
+  $('#gn-manage', overlay).onclick = () => {
+    persist();
+    openManageCategories(list, () => {
+      closeOverlay(overlay); // replace this list, never stack a second one
+      openGeneralNotesList();
     });
-  }
+  };
+  $('#gn-print-list', overlay).onclick = () => {
+    if (!shown.length) { showAppStatus('No notes in the list to print or copy.', 'fail'); return; }
+    const parts = [];
+    if (catFilter.value) parts.push(catFilter.value === '__none__' ? 'Uncategorized' : catFilter.value);
+    if (bookFilter.value) parts.push(bookFilter.selectedOptions[0] ? bookFilter.selectedOptions[0].textContent.replace(/\s*\(\d+\)$/, '') : '');
+    if (filterBox.value.trim()) parts.push('“' + filterBox.value.trim() + '”');
+    const title = 'General notes' + (parts.length ? ' — ' + parts.join(' · ') : '');
+    const kind = shown.length + ' note' + (shown.length === 1 ? '' : 's') + ' · ' + GN_SORTS[sortSel.value];
+    const notes = shown.slice();
+    const build = async () => ({
+      title,
+      kind,
+      blocks: await Promise.all(notes.map(async n => ({
+        heading: n.title || 'Untitled note',
+        body: n.text || '',
+        images: await printImageUrls(n.imageIds)
+      })))
+    });
+    const pOverlay = showOverlay(`
+      <div class="panel" style="max-width:440px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+          <h2 style="margin:0;border:none;padding:0">Print or copy list</h2>
+          <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+        </div>
+        <p style="color:var(--text-dim);margin-top:0">${escapeHtml(title)}<br>${escapeHtml(kind)}, in the order shown.</p>
+        ${printCopyRow('gn-pl-print', 'gn-pl-copy')}
+      </div>
+    `);
+    $('.close', pOverlay).onclick = () => closeOverlay(pOverlay);
+    $('#gn-pl-print', pOverlay).onclick = async () => { closeOverlay(pOverlay); printStudyPage(await build()); };
+    $('#gn-pl-copy', pOverlay).onclick = async () => { closeOverlay(pOverlay); await copyStudyPage(await build()); };
+  };
+  $('#gn-grid', overlay).onclick = () => {
+    persist();
+    openGnCoverageGrid(list, passageOf, overlay, (apply) => {
+      // "Show these in the list"
+      catFilter.value = apply.cat;
+      bookFilter.value = apply.book;
+      sortSel.value = 'canon';
+      filterBox.value = '';
+      onFilterChange();
+    });
+  };
 
-  if (filterBox) filterBox.oninput = renderList;
-  if (catFilter) catFilter.onchange = renderList;
-  populateCatFilter();
   renderList();
-  setTimeout(() => filterBox && filterBox.focus(), 80);
+  // Reopen where you were: same scroll, and the note you last opened in view.
+  requestAnimationFrame(() => {
+    if (!panel) return;
+    panel.scrollTop = Number(view.scroll) || 0;
+    const last = $('.gn-row-last', overlay);
+    if (last) {
+      const pr = panel.getBoundingClientRect();
+      const lr = last.getBoundingClientRect();
+      if (lr.top < pr.top || lr.bottom > pr.bottom) last.scrollIntoView({ block: 'center' });
+    }
+  });
+  if (!view.q && !view.scroll) setTimeout(() => filterBox && filterBox.focus(), 80);
 }
 
+/** Chapter tiles for one book: which chapters have a note in the chosen category. */
+function openGnCoverageGrid(list, passageOf, listOverlay, onShowInList) {
+  const view = loadGnView();
+  const canon = bible.CANONICAL_BOOKS || [];
+  let gridBook = view.gridBook;
+  if (!GN_CHAPTER_COUNTS[gridBook]) {
+    const f = view.book && GN_CHAPTER_COUNTS[view.book] ? view.book : '';
+    const lastP = view.lastId ? passageOf.get(view.lastId) : null;
+    gridBook = f || (lastP && lastP.bookId) || (GN_CHAPTER_COUNTS[currentBookId] ? currentBookId : 'gen');
+  }
+  const defs = getAllCategoryDefs();
+  const catNames = Array.from(new Set([...Object.keys(defs), ...list.map(n => n.category).filter(Boolean)])).sort();
+  let gridCat = view.gridCat;
+  if (gridCat && gridCat !== '__any__' && !catNames.includes(gridCat)) gridCat = 'Chapter overviews';
+
+  const overlay = showOverlay(`
+    <div class="panel gn-grid-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+        <h2 style="margin:0;border:none;padding:0">Coverage grid</h2>
+        <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+      </div>
+      <div class="gn-controls">
+        <label class="gn-ctl"><span>Book</span><select id="gng-book">
+          <optgroup label="Old Testament">${canon.filter(b => b.testament === 'OT').map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')}</optgroup>
+          <optgroup label="New Testament">${canon.filter(b => b.testament === 'NT').map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')}</optgroup>
+        </select></label>
+        <label class="gn-ctl"><span>Notes in</span><select id="gng-cat">
+          ${catNames.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+          <option value="__any__">Any category</option>
+        </select></label>
+      </div>
+      <p id="gng-progress" class="gn-grid-progress"></p>
+      <div id="gng-tiles" class="gn-tiles"></div>
+      <p class="gn-hint" style="margin-top:0.6rem">Filled = has a note (title starts with the book and chapter). ×2 = more than one note for that chapter. Tap an empty chapter to start its note.</p>
+      <button type="button" id="gng-show" style="width:100%;min-height:48px;margin-top:0.4rem">Show these notes in the list</button>
+    </div>
+  `);
+  const bookSel = $('#gng-book', overlay);
+  const catSel = $('#gng-cat', overlay);
+  const tiles = $('#gng-tiles', overlay);
+  const progress = $('#gng-progress', overlay);
+  bookSel.value = gridBook;
+  catSel.value = gridCat || 'Chapter overviews';
+  if (!catSel.value) catSel.value = '__any__';
+  $('.close', overlay).onclick = () => closeOverlay(overlay);
+
+  function notesFor(bookId, cat) {
+    const byCh = new Map();
+    list.forEach(n => {
+      if (cat !== '__any__' && n.category !== cat) return;
+      const p = passageOf.get(n.id);
+      if (!p || p.bookId !== bookId) return;
+      if (!byCh.has(p.chapter)) byCh.set(p.chapter, []);
+      byCh.get(p.chapter).push(n);
+    });
+    return byCh;
+  }
+
+  function startNote(bookId, ch, cat) {
+    const v = loadGnView();
+    v.gridBook = bookId; v.gridCat = cat; saveGnView(v);
+    closeOverlay(overlay);
+    closeOverlay(listOverlay);
+    openGeneralNoteEditor(null, { preset: { title: gnBookName(bookId) + ' ' + ch + ' ', category: cat === '__any__' ? 'Chapter overviews' : cat } });
+  }
+
+  function openNote(n) {
+    const v = loadGnView();
+    v.gridBook = bookSel.value; v.gridCat = catSel.value; v.lastId = n.id; saveGnView(v);
+    closeOverlay(overlay);
+    closeOverlay(listOverlay);
+    openGeneralNoteEditor(n);
+  }
+
+  function paint() {
+    const bookId = bookSel.value;
+    const cat = catSel.value;
+    const total = GN_CHAPTER_COUNTS[bookId] || 0;
+    const byCh = notesFor(bookId, cat);
+    let have = 0, dups = 0, html = '';
+    for (let ch = 1; ch <= total; ch++) {
+      const ns = byCh.get(ch) || [];
+      if (ns.length) have++;
+      if (ns.length > 1) dups++;
+      const cls = ns.length > 1 ? 'gn-tile gn-tile-on gn-tile-dup' : ns.length ? 'gn-tile gn-tile-on' : 'gn-tile';
+      const tip = ns.length ? ns.map(n => n.title || 'Untitled note').join('\n') : 'No note yet — tap to start ' + gnBookName(bookId) + ' ' + ch;
+      html += `<button type="button" class="${cls}" data-ch="${ch}" title="${escapeHtml(tip)}">${ch}${ns.length > 1 ? `<small>×${ns.length}</small>` : ''}</button>`;
+    }
+    // Notes whose chapter number is past the end of the book (typo in a title).
+    const extra = [...byCh.keys()].filter(c => c > total).sort((a, b) => a - b);
+    tiles.innerHTML = html;
+    const catLabel = cat === '__any__' ? 'a note' : 'a ' + cat.replace(/s$/, '').toLowerCase();
+    progress.innerHTML = `<strong>${have} of ${total}</strong> chapter${total === 1 ? '' : 's'} of ${escapeHtml(gnBookName(bookId))} have ${escapeHtml(catLabel)}` +
+      (have < total ? ` · <span class="gn-missing">${total - have} missing</span>` : ' · complete') +
+      (dups ? ` · <span class="gn-dup-text">${dups} with duplicates</span>` : '') +
+      (extra.length ? ` · <span class="gn-dup-text">titles name chapter ${extra.join(', ')}, which ${escapeHtml(gnBookName(bookId))} does not have</span>` : '');
+    $$('.gn-tile', overlay).forEach(btn => {
+      btn.onclick = () => {
+        const ch = Number(btn.dataset.ch);
+        const ns = byCh.get(ch) || [];
+        if (!ns.length) { startNote(bookId, ch, cat); return; }
+        if (ns.length === 1) { openNote(ns[0]); return; }
+        const pick = showOverlay(`
+          <div class="panel" style="max-width:480px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+              <h2 style="margin:0;border:none;padding:0">${escapeHtml(gnBookName(bookId) + ' ' + ch)} — ${ns.length} notes</h2>
+              <button type="button" class="close" style="float:none;min-width:52px;min-height:52px;font-size:1.5rem">×</button>
+            </div>
+            ${ns.map(n => `<button type="button" class="xref-item gn-pick" data-id="${escapeHtml(n.id)}" style="width:100%;text-align:left;margin-bottom:0.45rem;min-height:52px"><strong>${escapeHtml(n.title || 'Untitled note')}</strong><div class="gn-row-meta">${escapeHtml(n.category || 'Uncategorized')} · Edited ${escapeHtml(gnShortDate(n.updatedAt))}</div></button>`).join('')}
+          </div>
+        `);
+        $('.close', pick).onclick = () => closeOverlay(pick);
+        $$('.gn-pick', pick).forEach(b => {
+          b.onclick = () => { closeOverlay(pick); openNote(ns.find(n => n.id === b.dataset.id)); };
+        });
+      };
+    });
+    const v = loadGnView();
+    v.gridBook = bookId; v.gridCat = cat; saveGnView(v);
+  }
+
+  bookSel.onchange = paint;
+  catSel.onchange = paint;
+  $('#gng-show', overlay).onclick = () => {
+    const cat = catSel.value === '__any__' ? '' : catSel.value;
+    closeOverlay(overlay);
+    if (onShowInList) onShowInList({ cat, book: bookSel.value });
+  };
+  paint();
+}
 
 
 
@@ -15969,7 +16534,7 @@ function openHelp() {
         From any verse: Tools → <strong>Chapter notes</strong> or <strong>Chapter study</strong> without going through Menu. Gold hop buttons keep your place between verse, verse notes, and chapter summary.</p>
 
         <p style="margin-bottom:1rem"><strong>General notes</strong><br>
-        Menu or Path → <strong>General notes</strong>. Search covers notes, summaries, and verse notes. Sort, scope, pin, and save views are on that screen.
+        Menu or Path → <strong>General notes</strong>. Filter by category and by book (or a group such as Minor Prophets). Sort by Last edited, Date created, Title, or canon order (English or Hebrew Bible). Search the title, the note, or both; several words match in any order, "quotes" match an exact phrase. The list reopens where you left it. <strong>Coverage grid</strong> shows which chapters of a book have a note, so a skipped chapter stands out; tap an empty chapter to start its note. In a note, <strong>Previous / Next</strong> follow the list order. <strong>Print / copy list</strong> puts every note in the list into one document.
         These notes are not tied to a verse. They stay on this device and go out with Export study data.</p>
 
         <p style="margin-bottom:1rem"><strong>Summary notes</strong><br>
